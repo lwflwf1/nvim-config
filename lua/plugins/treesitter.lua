@@ -10,17 +10,6 @@ return {
             vim.env.CC = "gcc"
         end,
         config = function()
-            local parsers = require("nvim-treesitter.parsers")
-            parsers.systemverilog = {
-                install_info = {
-                    url = "https://github.com/gmlarumbe/tree-sitter-systemverilog",
-                    files = { "src/parser.c", "src/scanner.c" },
-                    branch = "master",
-                    generate_requires_npm = false,
-                },
-                filetype = "systemverilog",
-            }
-
             require("nvim-treesitter").install({
                 "python", "perl", "systemverilog",
                 "lua", "vim", "vimdoc", "bash",
