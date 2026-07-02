@@ -12,7 +12,7 @@ return {
       "seflue/org-link.nvim",
     },
     opts = {
-      org_agenda_files = vim.fn.expand("~/orgfiles/**/*"),
+      org_agenda_files = { "~/orgfiles/*.org", "~/orgfiles/notes/*.org" },
       org_default_notes_file = vim.fn.expand("~/orgfiles/refile.org"),
       org_archive_location = vim.fn.expand("~/orgfiles/.archive/%s_archive::"),
 
@@ -94,8 +94,6 @@ return {
       org_capture_templates = {
         t = { description = "Task", template = "* TODO %?\n  %u", target = "~/orgfiles/inbox.org" },
         n = { description = "Next action", template = "* NEXT %?\n  %u", target = "~/orgfiles/inbox.org" },
-        j = { description = "Journal entry", template = "%?", target = "~/orgfiles/journal.org", datetree = true },
-        J = { description = "Journal with time", template = "* %U\n\n%?", target = "~/orgfiles/journal.org", datetree = true },
         p = { description = "Project", template = "* %?\n  :PROPERTIES:\n  :CATEGORY: %^{Category|work|personal|study}\n  :END:", target = "~/orgfiles/agenda.org" },
         e = { description = "Scheduled event", template = "* %?\n  SCHEDULED: %^T", target = "~/orgfiles/agenda.org" },
         d = { description = "Deadline task", template = "* TODO %?\n  DEADLINE: %^T", target = "~/orgfiles/agenda.org" },
@@ -103,25 +101,18 @@ return {
         w = { description = "Waiting", template = "* WAIT %?\n  :PROPERTIES:\n  :WAITING_FOR: %^{Who|}\n  :WAITING_ON: %^{What|}\n  :END:", target = "~/orgfiles/agenda.org" },
         h = { description = "Hold", template = "* HOLD %?\n  :PROPERTIES:\n  :REASON: %^{Why|}\n  :END:", target = "~/orgfiles/agenda.org" },
         i = { description = "Idea", template = "* %?\n  :PROPERTIES:\n  :CREATED: %U\n  :END:", target = "~/orgfiles/notes/ideas.org" },
-        r = { description = "Reading note", template = "* %^{Title} - %^{Author}\n  Source: %^{Source|}\n  %?", target = "~/orgfiles/notes/reading.org" },
-        m = { description = "Meeting", template = "* %^{Meeting} <%<%Y-%m-%d>>\n  Attendees: %^{Attendees|}\n  %?", target = "~/orgfiles/notes/meetings.org", datetree = true },
-        b = { description = "Bookmark", template = "* [[%^{URL}][%^{Title}]]\n  %?", target = "~/orgfiles/notes/bookmarks.org" },
-        P = { description = "Project from template", template = vim.fn.join(vim.fn.readfile(vim.fn.expand("~/orgfiles/projects/_template.org")), "\n"), target = "~/orgfiles/projects/" },
       },
 
       org_agenda_custom_commands = {
-        a = { description = "Today + Tomorrow", types = { { type = "agenda", org_agenda_span = "day", org_agenda_overriding_header = "Today" }, { type = "agenda", org_agenda_start_day = "+1d", org_agenda_span = "day", org_agenda_overriding_header = "Tomorrow" } } },
-        w = { description = "Week view", types = { { type = "agenda", org_agenda_span = "week" } } },
-        m = { description = "Month view", types = { { type = "agenda", org_agenda_span = "month" } } },
+        L = { description = "Month view", types = { { type = "agenda", org_agenda_span = "month" } } },
         y = { description = "Year view", types = { { type = "agenda", org_agenda_span = "year" } } },
-        t = { description = "All TODOs", types = { { type = "tags_todo", match = "-CANC-DONE", org_agenda_overriding_header = "All unfinished tasks" } } },
         p = { description = "Projects", types = { { type = "tags_todo", match = "+PROJECT/-NEXT-DONE-CANC", org_agenda_overriding_header = "Active projects" } } },
         n = { description = "Next actions", types = { { type = "tags_todo", match = "+NEXT", org_agenda_overriding_header = "Next actions" } } },
         W = { description = "Waiting", types = { { type = "tags_todo", match = "+WAIT", org_agenda_overriding_header = "Waiting for..." } } },
         H = { description = "On hold", types = { { type = "tags_todo", match = "+HOLD", org_agenda_overriding_header = "On hold" } } },
         S = { description = "Stuck projects", types = { { type = "tags_todo", match = "+PROJECT-TODO-NEXT-WAIT-HOLD-DONE-CANC", org_agenda_overriding_header = "Stuck projects (no next action)" } } },
         A = { description = "Archived", types = { { type = "tags", match = "+ARCHIVE", org_agenda_overriding_header = "Archived items" } } },
-        d = { description = "Recently done", types = { { type = "tags_todo", match = "+DONE", org_agenda_overriding_header = "Recently completed (7 days)" } } },
+        d = { description = "Completed tasks", types = { { type = "tags", match = "/DONE", org_agenda_overriding_header = "Completed tasks" } } },
       },
 
       mappings = { org_return_uses_meta_return = true },
@@ -210,7 +201,8 @@ return {
           -- Normal mode extras
           org_map("n", "<Leader>ov", ":OrgColumns toggle<CR>", "Column view")
           org_map("n", "<Leader>ow", ":!wc -w %<CR>", "Word count")
-          org_map("n", "<Leader>os", ":setlocal spell! spelllang=en<CR>", "Toggle spell")
+          org_map("n", "<Leader>os", '<Cmd>lua require("orgmode").action("org_mappings.org_schedule")<CR>', "Schedule (SCHEDULED)")
+          org_map("n", "<Leader>oD", '<Cmd>lua require("orgmode").action("org_mappings.org_deadline")<CR>', "Deadline (DEADLINE)")
 
           org_map("n", "<Leader>oTt", ":OrgTableToggle<CR>", "Table editor")
           org_map("n", "<Leader>oTf", ":OrgTableFormula<CR>", "Table formula")
@@ -221,8 +213,6 @@ return {
           org_map("n", "<Leader>oTC", ":OrgTableDeleteCol<CR>", "Delete col")
         end,
       })
-
-      vim.keymap.set("n", "<Leader>oj", ':e ~/orgfiles/journal.org<CR>', { desc = "Journal" })
 
       vim.api.nvim_create_autocmd({ "BufLeave", "InsertLeave" }, {
         pattern = { "*.org", "*.org_archive" },

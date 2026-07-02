@@ -14,11 +14,6 @@ return {
                 enable = true,
                 update_root = {
                     enable = true,
-                    get_cwd = function()
-                        local ft = vim.bo.filetype
-                        if ft == "org" then return vim.fn.expand("~/orgfiles") end
-                        return nil
-                    end,
                 },
             },
             view = {
