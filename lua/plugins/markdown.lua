@@ -67,6 +67,7 @@ return {
     },
     {
         "OXY2DEV/markview.nvim",
+        ft = { "markdown", "quarto", "rmd", "typst", "yaml" },
         dependencies = { "nvim-treesitter/nvim-treesitter" },
         config = function()
             require("markview").setup({
