@@ -29,10 +29,13 @@ local update_last_modified = augroup("update_last_modified_on_write", { clear = 
 autocmd("BufWritePre", {
     group = update_last_modified,
     callback = function()
-        local line = vim.fn.getline(4)
-        if line:find("Last Modified") then
-            local time = vim.fn.strftime("%Y-%m-%d %H:%M:%S")
-            vim.fn.setline(4, '" Last Modified: ' .. time)
+        local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+        for i, line in ipairs(lines) do
+            if line:find("Last Modified") or line:find("Last modified") then
+                local time = vim.fn.strftime("%Y-%m-%d %H:%M:%S")
+                vim.fn.setline(i, '" Last Modified: ' .. time)
+                break
+            end
         end
     end,
 })
@@ -111,7 +114,8 @@ vim.api.nvim_create_user_command("Sco", "exec '!soscmd6 co %'", {})
 vim.api.nvim_create_user_command("Scon", "exec '!soscmd6 co -Nlock %'", {})
 vim.api.nvim_create_user_command("Sci", "exec '!soscmd6 ci %'", {})
 vim.api.nvim_create_user_command("Scim", function(opts)
-    vim.cmd("exec '!soscmd6 ci -achange_summary=" .. opts.args .. " %'")
+    local file = vim.fn.expand("%")
+    vim.system({ "soscmd6", "ci", "-achange_summary=" .. opts.args, file })
 end, { nargs = 1 })
 vim.api.nvim_create_user_command("Sd", "exec '!soscmd6 discard %'", {})
 vim.api.nvim_create_user_command("Sdf", "exec '!soscmd6 discard -F %'", {})

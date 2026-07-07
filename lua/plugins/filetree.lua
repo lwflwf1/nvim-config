@@ -6,7 +6,6 @@ return {
             { "<leader>e", "<cmd>NvimTreeToggle<CR>", desc = "Toggle file tree" },
         },
         opts = {
-            disable_netrw = true,
             hijack_cursor = true,
             sync_root_with_cwd = true,
             respect_buf_cwd = true,

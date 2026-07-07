@@ -40,11 +40,10 @@ return {
             integrations = {
                 telescope = true,
                 lualine = true,
-                bufferline = true,
                 indent_blankline = { enabled = true },
                 gitsigns = true,
                 which_key = true,
-                nvim_tree = true,
+                nvimtree = true,
             },
         },
         config = function(_, opts)

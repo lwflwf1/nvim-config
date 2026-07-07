@@ -56,6 +56,14 @@ return {
       org_deadline_warning_days = 14,
       org_agenda_hide_empty_blocks = true,
       org_agenda_remove_tags = false,
+      org_agenda_use_time_grid = true,
+      org_agenda_time_grid = {
+        type = { "daily", "today", "require-timed" },
+        times = { 800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800 },
+        time_separator = " │ ",
+        time_label = "                  ",
+      },
+      org_agenda_current_time_string = "← now ───────────",
 
       org_notifications = {
         enabled = true,
@@ -97,7 +105,7 @@ return {
         p = { description = "Project", template = "* %?\n  :PROPERTIES:\n  :CATEGORY: %^{Category|work|personal|study}\n  :END:", target = "~/orgfiles/agenda.org" },
         e = { description = "Scheduled event", template = "* %?\n  SCHEDULED: %^T", target = "~/orgfiles/agenda.org" },
         d = { description = "Deadline task", template = "* TODO %?\n  DEADLINE: %^T", target = "~/orgfiles/agenda.org" },
-        E = { description = "Repeating task", template = "* TODO %?\n  SCHEDULED: %^T\n  :PROPERTIES:\n  :LAST_REPEAT: %U\n  :END:", target = "~/orgfiles/agenda.org" },
+        E = { description = "Daily task (auto-repeat)", template = "* TODO %?\n  SCHEDULED: %(return os.date('<%Y-%m-%d +1d>'))\n  :PROPERTIES:\n  :LAST_REPEAT: %U\n  :END:", target = "~/orgfiles/agenda.org" },
         w = { description = "Waiting", template = "* WAIT %?\n  :PROPERTIES:\n  :WAITING_FOR: %^{Who|}\n  :WAITING_ON: %^{What|}\n  :END:", target = "~/orgfiles/agenda.org" },
         h = { description = "Hold", template = "* HOLD %?\n  :PROPERTIES:\n  :REASON: %^{Why|}\n  :END:", target = "~/orgfiles/agenda.org" },
         i = { description = "Idea", template = "* %?\n  :PROPERTIES:\n  :CREATED: %U\n  :END:", target = "~/orgfiles/notes/ideas.org" },
@@ -113,6 +121,37 @@ return {
         S = { description = "Stuck projects", types = { { type = "tags_todo", match = "+PROJECT-TODO-NEXT-WAIT-HOLD-DONE-CANC", org_agenda_overriding_header = "Stuck projects (no next action)" } } },
         A = { description = "Archived", types = { { type = "tags", match = "+ARCHIVE", org_agenda_overriding_header = "Archived items" } } },
         d = { description = "Completed tasks", types = { { type = "tags", match = "/DONE", org_agenda_overriding_header = "Completed tasks" } } },
+        r = {
+          description = "Weekly Review",
+          types = {
+            { type = "agenda", org_agenda_span = "week", org_agenda_overriding_header = "This week" },
+            { type = "tags_todo", match = "+PROJECT/-NEXT-DONE-CANC", org_agenda_overriding_header = "Active projects" },
+            { type = "tags_todo", match = "+WAIT", org_agenda_overriding_header = "Waiting for..." },
+            { type = "tags_todo", match = "+HOLD", org_agenda_overriding_header = "On hold" },
+            { type = "tags_todo", match = "+PROJECT-TODO-NEXT-WAIT-HOLD-DONE-CANC", org_agenda_overriding_header = "Stuck projects (no next action)" },
+            { type = "tags", match = "/DONE", org_agenda_overriding_header = "Completed items" },
+          },
+        },
+      },
+
+      ui = {
+        menu = {
+          handler = function(data)
+            local Menu = require("org-modern.menu")
+            Menu:new({
+              window = {
+                margin = { 1, 0, 1, 0 },
+                padding = { 0, 1, 0, 1 },
+                title_pos = "center",
+                border = "rounded",
+                zindex = 1000,
+              },
+              icons = {
+                separator = "➜",
+              },
+            }):open(data)
+          end,
+        },
       },
 
       mappings = { org_return_uses_meta_return = true },
@@ -155,17 +194,9 @@ return {
       })
 
       pcall(function()
-        local Menu = require("org-modern.menu")
-        require("orgmode").setup({
-          ui = { menu = { handler = function(data) Menu:new():open(data) end } },
-        })
-      end)
-
-      pcall(function()
         require("headlines").setup({
-          markdown = { query = {} },
-          org = {
-            headline_highlights = {},
+          markdown = false,
+          org = {            headline_highlights = {},
             code_block_highlight = "CodeBlock",
             dash_highlight = "Dash",
             fat_headlines = false,
@@ -177,6 +208,31 @@ return {
         require("org-link").setup({ auto_link_completion = true })
       end)
 
+      -- Agenda highlight enhancements
+      vim.api.nvim_create_autocmd("ColorScheme", {
+        pattern = "*",
+        callback = function()
+          -- Day headers (Monday, Tuesday, etc.)
+          vim.api.nvim_set_hl(0, "@org.agenda.day", { bold = true, fg = "#89b4fa" })
+          -- Scheduled items
+          vim.api.nvim_set_hl(0, "@org.agenda.scheduled", { fg = "#a6e3a1" })
+          -- Deadline items
+          vim.api.nvim_set_hl(0, "@org.agenda.deadline", { fg = "#f38ba8" })
+          -- Time grid labels
+          vim.api.nvim_set_hl(0, "@org.agenda.time_grid", { fg = "#585b70" })
+          -- Today marker
+          vim.api.nvim_set_hl(0, "@org.agenda.current_time", { fg = "#f9e2af", bold = true })
+          -- Today's date header — orgmode already applies @org.agenda.today via extmarks
+          vim.api.nvim_set_hl(0, "@org.agenda.today", { bold = true, fg = "#cba6f7", bg = "#6c3f99" })
+        end,
+      })
+      -- Apply highlights immediately
+      vim.api.nvim_set_hl(0, "@org.agenda.day", { bold = true, fg = "#89b4fa" })
+      vim.api.nvim_set_hl(0, "@org.agenda.scheduled", { fg = "#a6e3a1" })
+      vim.api.nvim_set_hl(0, "@org.agenda.deadline", { fg = "#f38ba8" })
+      vim.api.nvim_set_hl(0, "@org.agenda.time_grid", { fg = "#585b70" })
+      vim.api.nvim_set_hl(0, "@org.agenda.current_time", { fg = "#f9e2af", bold = true })
+      vim.api.nvim_set_hl(0, "@org.agenda.today", { bold = true, fg = "#cba6f7", bg = "#6c3f99" })
 
       local function org_map(mode, lhs, rhs, desc)
         vim.keymap.set(mode, lhs, rhs, { buffer = 0, silent = true, desc = desc })
@@ -211,6 +267,14 @@ return {
           org_map("n", "<Leader>oTR", ":OrgTableDeleteRow<CR>", "Delete row")
           org_map("n", "<Leader>oTc", ":OrgTableInsertCol<CR>", "Insert col")
           org_map("n", "<Leader>oTC", ":OrgTableDeleteCol<CR>", "Delete col")
+
+          -- Quick open files
+          org_map("n", "<Leader>og", function()
+            vim.cmd("tabedit " .. vim.fn.expand("~/orgfiles/agenda.org"))
+          end, "Open agenda.org")
+          org_map("n", "<Leader>oI", function()
+            vim.cmd("tabedit " .. vim.fn.expand("~/orgfiles/inbox.org"))
+          end, "Open inbox")
         end,
       })
 

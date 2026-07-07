@@ -6,7 +6,7 @@ return {
             vim.fn["mkdp#util#install"]()
         end,
         keys = {
-            { "<leader>m", "<cmd>MarkdownPreviewToggle<CR>", desc = "Markdown preview", ft = "markdown" },
+            { "<leader>mM", "<cmd>MarkdownPreviewToggle<CR>", desc = "Markdown preview", ft = "markdown" },
         },
         config = function()
             vim.g.mkdp_auto_start = 0
@@ -46,8 +46,6 @@ return {
                     { "<leader>tt", "<cmd>TableModeTableize<CR>", desc = "Tableize", mode = "n" },
         },
         config = function()
-            vim.g.table_mode_tableize_map = "<Leader>tb"
-            vim.g.table_mode_tableize_d_map = "<Leader>tt"
             vim.g.table_mode_corner = "|"
         end,
     },
@@ -66,5 +64,64 @@ return {
         "mzlogin/vim-markdown-toc",
         ft = "markdown",
         cmd = { "GenTocGFM", "GenTocGitHub", "GenTocRedcarpet", "GenTocMarked", "UpdateTimeStamps" },
+    },
+    {
+        "OXY2DEV/markview.nvim",
+        dependencies = { "nvim-treesitter/nvim-treesitter" },
+        config = function()
+            require("markview").setup({
+                preview = {
+                    enable_hybrid_mode = true,
+                    icon_provider = "devicons",
+                    modes = { "n", "no", "c", "i" },
+                    hybrid_modes = { "n", "i", "v" },
+                    edit_range = { 0, 0 },
+                    filetypes = { "markdown", "quarto", "rmd", "typst", "yaml" },
+                },
+            })
+            vim.keymap.set("n", "<leader>mm", "<cmd>Markview<CR>", { desc = "Toggle markview preview" })
+            vim.keymap.set("n", "<leader>mh", "<cmd>Markview HybridToggle<CR>", { desc = "Toggle markview hybrid mode" })
+        end,
+    },
+    {
+        "jakewvincent/mkdnflow.nvim",
+        ft = { "markdown", "rmd" },
+        opts = {
+            mappings = {
+                MkdnFollowLink = { "n", "<leader>mf" },
+                MkdnGoBack = { "n", "<leader>mb" },
+                MkdnGoForward = { "n", "<leader>md" },
+                MkdnNextHeading = { "n", "<leader>mj" },
+                MkdnPrevHeading = { "n", "<leader>mk" },
+                MkdnIncreaseHeading = { { "n", "v" }, "<leader>m+" },
+                MkdnDecreaseHeading = { { "n", "v" }, "<leader>m-" },
+                MkdnToggleToDo = { { "n", "v" }, "<leader>mt" },
+                MkdnNewListItemBelowInsert = { "n", "o" },
+                MkdnNewListItemAboveInsert = { "n", "O" },
+                MkdnTableNextCell = { "i", "<Tab>" },
+                MkdnTablePrevCell = { "i", "<S-Tab>" },
+                MkdnFoldSection = false,
+                MkdnUnfoldSection = false,
+                MkdnCreateLinkFromClipboard = false,
+            },
+        },
+    },
+    {
+        "HakonHarnes/img-clip.nvim",
+        event = "VeryLazy",
+        opts = {
+            default = {
+                dir_path = "assets",
+                template = "$FILE_PATH",
+            },
+            filetypes = {
+                markdown = {
+                    template = "![$CURSOR]($FILE_PATH)",
+                },
+            },
+        },
+        keys = {
+            { "<leader>mp", "<cmd>PasteImage<cr>", desc = "Paste image from clipboard" },
+        },
     },
 }

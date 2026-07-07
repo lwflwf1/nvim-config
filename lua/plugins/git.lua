@@ -25,7 +25,7 @@ return {
             { "<leader>gj", "<cmd>Gitsigns next_hunk<CR>", desc = "Next hunk" },
             { "<leader>gk", "<cmd>Gitsigns prev_hunk<CR>", desc = "Prev hunk" },
             { "<leader>gh", "<cmd>Gitsigns preview_hunk<CR>", desc = "Preview hunk" },
-            { "<leader>gu", "<cmd>Gitsigns undo_hunk<CR>", desc = "Undo hunk" },
+            { "<leader>gu", "<cmd>Gitsigns undo_stage_hunk<CR>", desc = "Undo hunk" },
             { "<leader>ge", "<cmd>Gitsigns stage_hunk<CR>", desc = "Stage hunk" },
             { "<leader>gU", "<cmd>Gitsigns reset_hunk<CR>", desc = "Reset hunk" },
             { "<leader>gf", "<cmd>Gitsigns fold<CR>", desc = "Fold hunk" },
@@ -35,6 +35,13 @@ return {
         },
         opts = {
             signs = {
+                add = { text = "+" },
+                change = { text = "~" },
+                delete = { text = "-" },
+                topdelete = { text = "‾" },
+                changedelete = { text = "~" },
+            },
+            signs_staged = {
                 add = { text = "+" },
                 change = { text = "~" },
                 delete = { text = "-" },

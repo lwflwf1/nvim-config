@@ -1,10 +1,9 @@
 return {
     'Bekaboo/dropbar.nvim',
-    lazy = false,
     -- optional, but required for fuzzy finder support
     dependencies = {
       'nvim-telescope/telescope-fzf-native.nvim',
-      build = vim.g.os == "windows" and "cmake -S. -Bbuild -DCMAKE_BUILD_TYPE=Release && cmake --build build --config Release --target install" or "make"
+      build = vim.fn.has("win32") == 1 and "cmake -S. -Bbuild -DCMAKE_BUILD_TYPE=Release && cmake --build build --config Release --target install" or "make"
     },
     config = function()
       local ts_config = require('dropbar.configs').opts.sources.treesitter

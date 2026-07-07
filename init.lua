@@ -9,6 +9,9 @@ end
 
 vim.g.data_dir = vim.fn.stdpath("data") .. "/"
 
+vim.g.loaded_netrw = 1
+vim.g.loaded_netrwPlugin = 1
+
 if vim.g.os == "windows" then
     vim.g.clipboard = {
         name = "win32yank",
@@ -42,6 +45,8 @@ end
 if vim.g.os == "windows" then
     vim.env.HTTP_PROXY = "http://127.0.0.1:7897"
     vim.env.HTTPS_PROXY = "http://127.0.0.1:7897"
+    vim.env.http_proxy = "http://127.0.0.1:7897"
+    vim.env.https_proxy = "http://127.0.0.1:7897"
     vim.env.PATH = vim.fn.expand("~/AppData/Local/LuaRocks") .. ";" .. vim.fn.expand("~/AppData/Local/LuaRocks/bin") .. ";" .. vim.env.PATH
 end
 

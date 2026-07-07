@@ -10,7 +10,7 @@ return {
     },
     {
         "tpope/vim-repeat",
-        keys = ".",
+        event = "VeryLazy",
     },
     {
         "folke/ts-comments.nvim",
@@ -104,18 +104,7 @@ return {
             }
         end,
     },
-    {
-        "RRethy/vim-illuminate",
-        enabled = false,
-        event = { "BufReadPre", "BufNewFile" },
-        config = function()
-            vim.g.Illuminate_ftblacklist = {
-                "help", "qf", "far", "leaderf", "vista",
-                "floaterm", "markdown", "git", "gitcommit",
-                "org", "orgagenda",
-            }
-        end,
-    },
+
     {
         "mbbill/undotree",
         cmd = "UndotreeToggle",

@@ -34,6 +34,10 @@ return {
             require("nvim-treesitter-textobjects").setup({
                 select = {
                     lookahead = true,
+                    selection_modes = {
+                        ['@function.outer'] = 'V',
+                        ['@class.outer'] = 'V',
+                    },
                 },
                 move = {
                     set_jumps = true,

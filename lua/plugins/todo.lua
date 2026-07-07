@@ -9,11 +9,9 @@ return {
         { "<leader>tp", "<cmd>lua require('todo-comments').jump_prev()<CR>", desc = "Prev TODO" },
     },
     opts = {
-        highlight = {
-            pattern = [[\b(TODO|FIXME|HACK|XXX|WAIT|HOLD)\b]],
-        },
-        search = {
-            pattern = [[\b(TODO|FIXME|HACK|XXX|WAIT|HOLD)\b]],
+        keywords = {
+            WAIT = { icon = "⏳", color = "warning" },
+            HOLD = { icon = "🛑", color = "error" },
         },
     },
 }

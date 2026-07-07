@@ -122,7 +122,7 @@ opt.suffixes = suffixes
 
 local ignore = {
     "*.o", "*.obj", "*~", "*.exe", "*.a", "*.pdb", "*.lib",
-    "*.so", "*.dll", "*.swp", "*.egg", "*.jar", "*.class", "*.pyc", "*.pyo", "*.bin", "*.dex",
+    "*.so", "*.dll", "*.swp", "*.egg", "*.jar", "*.class", "*.pyc", "*.pyo", "*.dex",
     "*.zip", "*.7z", "*.rar", "*.gz", "*.tar", "*.gzip", "*.bz2", "*.tgz", "*.xz",
     "*DS_Store*", "*.ipch", "*.gem",
     "*.png", "*.jpg", "*.gif", "*.bmp", "*.tga", "*.pcx", "*.ppm", "*.img", "*.iso",
@@ -130,7 +130,7 @@ local ignore = {
     "*/.nx/**", "*.app", "*.git", ".git",
     "*.wav", "*.mp3", "*.ogg", "*.pcm",
     "*.mht", "*.suo", "*.sdf", "*.jnlp",
-    "*.chm", "*.epub", "*.pdf", "*.mobi", "*.ttf",
+    "*.chm", "*.epub", "*.mobi", "*.ttf",
     "*.mp4", "*.avi", "*.flv", "*.mov", "*.mkv", "*.swf", "*.swc",
     "*.ppt", "*.pptx", "*.docx", "*.xlt", "*.xls", "*.xlsx", "*.odt", "*.wps",
     "*.msi", "*.crx", "*.deb", "*.vfd", "*.apk", "*.ipa", "*.bin", "*.msu",
@@ -145,4 +145,4 @@ vim.cmd.language("en")
 vim.cmd.nohlsearch()
 
 opt.guifont = "JetBrainsMono NF:h15"
-opt.linespace = 10
+opt.linespace = 2
