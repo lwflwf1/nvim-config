@@ -75,7 +75,7 @@ return {
                     enable_hybrid_mode = true,
                     icon_provider = "devicons",
                     modes = { "n", "no", "c", "i" },
-                    hybrid_modes = { "n", "i", "v" },
+                    hybrid_modes = { "i" },
                     edit_range = { 0, 0 },
                     filetypes = { "markdown", "quarto", "rmd", "typst", "yaml" },
                 },
