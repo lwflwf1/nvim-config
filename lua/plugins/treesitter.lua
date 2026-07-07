@@ -26,7 +26,11 @@ return {
                 callback = function(args)
                     local ok = pcall(vim.treesitter.start, args.buf)
                     if ok then
-                        vim.bo[args.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+                        local ft = vim.bo[args.buf].filetype
+                        local has_query, query = pcall(vim.treesitter.query.get, ft, "indents")
+                        if has_query and query then
+                            vim.bo[args.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+                        end
                     end
                 end,
             })
