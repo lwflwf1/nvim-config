@@ -1,6 +1,9 @@
 local os_name = vim.uv.os_uname().sysname
 if os_name == "Windows_NT" then
     vim.g.os = "windows"
+    if not os.getenv("HOME") then
+        vim.env.HOME = os.getenv("USERPROFILE")
+    end
 elseif os_name == "Darwin" then
     vim.g.os = "macos"
 else

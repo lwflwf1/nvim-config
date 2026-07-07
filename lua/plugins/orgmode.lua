@@ -14,7 +14,7 @@ return {
     opts = {
       org_agenda_files = { "~/orgfiles/*.org", "~/orgfiles/notes/*.org" },
       org_default_notes_file = vim.fn.expand("~/orgfiles/refile.org"),
-      org_archive_location = vim.fn.expand("~/orgfiles/.archive/%s_archive::"),
+      org_archive_location = "~/orgfiles/.archive/%s_archive::",
 
       org_todo_keywords = { "TODO(t)", "NEXT(n)", "WAIT(w)", "HOLD(h)", "|", "DONE(d)", "CANC(c)" },
       org_todo_repeat_to_state = "NEXT",
