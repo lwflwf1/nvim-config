@@ -25,6 +25,7 @@ autocmd("BufReadPost", {
     end,
 })
 
+--[[
 local update_last_modified = augroup("update_last_modified_on_write", { clear = true })
 autocmd("BufWritePre", {
     group = update_last_modified,
@@ -33,12 +34,16 @@ autocmd("BufWritePre", {
         for i, line in ipairs(lines) do
             if line:find("Last Modified") or line:find("Last modified") then
                 local time = vim.fn.strftime("%Y-%m-%d %H:%M:%S")
-                vim.fn.setline(i, '" Last Modified: ' .. time)
+                local cs = vim.bo.commentstring
+                if cs == "" then cs = "# %s" end
+                local newline = cs:gsub("%%s", "Last Modified: " .. time)
+                vim.fn.setline(i, newline)
                 break
             end
         end
     end,
 })
+--]]
 
 local nonumber = augroup("nonumber_group", { clear = true })
 autocmd("FileType", {
@@ -57,15 +62,6 @@ autocmd("FileType", {
     pattern = "log",
     callback = function()
         vim.opt_local.foldmethod = "indent"
-    end,
-})
-
-local tc_setup = augroup("tc_setup", { clear = true })
-autocmd("FileType", {
-    group = tc_setup,
-    pattern = "tc",
-    callback = function()
-        vim.bo.commentstring = "# %s"
     end,
 })
 

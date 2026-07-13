@@ -23,18 +23,15 @@ return {
     },
     {
         url = "https://git.disroot.org/andyg/leap.nvim",
-        keys = {
-            { ";s", mode = { "n", "x" }, desc = "Leap forward" },
-            { ";S", mode = { "n", "x" }, desc = "Leap backward" },
-        },
+        event = "VeryLazy",
         config = function()
             local leap = require("leap")
             leap.opts.safe_labels = {}
-            vim.keymap.set({ "n", "x" }, ";s", function()
+            vim.keymap.set({ "n", "x" }, "<leader>n", function()
                 leap.leap({ windows = { vim.fn.win_getid() } })
             end, { desc = "Leap forward" })
-            vim.keymap.set({ "n", "x" }, ";S", function()
-                leap.leap({ windows = { vim.fn.win_getid() }, backward = true })
+            vim.keymap.set({ "n", "x" }, "<leader>N", function()
+                leap.leap({ backward = true })
             end, { desc = "Leap backward" })
         end,
     },
@@ -48,17 +45,13 @@ return {
                 javascript = { "template_string" },
             },
             disable_filetype = { "TelescopePrompt", "vim" },
-            fast_wrap = {
-                map = "<M-e>",
-                chars = { "{", "[", "(", '"', "'" },
-                pattern = [=[[%'%"%)%>%]%)%}%,]]=],
-                end_key = "$",
-                keys = "qwertyuiopzxcvbnmasdfghjkl",
-                check_comma = true,
-                highlight = "PmenuSel",
-                highlight_grey = "LineNr",
-            },
         },
+        config = function(_, opts)
+            local npairs = require("nvim-autopairs")
+            npairs.setup(opts)
+            npairs.remove_rule("`")
+            npairs.get_rules("'")[1].not_filetypes = { "systemverilog" }
+        end,
     },
     {
         "junegunn/vim-easy-align",

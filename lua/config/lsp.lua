@@ -205,16 +205,6 @@ function M.setup()
         on_attach = on_attach,
     }
 
-    if vim.fn.executable("slang-server") == 1 then
-        vim.lsp.config["slang-server"] = {
-            cmd = { "slang-server" },
-            filetypes = { "verilog", "systemverilog" },
-            root_markers = { ".git", ".slang" },
-            capabilities = capabilities,
-            on_attach = on_attach,
-        }
-    end
-
     vim.lsp.config.clangd = {
         cmd = { "clangd" },
         filetypes = { "c", "cpp", "objc", "objcpp", "cuda" },
@@ -238,9 +228,6 @@ function M.setup()
     }
 
     local servers = { "pyright", "ruff", "perl-lsp", "bashls", "lua_ls", "jsonls", "yamlls", "verible", "clangd" }
-    if vim.fn.executable("slang-server") == 1 then
-        table.insert(servers, "slang-server")
-    end
     vim.lsp.enable(servers)
 
     vim.diagnostic.config({
