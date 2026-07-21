@@ -24,7 +24,8 @@ return {
 
             vim.api.nvim_create_autocmd("FileType", {
                 callback = function(args)
-                    if vim.bo[args.buf].filetype == "tc" then return end
+                    local ft = vim.bo[args.buf].filetype
+                    if ft == "tc" or ft == "mako" then return end
                     local ok = pcall(vim.treesitter.start, args.buf)
                     if ok then
                         local ft = vim.bo[args.buf].filetype

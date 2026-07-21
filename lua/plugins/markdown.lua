@@ -67,7 +67,7 @@ return {
     },
     {
         "OXY2DEV/markview.nvim",
-        ft = { "markdown", "quarto", "rmd", "typst", "yaml" },
+        ft = { "markdown", "quarto", "rmd", "typst", "yaml", "Avante" },
         dependencies = { "nvim-treesitter/nvim-treesitter" },
         config = function()
             require("markview").setup({
@@ -77,7 +77,7 @@ return {
                     modes = { "n", "no", "c", "i" },
                     hybrid_modes = { "i" },
                     edit_range = { 0, 0 },
-                    filetypes = { "markdown", "quarto", "rmd", "typst", "yaml" },
+                    filetypes = { "markdown", "quarto", "rmd", "typst", "yaml", "Avante" },
                 },
             })
             vim.keymap.set("n", "<leader>mm", "<cmd>Markview<CR>", { desc = "Toggle markview preview" })

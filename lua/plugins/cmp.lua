@@ -10,11 +10,30 @@ return {
             "L3MON4D3/LuaSnip",
             "saadparwaiz1/cmp_luasnip",
             "rafamadriz/friendly-snippets",
+            "uga-rosa/cmp-dictionary",
         },
         config = function()
             local cmp = require("cmp")
             local luasnip = require("luasnip")
             require("luasnip.loaders.from_vscode").lazy_load()
+
+            local dict_paths = {}
+            if vim.fn.has("win32") == 1 then
+                local win_dict = vim.fn.stdpath("config") .. "\\words"
+                if vim.fn.filereadable(win_dict) == 1 then
+                    table.insert(dict_paths, win_dict)
+                end
+            else
+                local unix_dicts = { "/usr/share/dict/words", "/usr/dict/words" }
+                for _, p in ipairs(unix_dicts) do
+                    if vim.fn.filereadable(p) == 1 then
+                        table.insert(dict_paths, p)
+                    end
+                end
+            end
+            if #dict_paths > 0 then
+                require("cmp_dictionary").setup({ paths = dict_paths, exact_length = 2 })
+            end
 
             local has_words_before = function()
                 if vim.bo[0].buftype == "prompt" then
@@ -52,7 +71,7 @@ return {
                         end
                     end, { "i", "s" }),
                     ["<CR>"] = cmp.mapping.confirm({ select = false }),
-                    ["<C-l>"] = cmp.mapping.complete(),
+
                     ["<C-e>"] = cmp.mapping.abort(),
                     ["<C-n>"] = cmp.mapping.select_next_item(),
                     ["<C-p>"] = cmp.mapping.select_prev_item(),
@@ -65,6 +84,7 @@ return {
                     { name = "buffer" },
                     { name = "path" },
                     { name = "orgmode" },
+                    { name = "dictionary" },
                 }),
                 sorting = {
                     priority_weight = 2,
@@ -85,6 +105,7 @@ return {
                             luasnip = "[Snip]",
                             buffer = "[Buf]",
                             path = "[Path]",
+                            dictionary = "[Dict]",
                         })[entry.source.name] or ""
                         return vim_item
                     end,
