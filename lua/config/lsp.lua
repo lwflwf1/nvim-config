@@ -5,7 +5,8 @@ local root_markers = require("config.root_markers")
 --- when LSP returns no results for gd/gr/gi/gy. Default (nil) = enabled.
 
 function M.setup()
-    local capabilities = require("cmp_nvim_lsp").default_capabilities()
+    local capabilities = vim.lsp.protocol.make_client_capabilities()
+    capabilities = require("blink.cmp").get_lsp_capabilities(capabilities)
 
     local fallback_messages = {
         ["textDocument/definition"] = "No definition found",
@@ -17,7 +18,10 @@ function M.setup()
     local function exec_fallback(method, fallback, word)
         if vim.g.goto_fallback == false then return end
 
+        local saved_tagfunc = vim.bo.tagfunc
+        vim.bo.tagfunc = ""
         local ok, _ = pcall(vim.cmd, fallback .. " " .. word)
+        vim.bo.tagfunc = saved_tagfunc
         if not ok then
             local msg = fallback_messages[method] or "No results found"
             vim.notify(msg .. ": " .. word, vim.log.levels.INFO)
@@ -126,12 +130,6 @@ function M.setup()
             vim.diagnostic.setloclist({ severity = vim.diagnostic.severity.HINT })
             vim.cmd("lopen")
         end, bopts("Hints only"))
-        vim.keymap.set("n", "<leader>dt", function()
-            local disabled = vim.b[bufnr].diag_disabled or false
-            vim.diagnostic.enable(disabled, { bufnr = 0 })
-            vim.b[bufnr].diag_disabled = not disabled
-            vim.notify(disabled and "diagnostics enabled" or "diagnostics disabled")
-        end, bopts("Toggle diagnostics"))
         vim.keymap.set("n", "<leader>da", vim.lsp.buf.code_action, bopts("Code action"))
         vim.keymap.set("x", "<leader>da", vim.lsp.buf.code_action, bopts("Code action"))
     end
@@ -218,13 +216,7 @@ function M.setup()
         filetypes = { "verilog", "systemverilog" },
         root_markers = { ".git" },
         capabilities = capabilities,
-        on_attach = function(client, bufnr)
-            client.server_capabilities.definitionProvider = false
-            client.server_capabilities.referencesProvider = false
-            client.server_capabilities.implementationProvider = false
-            client.server_capabilities.typeDefinitionProvider = false
-            on_attach(client, bufnr)
-        end,
+        on_attach = on_attach,
     }
 
     local servers = { "pyright", "ruff", "perl-lsp", "bashls", "lua_ls", "jsonls", "yamlls", "verible", "clangd" }

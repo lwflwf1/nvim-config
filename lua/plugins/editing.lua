@@ -1,4 +1,4 @@
-return {
+﻿return {
     {
         "tpope/vim-surround",
         keys = {
@@ -18,6 +18,7 @@ return {
         opts = {
             lang = {
                 tc = "# %s",
+                ralf = "# %s",
             },
         },
     },
@@ -102,7 +103,7 @@ return {
         "mbbill/undotree",
         cmd = "UndotreeToggle",
         keys = {
-            { "<leader>u", "<cmd>UndotreeToggle<CR>", desc = "Undo tree" },
+            { "<leader>uu", "<cmd>UndotreeToggle<CR>", desc = "Undo tree" },
         },
     },
     {
@@ -124,9 +125,5 @@ return {
             { "ss", "<plug>(SubversiveSubstituteLine)", desc = "Substitute line" },
             { "S", "<plug>(SubversiveSubstituteToEndOfLine)", desc = "Substitute to EOL" },
         },
-    },
-    {
-        "yianwillis/vimcdoc",
-        event = "VeryLazy",
     },
 }

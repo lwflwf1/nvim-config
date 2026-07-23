@@ -1,4 +1,4 @@
-vim.filetype.add({
+﻿vim.filetype.add({
     extension = {
         v = "systemverilog",
         vh = "systemverilog",
@@ -7,6 +7,7 @@ vim.filetype.add({
         svi = "systemverilog",
         log = "log",
         tc = "tc",
+        ralf = "ralf",
     },
 })
 
@@ -92,6 +93,9 @@ autocmd("BufEnter", {
     callback = function()
         local path = vim.api.nvim_buf_get_name(0)
         if path == "" or vim.bo.buftype ~= "" then
+            return
+        end
+        if vim.bo.filetype == "oil" then
             return
         end
         local dir = vim.fs.dirname(path)

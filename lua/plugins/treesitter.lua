@@ -5,6 +5,7 @@ return {
         lazy = false,
         dependencies = {
             "nvim-treesitter/nvim-treesitter-textobjects",
+            "nvim-treesitter/nvim-treesitter-context",
         },
         init = function()
             vim.env.CC = "gcc"
@@ -25,7 +26,7 @@ return {
             vim.api.nvim_create_autocmd("FileType", {
                 callback = function(args)
                     local ft = vim.bo[args.buf].filetype
-                    if ft == "tc" or ft == "mako" then return end
+                    if ft == "tc" or ft == "mako" or ft == "ralf" then return end
                     local ok = pcall(vim.treesitter.start, args.buf)
                     if ok then
                         local ft = vim.bo[args.buf].filetype
@@ -79,5 +80,34 @@ return {
                 ts_move.goto_previous_start("@class.outer")
             end, { desc = "Previous class start" })
         end,
+    },
+    {
+        "nvim-treesitter/nvim-treesitter-context",
+        event = "BufReadPre",
+        opts = {
+            max_lines = 5,
+            multiline_threshold = 20,
+            trim_scope = "outer",
+            mode = "cursor",
+            separator = nil,
+            zindex = 50,
+        },
+        keys = {
+            {
+                "<leader>ut",
+                function()
+                    require("treesitter-context").toggle()
+                end,
+                desc = "Toggle treesitter context",
+            },
+            {
+                "gs",
+                function()
+                    require("treesitter-context").go_to_context(vim.v.count1)
+                end,
+                desc = "Goto scope/context",
+                silent = true,
+            },
+        },
     },
 }

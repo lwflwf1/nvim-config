@@ -8,7 +8,6 @@ return {
             or "make",
         dependencies = {
             "nvim-treesitter/nvim-treesitter",
-            "stevearc/dressing.nvim",
             "nvim-lua/plenary.nvim",
             "MunifTanjim/nui.nvim",
             "nvim-tree/nvim-web-devicons",
@@ -62,8 +61,11 @@ return {
                 ---@type "dark" | "light"
                 diff = "dark",
             },
-            file_selector = {
-                provider = "native",
+            selector = {
+                provider = "snacks",
+            },
+            input = {
+                provider = "snacks",
             },
         },
     },

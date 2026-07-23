@@ -40,10 +40,10 @@ return {
             integrations = {
                 telescope = true,
                 lualine = true,
-                indent_blankline = { enabled = true },
+                indent_blankline = false,
                 gitsigns = true,
                 which_key = true,
-                nvimtree = true,
+                nvimtree = false,
             },
         },
         config = function(_, opts)
@@ -130,7 +130,7 @@ return {
                 mode = "buffers_and_tabs",
                 numbers = "none",
                 diagnostics = "nvim_lsp",
-                offsets = { { filetype = "NvimTree", text = "File Explorer", highlight = "Directory" } },
+                offsets = { { filetype = "oil", text = "File Explorer", highlight = "Directory" } },
                 indicator = { style = "icon", icon = "▎" },
                 buffer_close_icon = "x",
                 modified_icon = "*",
@@ -157,31 +157,5 @@ return {
             },
         },
     },
-    {
-        "lukas-reineke/indent-blankline.nvim",
-        event = "VeryLazy",
-        main = "ibl",
-        opts = {
-            indent = {
-                char = "|",
-                tab_char = "|",
-                highlight = "IblIndent",
-                smart_indent_cap = true,
-            },
-            scope = {
-                enabled = true,
-                show_start = false,
-                show_end = false,
-                injected_languages = true,
-                highlight = "IblScope",
-            },
-            exclude = {
-                filetypes = {
-                    "help", "vista", "coc-explorer", "git", "gitcommit",
-                    "log", "org", "orgagenda", "qf", "floaterm",
-                },
-                buftypes = { "popup", "terminal", "quickfix" },
-            },
-        },
-    },
+
 }
