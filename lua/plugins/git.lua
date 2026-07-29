@@ -1,19 +1,16 @@
 return {
     {
         "NeogitOrg/neogit",
-        dependencies = {
-            "nvim-lua/plenary.nvim",
-        },
         cmd = "Neogit",
         opts = {
-            disable_signs = false,
-            disable_context_highlighting = false,
-            disable_commit_confirmation = false,
             kind = "tab",
-            integrations = { diffview = true },
+            integrations = {
+                diffview = true,
+                snacks = true,
+            },
         },
         keys = {
-            { "<leader>gg", ":Neogit<CR>", desc = "Neogit (status)" },
+            { "<leader>gg", "<cmd>Neogit<CR>", desc = "Neogit (status)" },
         },
     },
     {
