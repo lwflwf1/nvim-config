@@ -4,7 +4,7 @@ return {
     ft = { "org" },
     dependencies = {
       "nvim-lua/plenary.nvim",
-      { "nvim-orgmode/telescope-orgmode.nvim", dependencies = "nvim-telescope/telescope.nvim" },
+      { "0xzhzh/fzf-org.nvim", dependencies = "ibhagwan/fzf-lua" },
       "nvim-orgmode/org-bullets.nvim",
       "lukas-reineke/headlines.nvim",
       "danilshvalov/org-modern.nvim",
