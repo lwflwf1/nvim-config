@@ -8,8 +8,12 @@ return {
             "saghen/blink.compat",
             "uga-rosa/cmp-dictionary",
             "milanglacier/minuet-ai.nvim",
+            "onsails/lspkind.nvim",
         },
         opts = {
+            appearance = {
+                use_nvim_cmp_as_default = true,
+            },
             keymap = {
                 ["<Tab>"] = { "select_next", "snippet_forward", "fallback" },
                 ["<S-Tab>"] = { "select_prev", "snippet_backward", "fallback" },
@@ -23,8 +27,13 @@ return {
             },
 
             sources = {
-                default = { "lsp", "snippets", "buffer", "path", "minuet", "orgmode", "dictionary" },
+                default = { "lazydev", "lsp", "snippets", "buffer", "path", "minuet", "orgmode", "dictionary" },
                 providers = {
+                    lazydev = {
+                        name = "LazyDev",
+                        module = "lazydev.integrations.blink",
+                        score_offset = 100,
+                    },
                     minuet = {
                         name = "minuet",
                         module = "minuet.blink",
@@ -46,7 +55,18 @@ return {
 
             completion = {
                 documentation = { auto_show = true },
-                menu = {},
+                menu = {
+                    draw = {
+                        columns = { { "kind_icon", gap = 1, "kind" }, { "label", "label_description", gap = 1 } },
+                        components = {
+                            kind_icon = {
+                                text = function(ctx)
+                                    return require("lspkind").symbol_map[ctx.kind] or ""
+                                end,
+                            },
+                        },
+                    },
+                },
                 list = {
                     selection = {
                         preselect = false,
