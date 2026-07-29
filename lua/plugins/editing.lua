@@ -1,16 +1,61 @@
 ﻿return {
     {
-        "tpope/vim-surround",
-        keys = {
-            { "cs", mode = "n", desc = "Change surround" },
-            { "ds", mode = "n", desc = "Delete surround" },
-            { "ys", mode = "n", desc = "Add surround" },
-            { "S", mode = "v", desc = "Add surround visual" },
-        },
-    },
-    {
-        "tpope/vim-repeat",
+        "echasnovski/mini.nvim",
         event = "VeryLazy",
+        config = function()
+            require("mini.icons").setup()
+            require("mini.pairs").setup()
+            vim.api.nvim_create_autocmd("FileType", {
+                pattern = { "TelescopePrompt", "vim" },
+                callback = function() vim.b.minipairs_disable = true end,
+            })
+            vim.api.nvim_create_autocmd("FileType", {
+                pattern = "systemverilog",
+                callback = function()
+                    require("mini.pairs").map_buf(0, "i", "'", {
+                        action = "closeopen",
+                        pair = "''",
+                        neigh_pattern = "[^%a]",
+                    })
+                    require("mini.pairs").unmap_buf(0, "i", "`", "``")
+                end,
+            })
+
+            require("mini.surround").setup({
+                n_lines = 10,
+                mappings = {
+                    add         = "ys",
+                    delete      = "ds",
+                    replace     = "cs",
+                    find        = "",
+                    find_left   = "",
+                    highlight   = "",
+                    suffix_last = "",
+                    suffix_next = "",
+                },
+                search_method = "cover_or_next",
+            })
+            -- vim.keymap.set("x", "S", [[:<C-u>lua MiniSurround.add("visual")<CR>]], { silent = true })
+            vim.keymap.set("n", "yss", "ys_", { remap = true, desc = "Surround line" })
+
+            require("mini.align").setup()
+
+            require("mini.operators").setup({
+                evaluate = { prefix = "" },
+                exchange = { prefix = "" },
+                multiply = { prefix = "" },
+                replace  = { prefix = "s" },
+                sort     = { prefix = "" },
+            })
+
+            require("mini.bracketed").setup({
+                file = { suffix = '' },
+                comment = { suffix = '' },
+                diagnostic = { suffix = '' },
+                location = { suffix = '' },
+                buffer = { suffix = '' },
+            })
+        end,
     },
     {
         "folke/ts-comments.nvim",
@@ -23,107 +68,162 @@
         },
     },
     {
-        url = "https://git.disroot.org/andyg/leap.nvim",
+        "folke/flash.nvim",
+        event = "VeryLazy",
+        opts = {
+            modes = {
+                char = {
+                    jump_labels = true,
+                },
+            },
+        },
+        keys = {
+            { "gj", mode = { "n", "x", "o" }, function() require("flash").jump() end, desc = "Flash" },
+            { "S", function() require("flash").treesitter() end, desc = "Flash Treesitter", mode = { "n", "x", "o" } },
+            { "R", function() require("flash").treesitter_search() end, desc = "Flash Treesitter Search", mode = { "o", "x" } },
+            { "r", function() require("flash").remote() end, desc = "Flash Remote", mode = "o" },
+            { "<c-s>", function() require("flash").toggle() end, desc = "Toggle Flash Search", mode = "c" },
+        },
+    },
+    {
+        "jake-stewart/multicursor.nvim",
+        branch = "1.0",
         event = "VeryLazy",
         config = function()
-            local leap = require("leap")
-            leap.opts.safe_labels = {}
-            vim.keymap.set({ "n", "x" }, "<leader>n", function()
-                leap.leap({ windows = { vim.fn.win_getid() } })
-            end, { desc = "Leap forward" })
-            vim.keymap.set({ "n", "x" }, "<leader>N", function()
-                leap.leap({ backward = true })
-            end, { desc = "Leap backward" })
-        end,
-    },
-    {
-        "windwp/nvim-autopairs",
-        event = "InsertEnter",
-        opts = {
-            check_ts = true,
-            ts_config = {
-                lua = { "string" },
-                javascript = { "template_string" },
-            },
-            disable_filetype = { "TelescopePrompt", "vim" },
-        },
-        config = function(_, opts)
-            local npairs = require("nvim-autopairs")
-            npairs.setup(opts)
-            npairs.remove_rule("`")
-            npairs.get_rules("'")[1].not_filetypes = { "systemverilog" }
-        end,
-    },
-    {
-        "junegunn/vim-easy-align",
-        keys = {
-            { "ga", "<Plug>(EasyAlign)", mode = { "n", "x" }, desc = "Easy align" },
-        },
-    },
-    {
-        "mg979/vim-visual-multi",
-        keys = {
-            { "<C-n>", "<Plug>(VM-Add-Cursor)", desc = "Add cursor" },
-            { "<C-j>", "<Plug>(VM-Add-Cursor-Down)", desc = "Add cursor down" },
-            { "<C-k>", "<Plug>(VM-Add-Cursor-Up)", desc = "Add cursor up" },
-        },
-        config = function()
-            vim.g.VM_maps = {
-                ["Add Cursor Down"] = "<C-j>",
-                ["Add Cursor Up"] = "<C-k>",
-            }
-        end,
-    },
-    {
-        "AndrewRadev/switch.vim",
-        cmd = "Switch",
-        keys = {
-            { "ts", ":Switch<CR>", desc = "Switch", mode = "n" },
-        },
-        config = function()
-            vim.g.switch_mapping = ""
-            vim.g.switch_custom_definitions = {
-                { "&", "|" },
-                { "~", "!" },
-                { "always_ff", "always_latch", "always_comb" },
-                { "posedge", "negedge" },
-                { "logic", "bit" },
-                { "@", "wait" },
-                { " <=", " =" },
-                { "input", "output", "ref" },
-                { "'b", "'h", "'d" },
-                { "endfunction", "endtask", "endclass", "endinterface", "endmodule", "end", "endclocking" },
-                { "function", "task" },
-                { "WRITE", "READ" },
-            }
-        end,
+            local mc = require("multicursor-nvim")
+            mc.setup()
+
+            local set = vim.keymap.set
+
+            -- Add or skip cursor above/below the main cursor.
+            set({"n", "x"}, "<c-k>",         function() mc.lineAddCursor(-1)  end)
+            set({"n", "x"}, "<c-j>",         function() mc.lineAddCursor(1)   end)
+            set({"n", "x"}, "<leader><c-k>", function() mc.lineSkipCursor(-1) end)
+            set({"n", "x"}, "<leader><c-j>", function() mc.lineSkipCursor(1)  end)
+
+            -- Add or skip adding a new cursor by matching word/selection
+            set({"n", "x"}, "<c-n>", function() mc.matchAddCursor(1) end)
+            set({"n", "x"}, "<m-n>", function() mc.matchSkipCursor(1) end)
+            set({"n", "x"}, "<c-p>", function() mc.matchAddCursor(-1) end)
+            set({"n", "x"}, "<m-p>", function() mc.matchSkipCursor(-1) end)
+
+            -- Add and remove cursors with control + left click.
+            set("n", "<c-leftmouse>", mc.handleMouse)
+            set("n", "<c-leftdrag>", mc.handleMouseDrag)
+            set("n", "<c-leftrelease>", mc.handleMouseRelease)
+
+            -- Disable and enable cursors.
+            set({"n", "x"}, "<c-q>", mc.toggleCursor)
+
+            -- Mappings defined in a keymap layer only apply when there are
+            -- multiple cursors. This lets you have overlapping mappings.
+            mc.addKeymapLayer(function(layerSet)
+
+                -- Select a different cursor as the main one.
+                layerSet({"n", "x"}, "<up>", mc.prevCursor)
+                layerSet({"n", "x"}, "<down>", mc.nextCursor)
+
+                -- Delete the main cursor.
+                layerSet({"n", "x"}, "<leader>x", mc.deleteCursor)
+
+                -- Enable and clear cursors using escape.
+                layerSet("n", "<esc>", function()
+                    if not mc.cursorsEnabled() then
+                        mc.enableCursors()
+                    else
+                        mc.clearCursors()
+                    end
+                end)
+            end)
+
+            -- Customize how cursors look.
+            local hl = vim.api.nvim_set_hl
+            hl(0, "MultiCursorCursor", { reverse = true })
+            hl(0, "MultiCursorVisual", { link = "Visual" })
+            hl(0, "MultiCursorSign", { link = "SignColumn"})
+            hl(0, "MultiCursorMatchPreview", { link = "Search" })
+            hl(0, "MultiCursorDisabledCursor", { reverse = true })
+            hl(0, "MultiCursorDisabledVisual", { link = "Visual" })
+            hl(0, "MultiCursorDisabledSign", { link = "SignColumn"})
+        end
     },
 
     {
-        "mbbill/undotree",
-        cmd = "UndotreeToggle",
         keys = {
-            { "<leader>uu", "<cmd>UndotreeToggle<CR>", desc = "Undo tree" },
+            { "<leader>uu", function() Snacks.picker.undo() end, desc = "Undo history" },
         },
     },
     {
         "folke/which-key.nvim",
         event = "VeryLazy",
-        opts = {
-            delay = 300,
-            icons = { mappings = false },
-            spec = {
-                { "<leader>", group = "Leader" },
-                { "g", group = "Goto" },
+        keys = {
+            {
+                "<C-w>",
+                function()
+                    require("which-key").show({ keys = "<C-w>", loop = true })
+                end,
+                desc = "Window commands (hydra)",
             },
         },
-    },
-    {
-        "svermeulen/vim-subversive",
-        keys = {
-            { "s", "<plug>(SubversiveSubstitute)", mode = { "n", "x" }, desc = "Substitute" },
-            { "ss", "<plug>(SubversiveSubstituteLine)", desc = "Substitute line" },
-            { "S", "<plug>(SubversiveSubstituteToEndOfLine)", desc = "Substitute to EOL" },
+        opts = {
+            preset = "modern",
+            delay = function(ctx) return ctx.plugin and 0 or 200 end,
+            icons = {
+                mappings = false,
+                colors = true,
+            },
+            spec = {
+                { "<leader>",  group = "Leader",         },
+                { "<leader>l", group = "LSP",            },
+                { "<leader>f", group = "Find",           },
+                { "<leader>g", group = "Git",            },
+                { "<leader>w", group = "Window",         },
+                { "<leader>m", group = "Markdown",       },
+                { "<leader>r", group = "Refactor",       },
+                { "<leader>p", group = "Print",          },
+                { "<leader>t", group = "TODO/Tab/Table", },
+                { "<leader>u", group = "UI Toggle",      },
+                { "<leader>s", group = "SOS/Sidekick",   },
+                { "<leader>b", group = "Buffer",         },
+                { "<leader>q", group = "Session",        },
+                { "<leader>e", group = "Explorer",       },
+                { "<leader>h", group = "Harpoon",        },
+                { "<leader>c", group = "Candela",        },
+                { "<leader>a", group = "Avante",         },
+                { "<leader>z", group = "Zen",            },
+                { "g",         group = "Goto",           },
+                { "]",         group = "Next",           },
+                { "[",         group = "Prev",           },
+                { "z",         group = "Folds",          },
+            },
+            plugins = {
+                marks = true,
+                registers = true,
+                spelling = { enabled = true, suggestions = 20 },
+                presets = {
+                    operators = true,
+                    motions = true,
+                    text_objects = true,
+                    windows = true,
+                    nav = true,
+                    z = true,
+                    g = true,
+                },
+            },
+            win = {
+                border = "rounded",
+                wo = { winblend = 10 },
+            },
+            sort = { "local", "order", "group", "alphanum", "mod" },
+            replace = {
+                desc = {
+                    { "^:%s*", "" },
+                    { "<[cC]md>", "" },
+                    { "<[sS]ilent>", "" },
+                    { "^lua%s+", "" },
+                    { "<CR>", "" },
+                },
+            },
         },
     },
 }

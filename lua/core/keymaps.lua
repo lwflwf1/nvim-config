@@ -1,60 +1,43 @@
 local map = vim.keymap.set
 local opts = { noremap = true, silent = true }
+local d = function(desc) return vim.tbl_extend("force", opts, { desc = desc }) end
 
 vim.g.mapleader = " "
 vim.g.maplocalleader = " "
 
-map("n", "H", "^", opts)
-map("n", "L", "$", opts)
-map({ "n", "v" }, "j", "gj", opts)
-map({ "n", "v" }, "k", "gk", opts)
+map("n", "H", "^", d("Go to first non-blank"))
+map("n", "L", "$", d("Go to end of line"))
+map({ "n", "v" }, "j", "gj", d("Down (display lines)"))
+map({ "n", "v" }, "k", "gk", d("Up (display lines)"))
 
-map({ "n", "i", "t" }, "<M-h>", function() vim.cmd.wincmd("h") end, opts)
-map({ "n", "i", "t" }, "<M-j>", function() vim.cmd.wincmd("j") end, opts)
-map({ "n", "i", "t" }, "<M-k>", function() vim.cmd.wincmd("k") end, opts)
-map({ "n", "i", "t" }, "<M-l>", function() vim.cmd.wincmd("l") end, opts)
+map("n", "<C-h>", ":bprevious<CR>", d("Previous buffer"))
+map("n", "<C-l>", ":bnext<CR>", d("Next buffer"))
 
-map("n", "<C-h>", ":bprevious<CR>", opts)
-map("n", "<C-l>", ":bnext<CR>", opts)
-map("n", "<leader>bd", ":bdelete<CR>", vim.tbl_extend("force", opts, { desc = "Close buffer" }))
+map("n", "<", "<<", d("Indent left"))
+map("n", ">", ">>", d("Indent right"))
+map("v", "<", "<gv", d("Indent left (keep selection)"))
+map("v", ">", ">gv", d("Indent right (keep selection)"))
 
-map("n", "<", "<<", opts)
-map("n", ">", ">>", opts)
-map("v", "<", "<gv", opts)
-map("v", ">", ">gv", opts)
-
-map("i", "jj", "<Esc>", opts)
-map("i", "<C-a>", "<Home>", opts)
-map("i", "<C-e>", "<End>", opts)
-map("i", "<C-b>", "<Left>", opts)
-map("i", "<C-f>", "<Right>", opts)
-map("i", "<C-d>", "<Del>", opts)
+map("i", "jj", "<Esc>", d("Escape"))
+map("i", "<C-a>", "<Home>", d("Line start"))
+map("i", "<C-e>", "<End>", d("Line end"))
+map("i", "<C-b>", "<Left>", d("Left one char"))
+map("i", "<C-f>", "<Right>", d("Right one char"))
+map("i", "<C-d>", "<Del>", d("Delete char"))
 
 map("n", "<leader>qn", ":cnext<CR>", vim.tbl_extend("force", opts, { desc = "Next quickfix" }))
 map("n", "<leader>qp", ":cprevious<CR>", vim.tbl_extend("force", opts, { desc = "Prev quickfix" }))
 map("n", "<leader>ql", ":copen<CR>", vim.tbl_extend("force", opts, { desc = "Open quickfix" }))
 
-map("i", "<M-i>", "<C-]>", opts)
-map("n", "<M-i>", "g;", opts)
-
-map("n", "<UP>", ":res +5<CR>", opts)
-map("n", "<DOWN>", ":res -5<CR>", opts)
-map("n", "<LEFT>", ":vertical res +5<CR>", opts)
-map("n", "<RIGHT>", ":vertical res -5<CR>", opts)
+map("i", "<M-i>", "<C-]>", d("Jump to tag"))
+map("n", "<M-i>", "g;", d("Jump to last change"))
 
 -- Window management
 map("n", "<leader>wo", "<C-w>o", vim.tbl_extend("force", opts, { desc = "Close other windows" }))
 map("n", "<leader>wr", "<C-w>R", vim.tbl_extend("force", opts, { desc = "Rotate windows" }))
 map("n", "<leader>wx", "<C-w>x", vim.tbl_extend("force", opts, { desc = "Swap windows" }))
 map("n", "<leader>w=", "<C-w>=", vim.tbl_extend("force", opts, { desc = "Equal windows" }))
-map("n", "<leader>wT", "<C-w>T", vim.tbl_extend("force", opts, { desc = "Move to new tab" }))
-map("n", "<leader>w]", "<C-w>]", vim.tbl_extend("force", opts, { desc = "Split tag" }))
-map("n", "<leader>wd", "<C-w>d", vim.tbl_extend("force", opts, { desc = "Split definition" }))
-map("n", "<leader>wf", "<C-w>f", vim.tbl_extend("force", opts, { desc = "Split file" }))
-map("n", "<leader>wi", "<C-w>i", vim.tbl_extend("force", opts, { desc = "Split include" }))
-map("n", "<leader>wF", "<C-w>gF", vim.tbl_extend("force", opts, { desc = "Split file:line" }))
-map("n", "<leader>wp", "<C-w>p", vim.tbl_extend("force", opts, { desc = "Previous window" }))
-map("n", "<leader>wq", "<C-w>q", vim.tbl_extend("force", opts, { desc = "Close window" }))
+map("n", "<leader>wt", "<C-w>T", vim.tbl_extend("force", opts, { desc = "Move to new tab" }))
 map("n", "<leader>wH", ":<C-u>topleft vsplit<CR>", vim.tbl_extend("force", opts, { desc = "Split left (topleft)" }))
 map("n", "<leader>wL", ":<C-u>botright vsplit<CR>", vim.tbl_extend("force", opts, { desc = "Split right (botright)" }))
 map("n", "<leader>wJ", ":<C-u>botright split<CR>", vim.tbl_extend("force", opts, { desc = "Split below (botright)" }))
@@ -66,32 +49,32 @@ map("n", "<leader>wj", ":<C-u>rightbelow split<CR>", vim.tbl_extend("force", opt
 
 
 -- Command mode editing
-map("c", "<C-a>", "<Home>", opts)
-map("c", "<C-e>", "<End>", opts)
-map("c", "<C-b>", "<Left>", opts)
-map("c", "<C-f>", "<Right>", opts)
-map("c", "<m-b>", "<C-Left>", opts)
-map("c", "<m-f>", "<C-Right>", opts)
-map("c", "<C-d>", "<Del>", opts)
-map("c", "<c-y>", '<C-r>"', opts)
-map("c", "<C-j>", "<down>", opts)
-map("c", "<C-k>", "<up>", opts)
+map("c", "<C-a>", "<Home>", d("Cmdline: line start"))
+map("c", "<C-e>", "<End>", d("Cmdline: line end"))
+map("c", "<C-b>", "<Left>", d("Cmdline: left one char"))
+map("c", "<C-f>", "<Right>", d("Cmdline: right one char"))
+map("c", "<m-b>", "<C-Left>", d("Cmdline: left one word"))
+map("c", "<m-f>", "<C-Right>", d("Cmdline: right one word"))
+map("c", "<C-d>", "<Del>", d("Cmdline: delete char"))
+map("c", "<c-y>", '<C-r>"', d("Cmdline: paste register"))
+map("c", "<C-j>", "<down>", d("Cmdline: history down"))
+map("c", "<C-k>", "<up>", d("Cmdline: history up"))
 
 -- Text objects for brackets/quotes
-map("o", "inb", [[:<C-u>silent execute "normal! /(\r:nohlsearch\rvi("<CR>]], opts)
-map("o", "ilb", [[:<C-u>silent execute "normal! ?(\r:nohlsearch\rvi("<CR>]], opts)
-map("o", "in[", [[:<C-u>silent execute "normal! /[\r:nohlsearch\rvi["<CR>]], opts)
-map("o", "il[", [[:<C-u>silent execute "normal! ?[\r:nohlsearch\rvi["<CR>]], opts)
-map("o", "in]", [[:<C-u>silent execute "normal! /[\r:nohlsearch\rvi["<CR>]], opts)
-map("o", "il]", [[:<C-u>silent execute "normal! ?[\r:nohlsearch\rvi["<CR>]], opts)
-map("o", "in{", [[:<C-u>silent execute "normal! /{\r:nohlsearch\rvi{"<CR>]], opts)
-map("o", "il{", [[:<C-u>silent execute "normal! ?{\r:nohlsearch\rvi{"<CR>]], opts)
-map("o", "in}", [[:<C-u>silent execute "normal! /{\r:nohlsearch\rvi{"<CR>]], opts)
-map("o", "il}", [[:<C-u>silent execute "normal! ?{\r:nohlsearch\rvi{"<CR>]], opts)
-map("o", 'in"', [[:<C-u>silent execute "normal! /\"\r:nohlsearch\rvi\"" <CR>]], opts)
-map("o", 'il"', [[:<C-u>silent execute "normal! ?\"\r:nohlsearch\rvi\"" <CR>]], opts)
-map("o", "in'", [[:<C-u>silent execute "normal! /'\r:nohlsearch\rvi'"<CR>]], opts)
-map("o", "il'", [[:<C-u>silent execute "normal! ?'\r:nohlsearch\rvi'"<CR>]], opts)
+map("o", "inb", [[:<C-u>silent execute "normal! /(\r:nohlsearch\rvi("<CR>]], d("Inside next ()"))
+map("o", "ilb", [[:<C-u>silent execute "normal! ?(\r:nohlsearch\rvi("<CR>]], d("Inside last ()"))
+map("o", "in[", [[:<C-u>silent execute "normal! /[\r:nohlsearch\rvi["<CR>]], d("Inside next []"))
+map("o", "il[", [[:<C-u>silent execute "normal! ?[\r:nohlsearch\rvi["<CR>]], d("Inside last []"))
+map("o", "in]", [[:<C-u>silent execute "normal! /[\r:nohlsearch\rvi["<CR>]], d("Inside next []"))
+map("o", "il]", [[:<C-u>silent execute "normal! ?[\r:nohlsearch\rvi["<CR>]], d("Inside last []"))
+map("o", "in{", [[:<C-u>silent execute "normal! /{\r:nohlsearch\rvi{"<CR>]], d("Inside next {}"))
+map("o", "il{", [[:<C-u>silent execute "normal! ?{\r:nohlsearch\rvi{"<CR>]], d("Inside last {}"))
+map("o", "in}", [[:<C-u>silent execute "normal! /{\r:nohlsearch\rvi{"<CR>]], d("Inside next {}"))
+map("o", "il}", [[:<C-u>silent execute "normal! ?{\r:nohlsearch\rvi{"<CR>]], d("Inside last {}"))
+map("o", 'in"', [[:<C-u>silent execute "normal! /\"\r:nohlsearch\rvi\"" <CR>]], d('Inside next ""'))
+map("o", 'il"', [[:<C-u>silent execute "normal! ?\"\r:nohlsearch\rvi\"" <CR>]], d('Inside last ""'))
+map("o", "in'", [[:<C-u>silent execute "normal! /'\r:nohlsearch\rvi'"<CR>]], d("Inside next ''"))
+map("o", "il'", [[:<C-u>silent execute "normal! ?'\r:nohlsearch\rvi'"<CR>]], d("Inside last ''"))
 
 -- Tab management
 map("n", "<leader>te", ":<C-u>tabnew<CR>", vim.tbl_extend("force", opts, { desc = "New tab" }))
@@ -115,3 +98,123 @@ map("n", "<leader>sd", ":Sd<CR>", vim.tbl_extend("force", opts, { desc = "SOS di
 map("n", "<leader>sD", ":Sdf<CR>", vim.tbl_extend("force", opts, { desc = "SOS discard -F" }))
 map("n", "<leader>su", ":Sup<CR>", vim.tbl_extend("force", opts, { desc = "SOS update" }))
 map("n", "<leader>sr", ":Scr<CR>", vim.tbl_extend("force", opts, { desc = "SOS create" }))
+
+-- Toggle value under cursor
+local toggle_dict = {
+    { "&", "|" },
+    { "~", "!" },
+    { "always_ff", "always_latch", "always_comb" },
+    { "posedge", "negedge" },
+    { "logic", "bit" },
+    { "@", "wait" },
+    { " <=", " =" },
+    { "input", "output", "ref" },
+    { "'b", "'h", "'d" },
+    { "endfunction", "endtask", "endclass", "endinterface", "endmodule", "end", "endclocking" },
+    { "function", "task" },
+    { "WRITE", "READ" },
+}
+
+local function toggle_value()
+    local word = vim.fn.expand("<cword>")
+    for _, group in ipairs(toggle_dict) do
+        for i, v in ipairs(group) do
+            if word == v then
+                local next = group[i % #group + 1]
+                vim.cmd("normal! ciw" .. next)
+                return
+            end
+        end
+    end
+end
+
+map("n", "<leader>sw", toggle_value, vim.tbl_extend("force", opts, { desc = "Toggle value" }))
+
+-- Smart GF: open file and jump to line
+local smart_gf_config = {
+    -- 文件名包裹符号（可添加更多，如 [[ 或 ` ）
+    quote_chars = { '"', "'" },
+
+    -- 行号分隔符（可添加更多，如 | 或 -> 等）
+    separators = { ":", ";", ",", "(" },
+
+    -- 需要从文件名中移除的字符
+    trim_chars = { '"', "'", " " },
+}
+
+-- 根据配置生成匹配模式
+local function build_smart_gf_patterns()
+    local patterns = {}
+
+    -- 1. 带引号的格式: "file", line 或 'file', line
+    for _, q in ipairs(smart_gf_config.quote_chars) do
+        local q_esc = vim.pesc(q)
+        table.insert(patterns, {
+            q_esc .. '([^' .. q_esc .. ']+)' .. q_esc .. ',?%s*(%d+)',
+            1, 2,
+        })
+    end
+
+    -- 2. 不带引号但有分隔符的格式: file:line, file;line, file, line
+    for _, sep in ipairs(smart_gf_config.separators) do
+        local sep_esc = vim.pesc(sep)
+        if sep == ":" then
+            -- file:line
+            table.insert(patterns, { '([^%s]+)' .. sep_esc .. '(%d+)', 1, 2 })
+        elseif sep == "," then
+            -- file, line (逗号后可能有空格)
+            table.insert(patterns, { '([^%s]+)' .. sep_esc .. '%s*(%d+)', 1, 2 })
+        else
+            -- file;line 等
+            table.insert(patterns, { '([^%s]+)' .. sep_esc .. '(%d+)', 1, 2 })
+        end
+    end
+
+    -- 3. file(line) 格式 (如果有 ( 作为分隔符)
+    for _, sep in ipairs(smart_gf_config.separators) do
+        if sep == "(" then
+            table.insert(patterns, { '([^%s]+)%((%d+)%)', 1, 2 })
+        end
+    end
+
+    return patterns
+end
+
+local smart_gf_patterns = build_smart_gf_patterns()
+
+local function smart_gf(cmd)
+    local line = vim.api.nvim_get_current_line()
+
+    for _, pattern_info in ipairs(smart_gf_patterns) do
+        local pattern, filepath_group, line_group = pattern_info[1], pattern_info[2], pattern_info[3]
+        local filepath, linenr = line:match(pattern)
+
+        if filepath and linenr then
+            for _, char in ipairs(smart_gf_config.trim_chars) do
+                filepath = filepath:gsub(vim.pesc(char), "")
+            end
+
+            local expanded = vim.fn.expand(filepath)
+            if vim.fn.filereadable(expanded) == 0 then
+                vim.notify("File not found: " .. filepath, vim.log.levels.ERROR)
+                return
+            end
+
+            if cmd == "split" then
+                vim.cmd("split")
+            end
+            vim.cmd("edit " .. vim.fn.fnameescape(filepath))
+            vim.api.nvim_win_set_cursor(0, { tonumber(linenr), 0 })
+            vim.cmd("normal! zz")
+            return
+        end
+    end
+
+    local ok = pcall(vim.cmd, "normal! " .. (cmd == "split" and "gF" or "gf"))
+    if not ok then
+        vim.notify("gf: can't find file — " .. vim.fn.expand("<cfile>"), vim.log.levels.WARN)
+    end
+end
+
+map("n", "gf", function() smart_gf("edit") end, vim.tbl_extend("force", opts, { desc = "Smart gf (file:line)" }))
+map("n", "gF", function() smart_gf("split") end, vim.tbl_extend("force", opts, { desc = "Smart gf (split)" }))
