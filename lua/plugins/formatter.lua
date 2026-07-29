@@ -29,7 +29,7 @@ return {
             },
         },
         keys = {
-            { "<leader>F", function() require("conform").format({ async = true, lsp_format = "fallback" }) end, mode = { "n", "x" }, desc = "Format file" },
+            { "<leader>lf", function() require("conform").format({ async = true, lsp_format = "fallback" }) end, mode = { "n", "x" }, desc = "Format file" },
         },
         config = function(_, opts)
             require("conform").setup(opts)

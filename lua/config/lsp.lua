@@ -7,6 +7,10 @@ local root_markers = require("config.root_markers")
 function M.setup()
     local capabilities = vim.lsp.protocol.make_client_capabilities()
     capabilities = require("blink.cmp").get_lsp_capabilities(capabilities)
+    capabilities.textDocument.foldingRange = {
+        dynamicRegistration = false,
+        lineFoldingOnly = true,
+    }
 
     local fallback_messages = {
         ["textDocument/definition"] = "No definition found",
@@ -77,8 +81,7 @@ function M.setup()
                 end
                 if next(all_items) then
                     vim.fn.setqflist(all_items)
-                    vim.api.nvim_command("copen")
-                    vim.api.nvim_command("cfirst")
+                    vim.api.nvim_command("Trouble qflist open")
                 else
                     exec_fallback(method, fallback, word)
                 end
@@ -100,38 +103,22 @@ function M.setup()
             return { buffer = bufnr, silent = true, noremap = true, desc = desc }
         end
 
-        vim.keymap.set("n", "K", vim.lsp.buf.hover, bopts("Hover"))
+        vim.keymap.set("n", "K", function()
+            local winid = require("ufo").peekFoldedLinesUnderCursor()
+            if not winid then
+                vim.lsp.buf.hover()
+            end
+        end, bopts("Peek fold or LSP hover"))
         vim.keymap.set("n", "gk", vim.lsp.buf.signature_help, bopts("Signature help"))
-        vim.keymap.set("n", "<leader>dr", vim.lsp.buf.rename, bopts("LSP rename"))
-        vim.keymap.set("n", "<leader>dn", function()
+        vim.keymap.set("n", "grd", vim.diagnostic.open_float, bopts("Diagnostic float"))
+        vim.keymap.set("n", "grj", function()
             vim.diagnostic.jump({ count = 1 })
+            vim.schedule(vim.diagnostic.open_float)
         end, bopts("Next diagnostic"))
-        vim.keymap.set("n", "<leader>dp", function()
+        vim.keymap.set("n", "grk", function()
             vim.diagnostic.jump({ count = -1 })
+            vim.schedule(vim.diagnostic.open_float)
         end, bopts("Prev diagnostic"))
-        vim.keymap.set("n", "<leader>dd", vim.diagnostic.open_float, bopts("Diagnostic float"))
-        vim.keymap.set("n", "<leader>dl", function()
-            vim.diagnostic.setloclist()
-            vim.cmd("lopen")
-        end, bopts("Diagnostics to loclist"))
-        vim.keymap.set("n", "<leader>de", function()
-            vim.diagnostic.setloclist({ severity = vim.diagnostic.severity.ERROR })
-            vim.cmd("lopen")
-        end, bopts("Errors only"))
-        vim.keymap.set("n", "<leader>dw", function()
-            vim.diagnostic.setloclist({ severity = vim.diagnostic.severity.WARN })
-            vim.cmd("lopen")
-        end, bopts("Warnings only"))
-        vim.keymap.set("n", "<leader>di", function()
-            vim.diagnostic.setloclist({ severity = vim.diagnostic.severity.INFO })
-            vim.cmd("lopen")
-        end, bopts("Info only"))
-        vim.keymap.set("n", "<leader>dh", function()
-            vim.diagnostic.setloclist({ severity = vim.diagnostic.severity.HINT })
-            vim.cmd("lopen")
-        end, bopts("Hints only"))
-        vim.keymap.set("n", "<leader>da", vim.lsp.buf.code_action, bopts("Code action"))
-        vim.keymap.set("x", "<leader>da", vim.lsp.buf.code_action, bopts("Code action"))
     end
 
     vim.lsp.config.pyright = {

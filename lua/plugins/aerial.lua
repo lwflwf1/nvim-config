@@ -3,12 +3,21 @@ return {
         "stevearc/aerial.nvim",
         cmd = { "AerialToggle", "AerialOpen", "AerialNavToggle" },
         dependencies = {
-            "nvim-tree/nvim-web-devicons",
+            "echasnovski/mini.nvim",
+            "ibhagwan/fzf-lua",
         },
         keys = {
-            { "<leader>l", "<cmd>AerialToggle!<CR>", desc = "Aerial outline" },
+            { "<leader>lo", "<cmd>AerialToggle!<CR>", desc = "Aerial outline" },
+            { "<leader>lO", "<cmd>AerialNavToggle<CR>", desc = "Aerial nav window" },
+            { "<leader>fs", function() require("aerial").fzf_lua_picker() end, desc = "Aerial symbols (fzf)" },
+            { "]s", function() require("aerial").next() end, desc = "Next symbol" },
+            { "[s", function() require("aerial").prev() end, desc = "Prev symbol" },
         },
         opts = {
+            attach_mode = "global",
+            manage_folds = true,
+            link_folds_to_tree = true,
+            link_tree_to_folds = true,
             backends = { "treesitter", "lsp", "markdown" },
             layout = {
                 default_direction = "prefer_right",
