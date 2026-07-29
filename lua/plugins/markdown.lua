@@ -39,17 +39,6 @@ return {
         end,
     },
     {
-        "dhruvasagar/vim-table-mode",
-        ft = "markdown",
-        keys = {
-            { "<leader>tb", "<cmd>TableModeEnable<CR>", desc = "Table mode", mode = "n" },
-                    { "<leader>tt", "<cmd>TableModeTableize<CR>", desc = "Tableize", mode = "n" },
-        },
-        config = function()
-            vim.g.table_mode_corner = "|"
-        end,
-    },
-    {
         "bullets-vim/bullets.vim",
         ft = { "markdown", "text", "gitcommit", "scratch" },
         config = function()
@@ -73,7 +62,7 @@ return {
             require("markview").setup({
                 preview = {
                     enable_hybrid_mode = true,
-                    icon_provider = "devicons",
+                    icon_provider = "mini",
                     modes = { "n", "no", "c", "i" },
                     hybrid_modes = { "i" },
                     edit_range = { 0, 0 },
