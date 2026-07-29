@@ -1,10 +1,5 @@
 return {
     {
-        "nvim-tree/nvim-web-devicons",
-        lazy = true,
-        opts = {},
-    },
-    {
         "olimorris/onedarkpro.nvim",
         name = "onedarkpro",
         lazy = false,
@@ -29,31 +24,9 @@ return {
         end,
     },
     {
-        "catppuccin/nvim",
-        name = "catppuccin",
-        lazy = true,
-        priority = 1000,
-        opts = {
-            flavour = "mocha",
-            transparent_background = false,
-            term_colors = true,
-            integrations = {
-                telescope = true,
-                lualine = true,
-                indent_blankline = false,
-                gitsigns = true,
-                which_key = true,
-                nvimtree = false,
-            },
-        },
-        config = function(_, opts)
-            require("catppuccin").setup(opts)
-        end,
-    },
-    {
         "nvim-lualine/lualine.nvim",
         event = "VeryLazy",
-        dependencies = { "nvim-tree/nvim-web-devicons" },
+        dependencies = { "echasnovski/mini.nvim" },
         opts = {
             options = {
                 theme = "auto",
@@ -67,7 +40,10 @@ return {
             },
             sections = {
                 lualine_a = { { "mode", separator = { left = "" }, right_padding = 2 } },
-                lualine_b = { "branch", "diff" },
+                lualine_b = {
+                    { "branch", icon = "" },
+                    { "diff", colored = true, symbols = { added = " ", modified = " ", removed = " " } },
+                },
                 lualine_c = { { "filename", path = 1 }, "diagnostics" },
                 lualine_x = {
                     { "filetype", padding = { left = 1, right = 1 } },
@@ -78,6 +54,18 @@ return {
                         end,
                         padding = { left = 1, right = 1 },
                     },
+                    -- {
+                    --     function() return require("noice").api.status.command.get() end,
+                    --     cond = function() return package.loaded["noice"] and require("noice").api.status.command.has() end,
+                    -- },
+                    -- {
+                    --     function() return require("noice").api.status.mode.get() end,
+                    --     cond = function() return package.loaded["noice"] and require("noice").api.status.mode.has() end,
+                    -- },
+                    -- {
+                    --     function() return require("noice").api.status.search.get() end,
+                    --     cond = function() return package.loaded["noice"] and require("noice").api.status.search.has() end,
+                    -- },
                 },
                 lualine_y = {},
                 lualine_z = {
@@ -108,17 +96,8 @@ return {
     {
         "akinsho/bufferline.nvim",
         event = "VeryLazy",
-        dependencies = { "nvim-tree/nvim-web-devicons" },
+        dependencies = { "echasnovski/mini.nvim" },
         keys = {
-            { "<leader>1", "<cmd>BufferLineGoToBuffer 1<CR>", desc = "Buffer 1" },
-            { "<leader>2", "<cmd>BufferLineGoToBuffer 2<CR>", desc = "Buffer 2" },
-            { "<leader>3", "<cmd>BufferLineGoToBuffer 3<CR>", desc = "Buffer 3" },
-            { "<leader>4", "<cmd>BufferLineGoToBuffer 4<CR>", desc = "Buffer 4" },
-            { "<leader>5", "<cmd>BufferLineGoToBuffer 5<CR>", desc = "Buffer 5" },
-            { "<leader>6", "<cmd>BufferLineGoToBuffer 6<CR>", desc = "Buffer 6" },
-            { "<leader>7", "<cmd>BufferLineGoToBuffer 7<CR>", desc = "Buffer 7" },
-            { "<leader>8", "<cmd>BufferLineGoToBuffer 8<CR>", desc = "Buffer 8" },
-            { "<leader>9", "<cmd>BufferLineGoToBuffer 9<CR>", desc = "Buffer 9" },
             { "<leader>bn", "<cmd>BufferLineMoveNext<CR>", desc = "Move buf next" },
             { "<leader>bp", "<cmd>BufferLineMovePrev<CR>", desc = "Move buf prev" },
             { "<leader>bb", "<cmd>BufferLinePick<CR>", desc = "Pick buffer" },
@@ -142,9 +121,9 @@ return {
                 tab_size = 18,
                 show_buffer_close_icons = true,
                 get_element_icon = function(e)
-                    local ok, devicons = pcall(require, "nvim-web-devicons")
+                    local ok, mini_icons = pcall(require, "mini.icons")
                     if ok then
-                        return devicons.get_icon_by_filetype(e.filetype, { default = false })
+                        return mini_icons.get("filetype", e.filetype)
                     end
                     return "[]"
                 end,
@@ -157,5 +136,38 @@ return {
             },
         },
     },
-
+    {
+        "folke/noice.nvim",
+        event = "VeryLazy",
+        dependencies = {
+            "MunifTanjim/nui.nvim",
+        },
+        require("noice").setup({
+            views = {
+                confirm = {
+                    backend = "popup",
+                    position = { row = "50%", col = "50%" },
+                },
+            },
+            cmdline = {
+                view = "cmdline",
+            },
+            lsp = {
+                -- override markdown rendering so that **cmp** and other plugins use **Treesitter**
+                override = {
+                    ["vim.lsp.util.convert_input_to_markdown_lines"] = true,
+                    ["vim.lsp.util.stylize_markdown"] = true,
+                    ["cmp.entry.get_documentation"] = true, -- requires hrsh7th/nvim-cmp
+                },
+            },
+            -- you can enable a preset for easier configuration
+            presets = {
+                bottom_search = true, -- use a classic bottom cmdline for search
+                command_palette = true, -- position the cmdline and popupmenu together
+                long_message_to_split = true, -- long messages will be sent to a split
+                inc_rename = false, -- enables an input dialog for inc-rename.nvim
+                lsp_doc_border = false, -- add a border to hover docs and signature help
+            },
+        })
+    },
 }

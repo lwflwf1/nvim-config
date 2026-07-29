@@ -1,4 +1,4 @@
-﻿vim.filetype.add({
+vim.filetype.add({
     extension = {
         v = "systemverilog",
         vh = "systemverilog",
@@ -57,15 +57,6 @@ autocmd("FileType", {
     end,
 })
 
-local log_fold = augroup("log_fold", { clear = true })
-autocmd("FileType", {
-    group = log_fold,
-    pattern = "log",
-    callback = function()
-        vim.opt_local.foldmethod = "indent"
-    end,
-})
-
 local nolist = augroup("nolist_group", { clear = true })
 autocmd("FileType", {
     group = nolist,
@@ -80,7 +71,7 @@ autocmd("FileType", {
     group = q_help,
     pattern = "help",
     callback = function()
-        vim.keymap.set("n", "q", ":bwipeout<CR>", { buffer = true, silent = true })
+        vim.keymap.set("n", "q", ":bwipeout<CR>", { buffer = true, silent = true, desc = "Close help buffer" })
     end,
 })
 

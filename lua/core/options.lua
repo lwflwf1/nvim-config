@@ -11,6 +11,7 @@ vim.api.nvim_create_autocmd("BufWritePre", {
   end,
 })
 opt.termguicolors = true
+
 opt.autoindent = true
 opt.smartindent = true
 opt.mouse = "a"
@@ -33,8 +34,7 @@ opt.softtabstop = 4
 opt.shiftround = true
 opt.list = true
 opt.listchars = "tab:» ,trail:·,extends:→,precedes:←"
-opt.foldmethod = "expr"
-opt.foldexpr = "v:lua.vim.treesitter.foldexpr()"
+
 opt.foldenable = true
 opt.foldlevelstart = 99
 opt.laststatus = 3
