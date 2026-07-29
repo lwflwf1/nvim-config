@@ -3,7 +3,7 @@ local root_markers = require("config.root_markers")
 return {
     "stevearc/oil.nvim",
     dependencies = {
-        "nvim-tree/nvim-web-devicons",
+        "echasnovski/mini.nvim",
         "malewicz1337/oil-git.nvim",
     },
     event = "VeryLazy",
@@ -76,6 +76,25 @@ return {
                     end
                 end,
                 desc = "Open file in right window / enter directory",
+            },
+            ["<leader>fx"] = {
+                callback = function()
+                    local oil = require("oil")
+                    local prefills = { paths = oil.get_current_dir() }
+
+                    local grug_far = require("grug-far")
+                    if not grug_far.has_instance("explorer") then
+                        grug_far.open({
+                            instanceName = "explorer",
+                            prefills = prefills,
+                            staticTitle = "Find and Replace from Explorer",
+                        })
+                    else
+                        grug_far.get_instance("explorer"):open()
+                        grug_far.get_instance("explorer"):update_input_values(prefills, false)
+                    end
+                end,
+                desc = "Find and Replace in directory",
             },
         },
         win_options = {
