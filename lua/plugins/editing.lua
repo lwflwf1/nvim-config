@@ -147,12 +147,6 @@
             hl(0, "MultiCursorDisabledSign", { link = "SignColumn"})
         end
     },
-
-    {
-        keys = {
-            { "<leader>uu", function() Snacks.picker.undo() end, desc = "Undo history" },
-        },
-    },
     {
         "folke/which-key.nvim",
         event = "VeryLazy",
