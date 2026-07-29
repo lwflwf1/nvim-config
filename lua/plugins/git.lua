@@ -20,20 +20,20 @@ return {
         "lewis6991/gitsigns.nvim",
         event = { "BufReadPre", "BufNewFile" },
         keys = {
-            { "<leader>gj", "<cmd>Gitsigns nav_hunk next<CR>", desc = "Next hunk" },
-            { "<leader>gk", "<cmd>Gitsigns nav_hunk prev<CR>", desc = "Prev hunk" },
-            { "<leader>gh", "<cmd>Gitsigns preview_hunk<CR>", desc = "Preview hunk" },
-            { "<leader>gH", "<cmd>Gitsigns preview_hunk_inline<CR>", desc = "Preview hunk inline" },
-            { "<leader>gs", "<cmd>Gitsigns stage_hunk<CR>", desc = "Stage hunk" },
-            { "<leader>gS", "<cmd>Gitsigns stage_buffer<CR>", desc = "Stage buffer" },
-            { "<leader>gu", "<cmd>Gitsigns reset_hunk<CR>", desc = "Reset hunk" },
-            { "<leader>gU", "<cmd>Gitsigns reset_buffer<CR>", desc = "Reset buffer" },
-            { "<leader>gb", "<cmd>Gitsigns blame_line<CR>", desc = "Blame line" },
-            { "<leader>gB", "<cmd>Gitsigns blame<CR>", desc = "Blame file" },
+            { "<leader>gj", "<cmd>Gitsigns nav_hunk next<CR>",             desc = "Next hunk" },
+            { "<leader>gk", "<cmd>Gitsigns nav_hunk prev<CR>",             desc = "Prev hunk" },
+            { "<leader>gh", "<cmd>Gitsigns preview_hunk<CR>",              desc = "Preview hunk" },
+            { "<leader>gH", "<cmd>Gitsigns preview_hunk_inline<CR>",       desc = "Preview hunk inline" },
+            { "<leader>gs", "<cmd>Gitsigns stage_hunk<CR>",                desc = "Stage hunk" },
+            { "<leader>gS", "<cmd>Gitsigns stage_buffer<CR>",              desc = "Stage buffer" },
+            { "<leader>gu", "<cmd>Gitsigns reset_hunk<CR>",                desc = "Reset hunk" },
+            { "<leader>gU", "<cmd>Gitsigns reset_buffer<CR>",              desc = "Reset buffer" },
+            { "<leader>gb", "<cmd>Gitsigns blame_line<CR>",                desc = "Blame line" },
+            { "<leader>gB", "<cmd>Gitsigns blame<CR>",                     desc = "Blame file" },
             { "<leader>ga", "<cmd>Gitsigns toggle_current_line_blame<CR>", desc = "Toggle line blame" },
-            { "<leader>gw", "<cmd>Gitsigns toggle_word_diff<CR>", desc = "Toggle word diff" },
-            { "<leader>gn", "<cmd>Gitsigns toggle_numhl<CR>", desc = "Toggle numhl" },
-            { "<leader>gl", "<cmd>Gitsigns toggle_linehl<CR>", desc = "Toggle linehl" },
+            { "<leader>gw", "<cmd>Gitsigns toggle_word_diff<CR>",          desc = "Toggle word diff" },
+            { "<leader>gn", "<cmd>Gitsigns toggle_numhl<CR>",              desc = "Toggle numhl" },
+            { "<leader>gl", "<cmd>Gitsigns toggle_linehl<CR>",             desc = "Toggle linehl" },
 
             { "ih", "<cmd>Gitsigns select_hunk<CR>", desc = "Inner hunk", mode = { "o", "x" } },
             { "ah", "<cmd>Gitsigns select_hunk<CR>", desc = "Around hunk", mode = { "o", "x" } },
@@ -80,7 +80,7 @@ return {
         cmd = { "DiffviewOpen", "DiffviewFileHistory" },
         keys = {
             {
-                "<leader>gv",
+                "<leader>gd",
                 function()
                     local lib = require("diffview.lib")
                     local view = lib.get_current_view()
@@ -95,6 +95,18 @@ return {
             { "<leader>gf", "<cmd>DiffviewFileHistory<CR>", desc = "Diffview history" },
             { "<leader>gt", "<cmd>DiffviewToggleFiles<CR>", desc = "Diffview toggle files" },
         },
-        opts = {},
+        opts = {
+            keymaps = {
+                view = {
+                    { "n", "q", "<Cmd>DiffviewClose<CR>", { desc = "Close diffview" } },
+                },
+                file_panel = {
+                    { "n", "q", "<Cmd>DiffviewClose<CR>", { desc = "Close diffview" } },
+                },
+                file_history_panel = {
+                    { "n", "q", "<Cmd>DiffviewClose<CR>", { desc = "Close diffview" } },
+                },
+            },
+        },
     },
 }
