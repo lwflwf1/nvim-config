@@ -82,6 +82,7 @@ return {
     },
     {
         "kevinhwang91/promise-async",
-        lazy = true,
+        lazy = false,
+        priority = 1000,
     },
 }
