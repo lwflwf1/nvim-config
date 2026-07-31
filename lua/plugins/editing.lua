@@ -3,7 +3,6 @@
         "echasnovski/mini.nvim",
         event = "VeryLazy",
         config = function()
-            require("mini.icons").setup()
             require("mini.pairs").setup()
             vim.api.nvim_create_autocmd("FileType", {
                 pattern = { "TelescopePrompt", "vim" },

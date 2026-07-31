@@ -3,7 +3,7 @@ local root_markers = require("config.root_markers")
 return {
     "stevearc/oil.nvim",
     dependencies = {
-        "echasnovski/mini.nvim",
+        "nvim-tree/nvim-web-devicons",
         "malewicz1337/oil-git.nvim",
     },
     event = "VeryLazy",

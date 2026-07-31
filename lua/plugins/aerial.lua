@@ -3,7 +3,6 @@ return {
         "stevearc/aerial.nvim",
         cmd = { "AerialToggle", "AerialOpen", "AerialNavToggle" },
         dependencies = {
-            "echasnovski/mini.nvim",
             "ibhagwan/fzf-lua",
         },
         keys = {

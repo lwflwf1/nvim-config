@@ -31,7 +31,7 @@ return {
     {
         "nvim-lualine/lualine.nvim",
         event = "VeryLazy",
-        dependencies = { "echasnovski/mini.nvim" },
+        dependencies = { "nvim-tree/nvim-web-devicons" },
         opts = {
             options = {
                 theme = "auto",
@@ -101,7 +101,7 @@ return {
     {
         "akinsho/bufferline.nvim",
         event = "VeryLazy",
-        dependencies = { "echasnovski/mini.nvim" },
+        dependencies = { "nvim-tree/nvim-web-devicons" },
         keys = {
             { "<leader>bn", "<cmd>BufferLineMoveNext<CR>", desc = "Move buf next" },
             { "<leader>bp", "<cmd>BufferLineMovePrev<CR>", desc = "Move buf prev" },
@@ -126,9 +126,9 @@ return {
                 tab_size = 18,
                 show_buffer_close_icons = true,
                 get_element_icon = function(e)
-                    local ok, mini_icons = pcall(require, "mini.icons")
+                    local ok, devicons = pcall(require, "nvim-web-devicons")
                     if ok then
-                        return mini_icons.get("filetype", e.filetype)
+                        return devicons.get_icon_by_filetype(e.filetype)
                     end
                     return "[]"
                 end,

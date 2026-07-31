@@ -62,7 +62,7 @@ return {
             require("markview").setup({
                 preview = {
                     enable_hybrid_mode = true,
-                    icon_provider = "mini",
+                    icon_provider = "devicons",
                     modes = { "n", "no", "c", "i" },
                     hybrid_modes = { "i" },
                     edit_range = { 0, 0 },
