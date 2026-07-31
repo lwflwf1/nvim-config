@@ -4,8 +4,13 @@ return {
         name = "onedarkpro",
         lazy = false,
         priority = 1001,
-        opts = {},
-        config = function()
+        opts = {
+            highlights = {
+                ["@punctuation.bracket"] = { fg = "#61afef" }, -- brackets same color as function call (blue)
+            },
+        },
+        config = function(_, opts)
+            require("onedarkpro").setup(opts)
             pcall(vim.cmd.colorscheme, "onedark_vivid")
         end,
     },

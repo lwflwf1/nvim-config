@@ -12,6 +12,34 @@ return {
             vim.g.no_plugin_maps = true
         end,
         config = function()
+            -- Override systemverilog parser to use personal fork (dynamic branch tracking)
+            local parsers = require("nvim-treesitter.parsers")
+            parsers.systemverilog = {
+                install_info = {
+                    url = "https://github.com/lwflwf1/tree-sitter-systemverilog",
+                    branch = "master",
+                    queries = "queries",
+                },
+                maintainers = { "@lwflwf1" },
+                tier = 2,
+            }
+            -- TSUpdate reloads parsers module; re-apply override
+            vim.api.nvim_create_autocmd("User", {
+                pattern = "TSUpdate",
+                callback = function()
+                    local p = require("nvim-treesitter.parsers")
+                    p.systemverilog = {
+                        install_info = {
+                            url = "https://github.com/lwflwf1/tree-sitter-systemverilog",
+                            branch = "master",
+                            queries = "queries",
+                        },
+                        maintainers = { "@lwflwf1" },
+                        tier = 2,
+                    }
+                end,
+            })
+
             require("nvim-treesitter").install({
                 "python", "perl", "systemverilog",
                 "lua", "vim", "vimdoc", "bash",
