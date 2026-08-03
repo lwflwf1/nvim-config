@@ -40,17 +40,7 @@ return {
                 end,
             })
 
-            require("nvim-treesitter").install({
-                "python", "perl", "systemverilog",
-                "lua", "vim", "vimdoc", "bash",
-                "markdown", "markdown_inline",
-                "c", "cpp", "go", "rust",
-                "json", "yaml", "toml",
-                "regex", "gitcommit", "gitignore",
-                "diff", "html", "css",
-                "make", "cmake", "dockerfile",
-                "git_rebase", "gitattributes",
-            })
+            require("nvim-treesitter").install(require("config.parsers"))
 
             vim.api.nvim_create_autocmd("FileType", {
                 callback = function(args)

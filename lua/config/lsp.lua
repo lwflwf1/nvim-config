@@ -1,6 +1,21 @@
 local M = {}
 local root_markers = require("config.root_markers")
 
+---@type table<string,string> server name -> mason package name
+--- `perl-lsp` is excluded: it ships as the `perllsp` binary, which is NOT a
+--- mason package (installed via Strawberry/APK, not mason).
+M.tool_mapping = {
+    pyright = "pyright",
+    ruff = "ruff",
+    bashls = "bash-language-server",
+    lua_ls = "lua-language-server",
+    jsonls = "json-lsp",
+    yamlls = "yaml-language-server",
+    verible = "verible",
+    clangd = "clangd",
+    rust_analyzer = "rust-analyzer",
+}
+
 ---@return table schemas list, or {} if schemastore.nvim is unavailable
 local function json_schemas()
     local ok, schemastore = pcall(require, "schemastore")
@@ -269,6 +284,7 @@ function M.setup()
 
     local servers = { "pyright", "ruff", "perl-lsp", "bashls", "lua_ls", "jsonls", "yamlls", "verible", "clangd", "rust_analyzer" }
     vim.lsp.enable(servers)
+    M.servers = servers
 
     vim.diagnostic.config({
         virtual_text = false,
