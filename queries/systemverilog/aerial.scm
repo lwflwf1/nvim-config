@@ -69,8 +69,8 @@
   (data_declaration
     (list_of_variable_decl_assignments
       (variable_decl_assignment
-        name: (simple_identifier) @name)))
-  (#set! "kind" "Property")) @type
+        name: (simple_identifier) @name) @type))
+  (#set! "kind" "Property"))
 
 ;-------------------------------------
 ; Interface class / Covergroup / Assertion
@@ -90,9 +90,9 @@
 (data_declaration
   (list_of_variable_decl_assignments
     (variable_decl_assignment
-      name: (simple_identifier) @name))
+      name: (simple_identifier) @name) @type)
   (#not-has-ancestor? @type class_property)
-  (#set! "kind" "Variable")) @type
+  (#set! "kind" "Variable"))
 
 (net_declaration
   (list_of_net_decl_assignments
@@ -129,3 +129,11 @@
 
 (constraint_prototype (simple_identifier) @name
   (#set! "kind" "Constraint")) @type
+
+;-------------------------------------
+; Sequential block (begin/end)
+;-------------------------------------
+(seq_block
+  .
+  (simple_identifier)? @name
+  (#set! "kind" "Block")) @type

@@ -14,11 +14,7 @@ return {
         },
         opts = function()
             local function apply_filter(src_bufnr, kinds)
-                if kinds then
-                    vim.b[src_bufnr].aerial_filter_kind = kinds
-                else
-                    vim.b[src_bufnr].aerial_filter_kind = nil
-                end
+                vim.b[src_bufnr].aerial_filter_kind = kinds
                 require("aerial").refetch_symbols(src_bufnr)
             end
 
@@ -47,7 +43,12 @@ return {
                 return {
                     callback = function()
                         local sb = src_bufnr()
-                        local merged = kinds and vim.list_extend(vim.deepcopy(kinds), container_kinds(sb)) or nil
+                        local merged
+                        if kinds == false then
+                            merged = false
+                        else
+                            merged = kinds and vim.list_extend(vim.deepcopy(kinds), container_kinds(sb)) or nil
+                        end
                         apply_filter(sb, merged)
                     end,
                     desc = desc or "",
@@ -92,7 +93,7 @@ return {
                 filter_kind = {
                     "Class", "Constructor", "Function", "Interface", "Module",
                     "Variable", "Property", "Constraint", "AssertProperty",
-                    "Clocking", "Block", "Covergroup",
+                    "Clocking", "Covergroup",
                 },
                 icons = {
                     Clocking       = "",
@@ -103,12 +104,14 @@ return {
                 },
                 show_guides = true,
                 keymaps = {
-                    ["sf"] = filter({ "Function" }, "Filter: functions"),
-                    ["sc"] = filter({ "Class", "Interface", "Module", "Package" }, "Filter: classes/modules"),
-                    ["sp"] = filter({ "Property", "Constraint", "AssertProperty" }, "Filter: properties"),
-                    ["sv"] = filter({ "Variable" }, "Filter: variables"),
-                    ["so"] = filter({ "Clocking", "Block", "Covergroup" }, "Filter: other"),
-                    ["sa"] = filter(nil, "Show all symbols"),
+                    ["sf"] = filter({ "Function", "Constructor" }, "Filter: Functions/Constructor"),
+                    ["sc"] = filter({ "Class", "Interface", "Module", "Package" }, "Filter: Class/Interface/Module/Package"),
+                    ["sp"] = filter({ "Property", "Constraint", "AssertProperty" }, "Filter: Property/Constraint/AssertProperty"),
+                    ["sv"] = filter({ "Variable" }, "Filter: Variable"),
+                    ["so"] = filter({ "Clocking", "Covergroup" }, "Filter: Clocking/Covergroup"),
+                    ["sb"] = filter({"Block"}, "Filter: Block"),
+                    ["sa"] = filter(false, "Show all symbols"),
+                    ["sr"] = filter(nil, "Restore default"),
                     ["ss"] = {
                         callback = function()
                             open_kind_picker(src_bufnr())
