@@ -6,7 +6,6 @@ return {
       "nvim-lua/plenary.nvim",
       { "0xzhzh/fzf-org.nvim", dependencies = "ibhagwan/fzf-lua" },
       "nvim-orgmode/org-bullets.nvim",
-      "lukas-reineke/headlines.nvim",
       "danilshvalov/org-modern.nvim",
       "seflue/org-link.nvim",
     },
@@ -155,7 +154,7 @@ return {
 
       mappings = { org_return_uses_meta_return = true },
     },
-    config = function(_, opts)
+config = function(_, opts)
       require("orgmode").setup(opts)
       vim.lsp.enable("org")
 
@@ -164,11 +163,11 @@ return {
           concealcursor = true,
           symbols = {
             list = "•",
-            headlines = { "◉", "○", "✸", "✿" },
+            headlines = false,
             checkboxes = {
               todo = { " " },
               done = { "✓" },
-              half = { "" },
+              half = { "" },
             },
           },
         })
@@ -191,17 +190,6 @@ return {
           vim.schedule(function() vim.cmd("redraw!") end)
         end,
       })
-
-      pcall(function()
-        require("headlines").setup({
-          markdown = false,
-          org = {            headline_highlights = {},
-            code_block_highlight = "CodeBlock",
-            dash_highlight = "Dash",
-            fat_headlines = false,
-          },
-        })
-      end)
 
       pcall(function()
         require("org-link").setup({ auto_link_completion = true })
@@ -297,5 +285,14 @@ return {
         once = true,
       })
     end,
+  },
+  {
+    "lukas-reineke/headlines.nvim",
+    ft = "org",
+    dependencies = {
+      "nvim-treesitter/nvim-treesitter",
+      "nvim-orgmode/orgmode",
+    },
+    opts = {},
   },
 }
