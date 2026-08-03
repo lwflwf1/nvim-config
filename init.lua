@@ -1,3 +1,5 @@
+vim.loader.enable()
+
 local os_name = vim.uv.os_uname().sysname
 if os_name == "Windows_NT" then
     vim.g.os = "windows"
@@ -98,3 +100,5 @@ require("lazy").setup({
 })
 
 require("config.lsp").setup()
+
+require("util.tools")

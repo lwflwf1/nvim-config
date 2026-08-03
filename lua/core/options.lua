@@ -144,5 +144,4 @@ end
 vim.cmd.language("en")
 vim.cmd.nohlsearch()
 
-opt.guifont = "JetBrainsMono NF:h15"
 opt.linespace = 2

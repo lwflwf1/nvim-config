@@ -26,7 +26,6 @@ map("i", "<C-d>", "<Del>", d("Delete char"))
 
 map("n", "<leader>qn", ":cnext<CR>", vim.tbl_extend("force", opts, { desc = "Next quickfix" }))
 map("n", "<leader>qp", ":cprevious<CR>", vim.tbl_extend("force", opts, { desc = "Prev quickfix" }))
-map("n", "<leader>ql", ":copen<CR>", vim.tbl_extend("force", opts, { desc = "Open quickfix" }))
 
 map("i", "<M-i>", "<C-]>", d("Jump to tag"))
 map("n", "<M-i>", "g;", d("Jump to last change"))
