@@ -2,8 +2,12 @@ local M = {}
 local root_markers = require("config.root_markers")
 
 ---@type table<string,string> server name -> mason package name
---- `perl-lsp` is excluded: it ships as the `perllsp` binary, which is NOT a
---- mason package (installed via Strawberry/APK, not mason).
+--- Servers without a mapping are skipped by :ToolInstall. Excluded here:
+--- - `perl-lsp` ships as the `perllsp` binary, not a mason package
+---   (installed via Strawberry/APK, not mason).
+--- - `verible` uses the standalone install under
+---   AppData\Local\Programs\verible (PATH); the current mason win64 build
+---   v0.0-4084 crashes on startup (0xC0000005), so it is not managed by mason.
 M.tool_mapping = {
     pyright = "pyright",
     ruff = "ruff",
@@ -11,7 +15,6 @@ M.tool_mapping = {
     lua_ls = "lua-language-server",
     jsonls = "json-lsp",
     yamlls = "yaml-language-server",
-    verible = "verible",
     clangd = "clangd",
     rust_analyzer = "rust-analyzer",
 }

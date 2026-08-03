@@ -19,19 +19,20 @@ local function collect_lsp_packages()
 end
 
 --- Formatter name -> mason package mapping for the formatters we own.
---- `rustfmt` is a rustup component, and `perltidy` is a Strawberry/Perl
---- distribution tool; neither is a mason package -> silently skipped.
+--- Both `rustfmt` and `perltidy` are installed outside mason (rustup /
+--- Strawberry), and `verible-verilog-format` comes from the standalone
+--- verible install under AppData\Local\Programs\verible -> all silently
+--- skipped (the mason win64 verible build crashes on startup).
 local FORMATTER_MAPPING = {
     stylua = "stylua",
     ruff_format = "ruff",
     prettierd = "prettierd",
     prettier = "prettier",
-    ["verible-verilog-format"] = "verible",
 }
 
 --- Formatters skipped from the manifest: present in conform but installed
 --- outside of mason.
-local SKIP_FORMATTERS = { rustfmt = true, perltidy = true }
+local SKIP_FORMATTERS = { rustfmt = true, perltidy = true, ["verible-verilog-format"] = true }
 
 --- Collect mason package names for the formatters configured in formatter.lua.
 local function collect_formatter_packages()
