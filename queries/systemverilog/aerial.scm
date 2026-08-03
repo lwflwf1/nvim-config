@@ -1,3 +1,6 @@
+; Loaded by: aerial.nvim (lua/aerial/backends/treesitter/helpers.lua)
+;   vim.treesitter.query.get(lang, "aerial")
+; NOTE: refactoring.nvim does NOT use this file. Do NOT delete it.
 ;-------------------------------------
 ; Module / Interface / Package
 ;-------------------------------------
