@@ -65,6 +65,9 @@ return {
                     Snacks.toggle.profiler_highlights():map("<leader>uH")
 
                     Snacks.toggle.option("hlsearch", { name = "hlsearch" }):map("<leader>ui")
+
+                    vim.ui.input = Snacks.input
+                    vim.ui.select = Snacks.picker.select
                 end,
             })
         end,

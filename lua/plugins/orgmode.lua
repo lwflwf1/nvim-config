@@ -167,7 +167,7 @@ config = function(_, opts)
             checkboxes = {
               todo = { " " },
               done = { "✓" },
-              half = { "" },
+              half = { "" },
             },
           },
         })
