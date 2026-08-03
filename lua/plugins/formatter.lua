@@ -6,6 +6,7 @@ return {
                 lua = { "stylua" },
                 python = { "ruff_format" },
                 perl = { "perltidy" },
+                rust = { "rustfmt" },
                 javascript = { "prettierd", "prettier" },
                 typescript = { "prettierd", "prettier" },
                 json = { "prettierd", "prettier" },

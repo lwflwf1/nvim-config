@@ -206,7 +206,28 @@ function M.setup()
         on_attach = on_attach,
     }
 
-    local servers = { "pyright", "ruff", "perl-lsp", "bashls", "lua_ls", "jsonls", "yamlls", "verible", "clangd" }
+    vim.lsp.config.rust_analyzer = {
+        cmd = { "rust-analyzer" },
+        filetypes = { "rust" },
+        root_markers = { "Cargo.toml", "rust-project.json", ".git" },
+        capabilities = capabilities,
+        on_attach = on_attach,
+        settings = {
+            ["rust-analyzer"] = {
+                check = {
+                    command = "clippy",
+                },
+                inlayHints = {
+                    chainingHints = { enable = true },
+                    typeHints = { enable = true },
+                    parameterHints = { enable = true },
+                    closingBraceHints = { enable = true },
+                },
+            },
+        },
+    }
+
+    local servers = { "pyright", "ruff", "perl-lsp", "bashls", "lua_ls", "jsonls", "yamlls", "verible", "clangd", "rust_analyzer" }
     vim.lsp.enable(servers)
 
     vim.diagnostic.config({

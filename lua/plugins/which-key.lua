@@ -28,7 +28,7 @@ return {
             { "<leader>q",  group = "Session",        },
             { "<leader>e",  group = "Explorer",       },
             { "<leader>h",  group = "Harpoon",        },
-            { "<leader>c",  group = "Candela",        },
+            { "<leader>c",  group = "Candela/Crates",  },
             { "<leader>a",  group = "Avante",         },
             { "<leader>z",  group = "Zen",            },
             { "g",          group = "Goto",           },
