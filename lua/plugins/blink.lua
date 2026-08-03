@@ -15,15 +15,9 @@ return {
                 use_nvim_cmp_as_default = true,
             },
             keymap = {
-                ["<Tab>"] = { "select_next", "snippet_forward", "fallback" },
-                ["<S-Tab>"] = { "select_prev", "snippet_backward", "fallback" },
-                ["<CR>"] = { "select_and_accept", "fallback" },
-
-                ["<C-e>"] = { "hide", "fallback" },
-                ["<C-n>"] = { "select_next", "fallback" },
-                ["<C-p>"] = { "select_prev", "fallback" },
-                ["<C-d>"] = { "scroll_documentation_down", "fallback" },
-                ["<C-f>"] = { "scroll_documentation_up", "fallback" },
+                ["<Tab>"] = { "snippet_forward", "select_next", "fallback" },
+                ["<S-Tab>"] = { "snippet_backward", "select_prev", "fallback" },
+                ["<CR>"] = { "accept", "fallback" },
             },
 
             sources = {
