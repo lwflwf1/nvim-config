@@ -54,6 +54,22 @@
                 location = { suffix = '' },
                 buffer = { suffix = '' },
             })
+
+            local keymap = require("mini.keymap")
+            keymap.map_combo("i", "jj", "<BS><BS><Esc>")
+            keymap.map_combo("t", "jj", "<BS><BS><C-\\><C-n>")
+            keymap.map_combo({ "n", "x" }, "<Esc><Esc>", function()
+                if vim.v.hlsearch == 1 then vim.cmd("nohlsearch") end
+            end)
+
+            require("mini.move").setup({
+                mappings = {
+                    left  = "<M-H>", right = "<M-L>",
+                    down  = "<M-J>", up    = "<M-K>",
+                    line_left  = "<M-H>", line_right = "<M-L>",
+                    line_down  = "<M-J>", line_up    = "<M-K>",
+                },
+            })
         end,
     },
     {

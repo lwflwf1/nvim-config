@@ -18,7 +18,6 @@ map("n", ">", ">>", d("Indent right"))
 map("v", "<", "<gv", d("Indent left (keep selection)"))
 map("v", ">", ">gv", d("Indent right (keep selection)"))
 
-map("i", "jj", "<Esc>", d("Escape"))
 map("i", "<C-a>", "<Home>", d("Line start"))
 map("i", "<C-e>", "<End>", d("Line end"))
 map("i", "<C-b>", "<Left>", d("Left one char"))
