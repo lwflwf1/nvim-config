@@ -1,6 +1,29 @@
 local M = {}
 local root_markers = require("config.root_markers")
 
+---@return table schemas list, or {} if schemastore.nvim is unavailable
+local function json_schemas()
+    local ok, schemastore = pcall(require, "schemastore")
+    if not ok then
+        return {}
+    end
+    local ok2, schemas = pcall(function()
+        return schemastore.json.schemas()
+    end)
+    return ok2 and schemas or {}
+end
+
+local function yaml_schemas()
+    local ok, schemastore = pcall(require, "schemastore")
+    if not ok then
+        return {}
+    end
+    local ok2, schemas = pcall(function()
+        return schemastore.yaml.schemas()
+    end)
+    return ok2 and schemas or {}
+end
+
 --- Set vim.g.goto_fallback = false to disable fallback to uctags/grep
 --- when LSP returns no results for gd/gr/gi/gy. Default (nil) = enabled.
 
@@ -180,6 +203,12 @@ function M.setup()
         root_markers = { ".git" },
         capabilities = capabilities,
         on_attach = on_attach,
+        settings = {
+            json = {
+                schemas = json_schemas(),
+                validate = { enable = true },
+            },
+        },
     }
 
     vim.lsp.config.yamlls = {
@@ -188,6 +217,17 @@ function M.setup()
         root_markers = { ".git" },
         capabilities = capabilities,
         on_attach = on_attach,
+        settings = {
+            yaml = {
+                schemaStore = {
+                    -- Disable built-in schemaStore since we use schemastore.nvim
+                    enable = false,
+                    -- Avoid TypeError: Cannot read properties of undefined (reading 'length')
+                    url = "",
+                },
+                schemas = yaml_schemas(),
+            },
+        },
     }
 
     vim.lsp.config.clangd = {
