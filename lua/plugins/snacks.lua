@@ -11,7 +11,7 @@ return {
             gh           = { enabled = true                 },
             image        = { enabled = true                 },
             lazygit      = { enabled = true                 },
-            indent       = { enabled = false                },
+            indent       = { enabled = true, scope = {enabled = false}, animate = { enabled = false } },
             input        = { enabled = true                 },
             notifier     = { enabled = true, timeout = 5000 },
             picker       = { enabled = true                 },
@@ -25,17 +25,20 @@ return {
             zen          = { enabled = true                 },
         },
         keys = {
-            { "<leader>gz", function() Snacks.lazygit() end, desc = "Lazygit" },
-            { "<M-=>", function() Snacks.terminal.toggle() end, desc = "Toggle terminal", mode = { "n", "t" } },
-            { "<leader>bd", function() Snacks.bufdelete() end, desc = "Delete Buffer" },
-            { "<leader>z",  function() Snacks.zen() end, desc = "Toggle Zen Mode" },
-            { "<leader>Z",  function() Snacks.zen.zoom() end, desc = "Toggle Zoom" },
-            { "<leader>un", function() Snacks.notifier.hide() end, desc = "Dismiss All Notifications" },
-            { "<leader>uH", function() Snacks.notifier.show_history() end, desc = "Notification History" },
-            { "<leader>ur", function() Snacks.rename.rename_file() end, desc = "Rename File" },
-            { "]]",         function() Snacks.words.jump(vim.v.count1) end, desc = "Next Reference", mode = { "n", "t" } },
-            { "[[",         function() Snacks.words.jump(-vim.v.count1) end, desc = "Prev Reference", mode = { "n", "t" } },
-            { "<leader>uu", function() Snacks.picker.undo() end, desc = "Undo history" },
+            { "<leader>gz", function() Snacks.lazygit() end,                 desc = "Lazygit" },
+            { "<M-=>",      function() Snacks.terminal.toggle() end,         desc = "Toggle terminal", mode = { "n", "t" } },
+            { "<leader>bd", function() Snacks.bufdelete() end,               desc = "Delete Buffer" },
+            { "<leader>z",  function() Snacks.zen() end,                     desc = "Toggle Zen Mode" },
+            { "<leader>Z",  function() Snacks.zen.zoom() end,                desc = "Toggle Zoom" },
+            { "<leader>un", function() Snacks.notifier.hide() end,           desc = "Dismiss All Notifications" },
+            { "<leader>uh", function() Snacks.notifier.show_history() end,   desc = "Notification History" },
+            { "<leader>ln", function() Snacks.rename.rename_file() end,      desc = "Rename File" },
+            { "]]",         function() Snacks.words.jump(vim.v.count1) end,  desc = "Next Reference",  mode = { "n", "t" } },
+            { "[[",         function() Snacks.words.jump(-vim.v.count1) end, desc = "Prev Reference",  mode = { "n", "t" } },
+            { "<leader>uu", function() Snacks.picker.undo() end,             desc = "Undo history" },
+            { "<leader>u.", function() Snacks.scratch() end,                 desc = "Toggle Scratch Buffer" },
+            { "<leader>us", function() Snacks.scratch.select() end,          desc = "Select Scratch Buffer" },
+            { "<leader>uP", function() Snacks.profiler.scratch() end,        desc = "Profiler Scratch" },
         },
         init = function()
             _G.dd = function(...)
@@ -47,7 +50,7 @@ return {
             vim.api.nvim_create_autocmd("User", {
                 pattern = "VeryLazy",
                 callback = function()
-                    Snacks.toggle.option("spell", { name = "Spelling" }):map("<leader>us")
+                    Snacks.toggle.option("spell", { name = "Spelling" }):map("<leader>uS")
                     Snacks.toggle.option("wrap", { name = "Wrap" }):map("<leader>uw")
                     Snacks.toggle.option("relativenumber", { name = "Relative Number" }):map("<leader>uL")
                     Snacks.toggle.diagnostics():map("<leader>lD")
@@ -58,8 +61,10 @@ return {
                     Snacks.toggle.inlay_hints():map("<leader>lz")
                     Snacks.toggle.indent():map("<leader>ug")
                     Snacks.toggle.dim():map("<leader>uD")
+                    Snacks.toggle.profiler():map("<leader>up")
+                    Snacks.toggle.profiler_highlights():map("<leader>uH")
 
-                    vim.keymap.set("n", "<leader>ui", "<cmd>nohlsearch<CR>", { desc = "Clear search highlight" })
+                    Snacks.toggle.option("hlsearch", { name = "hlsearch" }):map("<leader>ui")
                 end,
             })
         end,
