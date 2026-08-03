@@ -39,20 +39,20 @@ return {
         end,
     },
     {
-        "bullets-vim/bullets.vim",
+        "kaymmm/bullets.nvim",
         ft = { "markdown", "text", "gitcommit", "scratch" },
-        config = function()
-            vim.g.bullets_enabled_file_types = {
-                "markdown", "text", "gitcommit", "scratch",
-            }
-            vim.g.bullets_enable_in_empty_buffers = 0
-            vim.g.bullets_line_spacing = 2
-        end,
+        opts = {
+            empty_buffers = false,
+            file_types = { "markdown", "text", "gitcommit", "scratch" },
+            line_spacing = 2,
+        },
     },
     {
-        "mzlogin/vim-markdown-toc",
+        "hedyhli/markdown-toc.nvim",
         ft = "markdown",
-        cmd = { "GenTocGFM", "GenTocGitHub", "GenTocRedcarpet", "GenTocMarked", "UpdateTimeStamps" },
+        cmd = { "Mtoc" },
+        main = "mtoc",
+        opts = {},
     },
     {
         "OXY2DEV/markview.nvim",
