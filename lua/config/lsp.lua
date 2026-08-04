@@ -9,11 +9,11 @@ local root_markers = require("config.root_markers")
 ---   AppData\Local\Programs\verible (PATH); the current mason win64 build
 ---   v0.0-4084 crashes on startup (0xC0000005), so it is not managed by mason.
 M.tool_mapping = {
-    pyright = "pyright",
+    pyrefly = "pyrefly",
     ruff = "ruff",
     bashls = "bash-language-server",
     lua_ls = "lua-language-server",
-    jsonls = "json-lsp",
+    jsonls = "vscode-json-languageserver",
     yamlls = "yaml-language-server",
     clangd = "clangd",
     rust_analyzer = "rust-analyzer",
@@ -42,9 +42,6 @@ local function yaml_schemas()
     return ok2 and schemas or {}
 end
 
---- Set vim.g.goto_fallback = false to disable fallback to uctags/grep
---- when LSP returns no results for gd/gr/gi/gy. Default (nil) = enabled.
-
 function M.setup()
     local capabilities = vim.lsp.protocol.make_client_capabilities()
     capabilities = require("blink.cmp").get_lsp_capabilities(capabilities)
@@ -60,19 +57,6 @@ function M.setup()
         ["textDocument/typeDefinition"] = "No type definition found",
     }
 
-    local function exec_fallback(method, fallback, word)
-        if vim.g.goto_fallback == false then return end
-
-        local saved_tagfunc = vim.bo.tagfunc
-        vim.bo.tagfunc = ""
-        local ok, _ = pcall(vim.cmd, fallback .. " " .. word)
-        vim.bo.tagfunc = saved_tagfunc
-        if not ok then
-            local msg = fallback_messages[method] or "No results found"
-            vim.notify(msg .. ": " .. word, vim.log.levels.INFO)
-        end
-    end
-
     local method_to_cap = {
         ["textDocument/definition"] = "definitionProvider",
         ["textDocument/references"] = "referencesProvider",
@@ -80,14 +64,14 @@ function M.setup()
         ["textDocument/typeDefinition"] = "typeDefinitionProvider",
     }
 
-    local function lsp_or_tags(method, fallback)
+    local function lsp_jump(method)
         return function()
             local word = vim.fn.expand("<cword>")
             if word == "" then return end
 
             local clients = vim.lsp.get_clients({ bufnr = 0 })
             if #clients == 0 then
-                exec_fallback(method, fallback, word)
+                vim.notify((fallback_messages[method] or "No results found") .. ": " .. word, vim.log.levels.INFO)
                 return
             end
 
@@ -101,7 +85,7 @@ function M.setup()
                     end
                 end
                 if not supported then
-                    exec_fallback(method, fallback, word)
+                    vim.notify((fallback_messages[method] or "No results found") .. ": " .. word, vim.log.levels.INFO)
                     return
                 end
             end
@@ -116,28 +100,33 @@ function M.setup()
                 local all_items = {}
                 for client_id, res in pairs(results) do
                     local client = assert(vim.lsp.get_client_by_id(client_id))
-                    local locations = (res and res.result) and res.result or {}
-                    local items = vim.lsp.util.locations_to_items(locations, client.offset_encoding)
-                    vim.list_extend(all_items, items)
+                    local locations = (res and res.result) or nil
+                    if locations then
+                        if not vim.islist(locations) then
+                            locations = { locations }
+                        end
+                        local items = vim.lsp.util.locations_to_items(locations, client.offset_encoding)
+                        vim.list_extend(all_items, items)
+                    end
                 end
                 if next(all_items) then
                     vim.fn.setqflist(all_items)
                     vim.api.nvim_command("Trouble qflist open")
                 else
-                    exec_fallback(method, fallback, word)
+                    vim.notify((fallback_messages[method] or "No results found") .. ": " .. word, vim.log.levels.INFO)
                 end
             end)
         end
     end
 
-    vim.keymap.set("n", "gd", lsp_or_tags("textDocument/definition", "tjump"),
-        { silent = true, noremap = true, desc = "Go to definition (LSP, fallback uctags)" })
-    vim.keymap.set("n", "grr", lsp_or_tags("textDocument/references", "tjump"),
-        { silent = true, noremap = true, desc = "Go to references (LSP, fallback tjump)" })
-    vim.keymap.set("n", "gri", lsp_or_tags("textDocument/implementation", "tjump"),
-        { silent = true, noremap = true, desc = "Go to implementation (LSP, fallback uctags)" })
-    vim.keymap.set("n", "grt", lsp_or_tags("textDocument/typeDefinition", "tjump"),
-        { silent = true, noremap = true, desc = "Go to type definition (LSP, fallback uctags)" })
+    vim.keymap.set("n", "gd", lsp_jump("textDocument/definition"),
+        { silent = true, noremap = true, desc = "Go to definition" })
+    vim.keymap.set("n", "grr", lsp_jump("textDocument/references"),
+        { silent = true, noremap = true, desc = "Go to references" })
+    vim.keymap.set("n", "gri", lsp_jump("textDocument/implementation"),
+        { silent = true, noremap = true, desc = "Go to implementation" })
+    vim.keymap.set("n", "grt", lsp_jump("textDocument/typeDefinition"),
+        { silent = true, noremap = true, desc = "Go to type definition" })
 
     local on_attach = function(client, bufnr)
         local bopts = function(desc)
@@ -152,22 +141,62 @@ function M.setup()
         end, bopts("Peek fold or LSP hover"))
         vim.keymap.set("n", "gk", vim.lsp.buf.signature_help, bopts("Signature help"))
         vim.keymap.set("n", "grd", vim.diagnostic.open_float, bopts("Diagnostic float"))
-        vim.keymap.set("n", "grj", function()
-            vim.diagnostic.jump({ count = 1 })
-            vim.schedule(vim.diagnostic.open_float)
-        end, bopts("Next diagnostic"))
-        vim.keymap.set("n", "grk", function()
-            vim.diagnostic.jump({ count = -1 })
-            vim.schedule(vim.diagnostic.open_float)
-        end, bopts("Prev diagnostic"))
+        -- Jump to next/prev diagnostic and show it in a float.
+        -- vim.diagnostic.jump's on_jump callback is scheduled internally to
+        -- run after the jump's own cursor move, so the float survives the
+        -- jump's CursorMoved. snacks.scroll smooth-scrolling would otherwise
+        -- animate the view across pages and position the float off-screen, so
+        -- it is temporarily disabled for this buffer (vim.buf[buf].snacks_scroll
+        -- filter); with a static view the float opens anchored to the target.
+        -- Rapid presses are safe: each press re-disables the flag, and only
+        -- the last one restores the original value and opens the float.
+        local scroll_gen = {}      -- bufnr -> press generation
+        local scroll_orig = {}     -- bufnr -> original snacks_scroll value
+        local scroll_captured = {} -- bufnr -> original value captured
+        local function jump_diag(count)
+            local bufnr = vim.api.nvim_get_current_buf()
+            scroll_gen[bufnr] = (scroll_gen[bufnr] or 0) + 1
+            local gen = scroll_gen[bufnr]
+            if not scroll_captured[bufnr] then
+                scroll_captured[bufnr] = true
+                scroll_orig[bufnr] = vim.b[bufnr].snacks_scroll
+            end
+            vim.b[bufnr].snacks_scroll = false
+            local diag = vim.diagnostic.jump({
+                count = count,
+                on_jump = function(d, b)
+                    if scroll_gen[b] ~= gen then return end -- superseded by a new press
+                    vim.b[b].snacks_scroll = scroll_orig[b]
+                    scroll_captured[b] = nil
+                    scroll_orig[b] = nil
+                    if not d then return end
+                    vim.cmd("normal! zz") -- center cursor line (snacks scroll still disabled, so no animation)
+                    vim.diagnostic.open_float({ bufnr = b, pos = { d.lnum, d.col } })
+                end,
+            })
+            if not diag and scroll_gen[bufnr] == gen then
+                vim.b[bufnr].snacks_scroll = scroll_orig[bufnr]
+                scroll_captured[bufnr] = nil
+                scroll_orig[bufnr] = nil
+            end
+        end
+        vim.keymap.set("n", "grj", function() jump_diag(1) end, bopts("Next diagnostic"))
+        vim.keymap.set("n", "grk", function() jump_diag(-1) end, bopts("Prev diagnostic"))
     end
 
-    vim.lsp.config.pyright = {
-        cmd = { "pyright-langserver", "--stdio" },
+    vim.lsp.config.pyrefly = {
+        cmd = { "pyrefly", "lsp" },
         filetypes = { "python" },
         root_markers = { "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", ".git" },
         capabilities = capabilities,
         on_attach = on_attach,
+        settings = {
+            python = {
+                pyrefly = {
+                    typeCheckingMode = "default",
+                },
+            },
+        },
     }
 
     vim.lsp.config.ruff = {
@@ -175,7 +204,12 @@ function M.setup()
         filetypes = { "python" },
         root_markers = { "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", ".git" },
         capabilities = capabilities,
-        on_attach = on_attach,
+        on_attach = function(client, bufnr)
+            -- Ruff only serves lint diagnostics + lint code actions;
+            -- hover/definition/completion are pyrefly's job.
+            client.server_capabilities.hoverProvider = false
+            on_attach(client, bufnr)
+        end,
         settings = {
             ruff = { format = { enable = false } },
         },
@@ -285,7 +319,7 @@ function M.setup()
         },
     }
 
-    local servers = { "pyright", "ruff", "perl-lsp", "bashls", "lua_ls", "jsonls", "yamlls", "verible", "clangd", "rust_analyzer" }
+    local servers = { "pyrefly", "ruff", "perl-lsp", "bashls", "lua_ls", "jsonls", "yamlls", "verible", "clangd", "rust_analyzer" }
     vim.lsp.enable(servers)
     M.servers = servers
 
