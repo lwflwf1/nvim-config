@@ -66,7 +66,7 @@ return {
 
                     Snacks.toggle.option("hlsearch", { name = "hlsearch" }):map("<leader>ui")
 
-                    vim.ui.input = Snacks.input
+                    vim.ui.input = Snacks.input.input
                     vim.ui.select = Snacks.picker.select
                 end,
             })

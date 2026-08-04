@@ -43,6 +43,5 @@ return {
         { "[P", "<Plug>(YankyPutIndentBeforeLinewise)", desc = "Put indented before (linewise)" },
         { "=p", "<Plug>(YankyPutAfterFilter)", desc = "Put after and reindent" },
         { "=P", "<Plug>(YankyPutBeforeFilter)", desc = "Put before and reindent" },
-        { "<leader>p", function() Snacks.picker.yanky() end, mode = { "n", "x" }, desc = "Yank history" },
     },
 }
