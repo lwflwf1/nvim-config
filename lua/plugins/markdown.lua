@@ -68,6 +68,12 @@ return {
                     edit_range = { 0, 0 },
                     filetypes = { "markdown", "quarto", "rmd", "typst", "yaml", "Avante" },
                 },
+                markdown_inline = {
+                    checkboxes = {
+                        checked = { scope_hl = false },
+                        unchecked = { scope_hl = false },
+                    },
+                },
             })
             vim.keymap.set("n", "<leader>mm", "<cmd>Markview<CR>", { desc = "Toggle markview preview" })
             vim.keymap.set("n", "<leader>mh", "<cmd>Markview HybridToggle<CR>", { desc = "Toggle markview hybrid mode" })
