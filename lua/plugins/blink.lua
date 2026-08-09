@@ -6,7 +6,6 @@ return {
         dependencies = {
             "rafamadriz/friendly-snippets",
             "saghen/blink.compat",
-            "uga-rosa/cmp-dictionary",
             "milanglacier/minuet-ai.nvim",
             "onsails/lspkind.nvim",
         },
@@ -15,13 +14,15 @@ return {
                 use_nvim_cmp_as_default = true,
             },
             keymap = {
-                ["<Tab>"] = { "snippet_forward", "select_next", "fallback" },
-                ["<S-Tab>"] = { "snippet_backward", "select_prev", "fallback" },
+                ["<Tab>"] = { "select_next", "fallback" },
+                ["<S-Tab>"] = { "select_prev", "fallback" },
+                ["<C-l>"] = { "snippet_forward", "fallback" },
+                ["<C-h>"] = { "snippet_backward", "fallback" },
                 ["<CR>"] = { "accept", "fallback" },
             },
 
             sources = {
-                default = { "lazydev", "lsp", "snippets", "buffer", "path", "minuet", "orgmode", "dictionary" },
+                default = { "lazydev", "lsp", "snippets", "buffer", "path", "minuet", "orgmode" },
                 providers = {
                     lazydev = {
                         name = "LazyDev",
@@ -36,11 +37,6 @@ return {
                         name = "orgmode",
                         module = "blink.compat.source",
                         score_offset = 0,
-                    },
-                    dictionary = {
-                        name = "dictionary",
-                        module = "blink.compat.source",
-                        score_offset = -5,
                     },
                 },
             },
@@ -74,24 +70,6 @@ return {
             },
         },
         config = function(_, opts)
-            local dict_paths = {}
-            if vim.fn.has("win32") == 1 then
-                local win_dict = vim.fn.stdpath("config") .. "\\words"
-                if vim.fn.filereadable(win_dict) == 1 then
-                    table.insert(dict_paths, win_dict)
-                end
-            else
-                local unix_dicts = { "/usr/share/dict/words", "/usr/dict/words" }
-                for _, p in ipairs(unix_dicts) do
-                    if vim.fn.filereadable(p) == 1 then
-                        table.insert(dict_paths, p)
-                    end
-                end
-            end
-            if #dict_paths > 0 then
-                require("cmp_dictionary").setup({ paths = dict_paths, exact_length = 2 })
-            end
-
             require("blink.cmp").setup(opts)
         end,
     },
