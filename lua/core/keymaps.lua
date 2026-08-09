@@ -216,3 +216,24 @@ end
 
 map("n", "gf", function() smart_gf("edit") end, vim.tbl_extend("force", opts, { desc = "Smart gf (file:line)" }))
 map("n", "gF", function() smart_gf("split") end, vim.tbl_extend("force", opts, { desc = "Smart gf (split)" }))
+
+map("i", "<M-;>", function()
+    local chars = {}
+    for _, info in pairs(require("mini.pairs").config.mappings) do
+        chars[vim.fn.strcharpart(info.pair, 1, 1)] = true
+    end
+    local line = vim.api.nvim_get_current_line()
+    local col = vim.api.nvim_win_get_cursor(0)[2] + 1
+    local rest = line:sub(col)
+    local min_pos
+    for c in pairs(chars) do
+        local p = rest:find(vim.pesc(c))
+        if p and (not min_pos or p < min_pos) then min_pos = p end
+    end
+    if min_pos then
+        vim.api.nvim_feedkeys(
+            vim.api.nvim_replace_termcodes(string.rep("<Right>", min_pos), true, false, true),
+            "n", false
+        )
+    end
+end, d("Jump to next closing bracket/quote"))
