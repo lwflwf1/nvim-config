@@ -141,7 +141,8 @@ for _, pattern in ipairs(ignore) do
     opt.wildignore:append(pattern)
 end
 
-vim.cmd.language("en")
+pcall(function() vim.cmd.language("en") end)
+pcall(function() vim.cmd.language("en_US.UTF-8") end)
 vim.cmd.nohlsearch()
 
 opt.linespace = 2
