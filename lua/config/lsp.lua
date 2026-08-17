@@ -16,7 +16,6 @@ M.tool_mapping = {
     jsonls = "vscode-json-languageserver",
     yamlls = "yaml-language-server",
     clangd = "clangd",
-    rust_analyzer = "rust-analyzer",
 }
 
 ---@return table schemas list, or {} if schemastore.nvim is unavailable
@@ -298,33 +297,21 @@ function M.setup()
         on_attach = on_attach,
     }
 
-    vim.lsp.config.rust_analyzer = {
-        cmd = { "rust-analyzer" },
-        filetypes = { "rust" },
-        root_markers = { "Cargo.toml", "rust-project.json", ".git" },
-        capabilities = capabilities,
-        on_attach = on_attach,
-        settings = {
-            ["rust-analyzer"] = {
-                check = {
-                    command = "clippy",
-                },
-                inlayHints = {
-                    chainingHints = { enable = true },
-                    typeHints = { enable = true },
-                    parameterHints = { enable = true },
-                    closingBraceHints = { enable = true },
-                    lifetimeElisionHints = { enable = "always" },
-                    bindingModeHints = { enable = true },
-                    expressionAdjustmentHints = { enable = "always" },
-                },
-            },
-        },
-    }
-
-    local servers = { "pyrefly", "ruff", "perl-lsp", "bashls", "lua_ls", "jsonls", "yamlls", "verible", "clangd", "rust_analyzer" }
+    local servers = { "pyrefly", "ruff", "perl-lsp", "bashls", "lua_ls", "jsonls", "yamlls", "verible", "clangd" }
     vim.lsp.enable(servers)
     M.servers = servers
+
+    -- rustaceanvim: official vim.lsp.config channel for its server options.
+    -- rustaceanvim deep-merges this config into its own client config, so
+    -- blink.cmp's completion capabilities coexist with rust-analyzer's
+    -- experimental features (hoverActions, ssr, codeActionGroup, ...).
+    vim.lsp.config("rust-analyzer", {
+        capabilities = vim.tbl_deep_extend(
+            "force",
+            {},
+            require("blink.cmp").get_lsp_capabilities(vim.lsp.protocol.make_client_capabilities())
+        ),
+    })
 
     vim.diagnostic.config({
         virtual_text = false,
@@ -369,6 +356,8 @@ function M.setup()
         end
         vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)
     end, { desc = "Show LSP client status" })
+
+    M.on_attach = on_attach
 end
 
 return M

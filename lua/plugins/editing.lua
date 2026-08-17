@@ -9,6 +9,22 @@
                 callback = function() vim.b.minipairs_disable = true end,
             })
             vim.api.nvim_create_autocmd("FileType", {
+                pattern = "rust",
+                callback = function()
+                    vim.keymap.set("i", "'", "'", { buffer = true })
+                    require("mini.pairs").map_buf(0, "i", "<", {
+                        action = "open",
+                        pair = "<>",
+                        neigh_pattern = "^[%a%d:_]",
+                    })
+                    require("mini.pairs").map_buf(0, "i", ">", {
+                        action = "close",
+                        pair = "<>",
+                        neigh_pattern = "^[%a%d:_]",
+                    })
+                end,
+            })
+            vim.api.nvim_create_autocmd("FileType", {
                 pattern = "systemverilog",
                 callback = function()
                     require("mini.pairs").map_buf(0, "i", "'", {
