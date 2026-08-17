@@ -230,13 +230,26 @@ if (Test-Path (Join-Path $CONFIG_DIR "init.lua")) {
 Set-Location $CONFIG_DIR
 Log "== 安装插件 (Lazy) =="
 $env:LANG = "en_US.UTF-8"; $env:LC_ALL = "en_US.UTF-8"
-nvim --headless "+Lazy! sync" +qa
-if ($LASTEXITCODE -ne 0) { Err "插件安装失败, 请检查网络/代理" }
+for ($attempt = 1; $attempt -le 3; $attempt++) {
+    nvim --headless "+Lazy! sync" +qa
+    if ($LASTEXITCODE -eq 0) { break }
+    Warn "Lazy sync 失败 (第 $attempt 次), 清理 lazy.nvim 缓存后重试 ..."
+    Remove-Item -Recurse -Force "$DATA_DIR\lazy\lazy.nvim" -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 3
+    if ($attempt -eq 3) { Err "插件安装失败, 请检查网络/代理后重试" }
+}
 Ok "插件安装完成"
 
 Log "== 安装 mason 工具 + treesitter 解析器 (ToolInstall) =="
-nvim --headless +ToolInstall +"sleep 180" +qa
-if ($LASTEXITCODE -ne 0) { Err "ToolInstall 失败" }
+$expectedParsers = 27
+for ($attempt = 1; $attempt -le 3; $attempt++) {
+    nvim --headless +ToolInstall +"sleep 300" +qa
+    $parserCount = (Get-ChildItem "$DATA_DIR\site\parser\*.so" -ErrorAction SilentlyContinue).Count
+    Write-Host "  解析器已就绪: $parserCount/$expectedParsers (第 $attempt 次)" -ForegroundColor Cyan
+    if ($parserCount -ge $expectedParsers) { break }
+    Start-Sleep -Seconds 3
+    if ($attempt -eq 3) { Warn "解析器未完全安装 ($parserCount/$expectedParsers), 可稍后运行 :ToolInstall" }
+}
 Ok "mason 工具 + 解析器安装完成"
 
 # ================================================================ 校验

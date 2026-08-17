@@ -57,6 +57,26 @@ ask_tool() {
     return 1
 }
 
+# 带超时执行命令 (防止 headless nvim 卡死). 返回 124 表示超时
+run_with_timeout() {
+    local secs="$1"; shift
+    "$@" & local pid=$!
+    local n=0
+    while kill -0 "$pid" 2>/dev/null; do
+        if [ "$n" -ge "$secs" ]; then
+            kill -9 "$pid" 2>/dev/null || true
+            warn "超时(${secs}s), 已终止: $*"
+            return 124
+        fi
+        sleep 2; n=$((n+2))
+    done
+    wait "$pid"
+    return $?
+}
+
+count_parsers() { ls "$DATA_DIR/site/parser"/*.so 2>/dev/null | wc -l | tr -d ' '; }
+EXPECTED_PARSERS=27
+
 # ---------------------------------------------------------------- OS 检测
 OS="$(uname -s)"
 ARCH="$(uname -m)"
@@ -170,12 +190,47 @@ fi
 cd "$CONFIG_DIR"
 log "== 安装插件 (Lazy) =="
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
-nvim --headless "+Lazy! sync" +qa || { err "插件安装失败, 请检查网络/代理"; exit 1; }
+for attempt in 1 2 3; do
+    if run_with_timeout 1500 nvim --headless "+Lazy! sync" +qa; then
+        break
+    fi
+    warn "Lazy sync 失败 (第 $attempt 次), 清理 lazy.nvim 缓存后重试 ..."
+    rm -rf "$DATA_DIR/lazy/lazy.nvim"
+    sleep 3
+    [ "$attempt" = 3 ] && { err "插件安装失败, 请检查网络/代理后重试"; exit 1; }
+done
 ok "插件安装完成"
 
 log "== 安装 mason 工具 + treesitter 解析器 (ToolInstall) =="
-nvim --headless +ToolInstall +"sleep 120" +qa || { err "ToolInstall 失败"; exit 1; }
+# 解析器自动安装逻辑: ToolInstall 后等待异步任务完成, 不足则重试
+for attempt in 1 2 3; do
+    run_with_timeout 1500 nvim --headless +ToolInstall +"sleep 240" +qa \
+        || warn "ToolInstall 第 $attempt 次执行异常"
+    cnt="$(count_parsers)"
+    log "解析器已就绪: $cnt/$EXPECTED_PARSERS (第 $attempt 次)"
+    [ "$cnt" -ge "$EXPECTED_PARSERS" ] && break
+    sleep 3
+    [ "$attempt" = 3 ] && warn "解析器未完全安装 ($cnt/$EXPECTED_PARSERS), 可稍后运行 :ToolInstall"
+done
 ok "mason 工具 + 解析器安装完成"
+
+# ---------------------------------------------------------------- PATH
+log "== 配置 PATH (mason 工具) =="
+export PATH="$DATA_DIR/mason/bin:$PATH"
+RC=""
+case "${SHELL:-}" in
+    *zsh)  RC="$HOME/.zshrc";;
+    *bash) RC="$HOME/.bashrc";;
+    *)     RC="$HOME/.profile";;
+esac
+if [ -n "$RC" ]; then
+    grep -q "nvim/mason/bin" "$RC" 2>/dev/null || cat >> "$RC" <<EOF
+
+# nvim-config: mason 工具 (LSP / formatter) 加入 PATH
+export PATH="$DATA_DIR/mason/bin:\$PATH"
+EOF
+    ok "mason bin 已加入 PATH ($RC), 新终端生效"
+fi
 
 # ---------------------------------------------------------------- 校验
 log "== 校验 =="
