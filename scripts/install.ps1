@@ -242,14 +242,17 @@ if (-not (Get-Command win32yank.exe -ErrorAction SilentlyContinue)) {
 
 # ================================================================ Optional tools
 Log "== Optional tools (confirm as needed) =="
-if (Confirm-Q "Install rust toolchain (rustup, rust-analyzer/rustfmt)? [y/N]") {
+if (-not (Get-Command rustup -ErrorAction SilentlyContinue) -and (Confirm-Q "Install rust toolchain (rustup, rust-analyzer/rustfmt)? [y/N]")) {
     $exe = Join-Path $env:TEMP "rustup-init.exe"
     Download "https://win.rustup.rs/x86_64" $exe
     Start-Process $exe -ArgumentList "-y","--default-toolchain","stable" -Wait
     $cargoBin = "$env:USERPROFILE\.cargo\bin"   # Bug C fix: rustup lands here, not on PATH yet
     if (Test-Path (Join-Path $cargoBin "rustup.exe")) { $env:Path = "$env:Path;$cargoBin" }
     if (Get-Command rustup -ErrorAction SilentlyContinue) {
-        rustup component add rust-analyzer rustfmt 2>$null
+        # 2>&1 | Out-Null instead of 2>$null: with $ErrorActionPreference=Stop,
+        # PS 5.1 turns native stderr into a terminating NativeCommandError even
+        # through 2>$null (observed on a real machine during component add).
+        rustup component add rust-analyzer rustfmt 2>&1 | Out-Null
         Ok "rust toolchain ready"
     } else {
         Warn "rustup installed but not on PATH yet; add $cargoBin to PATH and run 'rustup component add rust-analyzer rustfmt'"
