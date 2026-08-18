@@ -236,8 +236,13 @@ ok "Plugins installed"
 log "== Installing mason tools + treesitter parsers (ToolInstall) =="
 # Bug K fix: load mason explicitly first. It is lazy-loaded in the config, so
 # headless nvim never activates it and every tool would be skipped as "unknown".
+# Keep nvim alive while the async installs finish. Sleep is in MILLISECONDS
+# ('m' suffix; bare `sleep 240` is 240 SECONDS). Give fresh compiles a
+# 5-minute window, only 10s once parsers are all present.
 for attempt in 1 2 3; do
-    run_headless 1500 nvim --headless +"lua require('mason').setup()" +ToolInstall +"sleep 240" +qa \
+    cnt_now="$(count_parsers)"
+    if [ "$cnt_now" -ge "$EXPECTED_PARSERS" ]; then sleep_ms=10000; else sleep_ms=300000; fi
+    run_headless 1500 nvim --headless +"lua require('mason').setup()" +ToolInstall +"sleep ${sleep_ms}m" +qa \
         || warn "ToolInstall attempt $attempt exited abnormally"
     cnt="$(count_parsers)"
     log "Parsers ready: $cnt/$EXPECTED_PARSERS (attempt $attempt)"
