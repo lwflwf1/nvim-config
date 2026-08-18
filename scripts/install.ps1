@@ -231,6 +231,8 @@ Need-Command python {
     $downloaded = $false
     foreach ($pv in ($versions | Select-Object -First 5)) {
         $url = "https://www.python.org/ftp/python/$pv/python-$pv-amd64.exe"
+        & curl.exe -sfI --max-time 15 $url | Out-Null
+        if ($LASTEXITCODE -ne 0) { Warn "No installer for python $pv (pre-release?), trying the next version"; continue }
         Log "Downloading $url"
         $oldH = $env:http_proxy; $oldS = $env:https_proxy
         $env:http_proxy = ""; $env:https_proxy = ""
