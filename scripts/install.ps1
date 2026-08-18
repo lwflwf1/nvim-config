@@ -22,8 +22,6 @@ $CONFIG_REPO = "https://github.com/lwflwf1/nvim-config.git"
 $CONFIG_DIR  = Join-Path $env:LOCALAPPDATA "nvim"
 $DATA_DIR    = Join-Path $env:LOCALAPPDATA "nvim-data"
 $BIN_DIR     = Join-Path $InstallDir "bin"
-$NVIM_VER    = "v0.12.4"
-$TSCLI_VER   = "v0.26.12"
 
 # nvim on Windows prefers XDG_* env vars when set; clear them so CONFIG_DIR /
 # DATA_DIR above always match the paths nvim actually reads (Bug J fix).
@@ -249,8 +247,10 @@ Need-Command python {
 
 # tree-sitter-cli (compiles parsers on online machines)
 Need-Command tree-sitter {
+    $url = Resolve-LatestReleaseUrl "tree-sitter" "tree-sitter" "tree-sitter-cli-windows-x64.*"
+    if (-not $url) { Warn "Failed to resolve tree-sitter CLI URL, install manually: https://github.com/tree-sitter/tree-sitter/releases"; return }
     $zip = Join-Path $env:TEMP "tscli.zip"
-    Download "https://github.com/tree-sitter/tree-sitter/releases/download/$TSCLI_VER/tree-sitter-cli-windows-x64.zip" $zip
+    Download $url $zip
     Expand-Archive -Path $zip -DestinationPath $BIN_DIR -Force
     Add-ToUserPath $BIN_DIR
 }
@@ -351,12 +351,15 @@ if (Get-Command nvim -ErrorAction SilentlyContinue) {
     Add-ToUserPath "$InstallDir\nvim-win64\bin"
     Ok "nvim already present: $InstallDir\nvim-win64\bin\nvim.exe"
 } else {
+    $url = Resolve-LatestReleaseUrl "neovim" "neovim" "nvim-win64.zip"
+    if (-not $url) { Err "Failed to resolve nvim download URL, install manually: https://github.com/neovim/neovim/releases" }
+    $ver = $url -match 'download/v([0-9.]+)/' | Out-Null; $ver = $Matches[1]
     $zip = Join-Path $env:TEMP "nvim-win64.zip"
-    Download "https://github.com/neovim/neovim/releases/download/$NVIM_VER/nvim-win64.zip" $zip
+    Download $url $zip
     Expand-Archive -Path $zip -DestinationPath $InstallDir -Force
     $nvimBin = Join-Path $InstallDir "nvim-win64\bin"
     Add-ToUserPath $nvimBin
-    Ok "nvim $NVIM_VER installed"
+    Ok "nvim v$ver installed"
 }
 
 # ================================================================ Config

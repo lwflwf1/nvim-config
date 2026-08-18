@@ -192,15 +192,22 @@ user_install_node() {
 
 user_install_tree_sitter() {
     local url bin
-    url="https://github.com/tree-sitter/tree-sitter/releases/download/v0.26.12/tree-sitter-cli-linux-${TSCLI_ARCH}.zip"
+    url="$(curl -fsSL --max-time 30 "https://api.github.com/repos/tree-sitter/tree-sitter/releases/latest" \
+        | grep -oE '"browser_download_url": *"[^"]*tree-sitter-cli-linux-'"${TSCLI_ARCH}"'\.(zip|gz)"' \
+        | grep -oE 'https://[^"]*' | head -1 || true)"
+    [ -n "$url" ] || { warn "  failed to resolve tree-sitter CLI URL"; return 1; }
     echo "  Downloading $url"
-    curl -fL --connect-timeout 20 --max-time 300 "$url" -o /tmp/tscli.zip || { warn "  tree-sitter download failed"; return 1; }
+    curl -fL --connect-timeout 20 --max-time 300 "$url" -o /tmp/tscli.dl || { warn "  tree-sitter download failed"; return 1; }
     mkdir -p "$USER_DIR/bin" /tmp/tscli
-    if command -v unzip >/dev/null 2>&1; then
-        unzip -oq /tmp/tscli.zip -d /tmp/tscli
-    else
-        python3 -m zipfile -e /tmp/tscli.zip /tmp/tscli
-    fi
+    case "$url" in
+        *.zip)
+            if command -v unzip >/dev/null 2>&1; then
+                unzip -oq /tmp/tscli.dl -d /tmp/tscli
+            else
+                python3 -m zipfile -e /tmp/tscli.dl /tmp/tscli
+            fi;;
+        *) gunzip -c /tmp/tscli.dl > /tmp/tscli/tree-sitter;;
+    esac
     bin="$(find /tmp/tscli -name tree-sitter -type f | head -1)"
     [ -n "$bin" ] || { warn "  tree-sitter binary not found in archive"; return 1; }
     mv -f "$bin" "$USER_DIR/bin/tree-sitter" && chmod +x "$USER_DIR/bin/tree-sitter"

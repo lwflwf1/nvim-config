@@ -18,7 +18,7 @@ set -euo pipefail
 
 OUT_DIR="$(pwd)"
 WITH_TOOLS=""
-NVIM_VER="v0.12.4"
+NVIM_VER=""
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nvim"
 
@@ -31,6 +31,14 @@ while [ $# -gt 0 ]; do
         *) echo "Unknown argument: $1"; exit 1;;
     esac
 done
+
+# Resolve the latest release from neovim/neovim-releases (its old-glibc builds
+# track the main neovim repo). --nvim-version overrides for pinning.
+if [ -z "$NVIM_VER" ]; then
+    NVIM_VER="$(curl -fsSL --max-time 30 https://api.github.com/repos/neovim/neovim-releases/releases/latest \
+        | grep -oE '"tag_name": *"v[^"]+"' | head -1 | grep -oE 'v[0-9.]+' || true)"
+    [ -n "$NVIM_VER" ] || NVIM_VER="v0.12.4"
+fi
 
 log()  { printf '\033[1;34m[package]\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m  [OK] %s\033[0m\n' "$*"; }
@@ -162,8 +170,14 @@ rg)
                        | grep -oE 'https://[^"]*linux_amd64\.tar\.gz' | head -1)"
                 [ -n "$url" ] && { curl -fL --connect-timeout 20 --max-time 300 "$url" -o "$BUNDLE_ROOT/tools/fzf.tar.gz"; echo "tool fzf $url" >> "$MANIFEST"; ok "fzf cached"; } || warn "fzf download failed";;
             tree-sitter-cli)
-                url="https://github.com/tree-sitter/tree-sitter/releases/download/v0.26.12/tree-sitter-cli-linux-x64.zip"
-                [ -n "$url" ] && { curl -fL --connect-timeout 20 --max-time 300 "$url" -o "$BUNDLE_ROOT/tools/tree-sitter-cli.zip"; echo "tool tree-sitter-cli $url" >> "$MANIFEST"; ok "tree-sitter-cli cached"; } || warn "tree-sitter-cli download failed";;
+                url="$(curl -fsSL --max-time 30 https://api.github.com/repos/tree-sitter/tree-sitter/releases/latest \
+                       | grep -oE '"browser_download_url": *"[^"]*tree-sitter-cli-linux-x64\.(zip|gz)"' \
+                       | grep -oE 'https://[^"]*' | head -1)"
+                case "$url" in
+                    *.gz) ts_cache="tree-sitter-cli.gz";;
+                    *)    ts_cache="tree-sitter-cli.zip";;
+                esac
+                [ -n "$url" ] && { curl -fL --connect-timeout 20 --max-time 300 "$url" -o "$BUNDLE_ROOT/tools/$ts_cache"; echo "tool tree-sitter-cli $url" >> "$MANIFEST"; ok "tree-sitter-cli cached"; } || warn "tree-sitter-cli download failed";;
             *) warn "Unknown tool: $t";;
         esac
     done
