@@ -51,7 +51,7 @@ ask_tool() {
         return 1
     fi
     echo "  Auto-installing $name ..."
-    eval "$install_fn"
+    eval "$install_fn" || true   # set -e safety: failures are handled below (warn)
     if command -v "$name" >/dev/null 2>&1; then ok "$name installed"; return 0; fi
     warn "$name install failed or not on PATH, skipping"
     return 1
