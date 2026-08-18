@@ -19,7 +19,14 @@ set -euo pipefail
 CONFIG_REPO="https://github.com/lwflwf1/nvim-config.git"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nvim"
-PROXY="${1:-}"
+PROXY=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --proxy) PROXY="${2:-}"; shift 2;;
+        -*) echo "Unknown argument: $1"; exit 1;;
+        *) PROXY="$1"; shift;;
+    esac
+done
 if [ -n "$PROXY" ]; then
     export http_proxy="$PROXY" https_proxy="$PROXY"
 fi
@@ -89,6 +96,13 @@ EXPECTED_PARSERS=27
 # ---------------------------------------------------------------- OS detection
 OS="$(uname -s)"
 ARCH="$(uname -m)"
+# Asset names differ from uname -m: aarch64 -> arm64 (nvim/rg/fd), armv7l (fzf)
+case "$ARCH" in
+    x86_64)       NVIM_ARCH="x86_64"; GH_ARCH="x86_64"; FZF_ARCH="linux_amd64"; NODE_ARCH="linux-x64"; TSCLI_ARCH="x64"; PANDOC_ARCH="amd64";;
+    aarch64|arm64) NVIM_ARCH="arm64"; GH_ARCH="aarch64"; FZF_ARCH="linux_arm64"; NODE_ARCH="linux-arm64"; TSCLI_ARCH="arm64"; PANDOC_ARCH="arm64";;
+    armv7l)       NVIM_ARCH="armv7l"; GH_ARCH="arm"; FZF_ARCH="linux_armv7"; NODE_ARCH="linux-armv7l"; TSCLI_ARCH="arm"; PANDOC_ARCH="";;
+    *)            NVIM_ARCH="$ARCH"; GH_ARCH="$ARCH"; FZF_ARCH="linux_$ARCH"; NODE_ARCH="linux-$ARCH"; TSCLI_ARCH="$ARCH"; PANDOC_ARCH="";;
+esac
 case "$OS" in
     Darwin)
         PLATFORM="macos"
@@ -160,24 +174,25 @@ pkg_install() { # pkg_install pkg1 pkg2 ...
 #   ~/.local/nvim/     neovim (bin/ inside)
 
 user_install_node() {
-    local ver url
+    local ver url dir
     ver="$(curl -fsSL --max-time 30 https://nodejs.org/dist/latest/ \
-        | grep -oE 'node-v[0-9]+\.[0-9]+\.[0-9]+-linux-x64\.tar\.xz' | head -1 || true)"
+        | grep -oE "node-v[0-9]+\.[0-9]+\.[0-9]+-${NODE_ARCH}\.tar\.xz" | head -1 || true)"
     [ -n "$ver" ] || { warn "  failed to resolve node version"; return 1; }
     url="https://nodejs.org/dist/latest/$ver"
     echo "  Downloading $url"
     curl -fL --connect-timeout 20 --max-time 600 "$url" -o /tmp/node.tar.xz || { warn "  node download failed"; return 1; }
     mkdir -p "$USER_DIR"
     tar xf /tmp/node.tar.xz -C "$USER_DIR"
+    dir="${ver%.tar.xz}"
     rm -rf "$USER_DIR/node"
-    mv "$USER_DIR/${ver%-linux-x64}" "$USER_DIR/node"
+    mv "$USER_DIR/$dir" "$USER_DIR/node"
     export PATH="$USER_DIR/node/bin:$PATH"
     ok "node installed to $USER_DIR/node"
 }
 
 user_install_tree_sitter() {
     local url bin
-    url="https://github.com/tree-sitter/tree-sitter/releases/download/v0.26.12/tree-sitter-cli-linux-x64.zip"
+    url="https://github.com/tree-sitter/tree-sitter/releases/download/v0.26.12/tree-sitter-cli-linux-${TSCLI_ARCH}.zip"
     echo "  Downloading $url"
     curl -fL --connect-timeout 20 --max-time 300 "$url" -o /tmp/tscli.zip || { warn "  tree-sitter download failed"; return 1; }
     mkdir -p "$USER_DIR/bin" /tmp/tscli
@@ -213,10 +228,11 @@ user_install_gh_bin() { # user_install_gh_bin <owner/repo> <asset-regex> <binary
 
 user_install_pandoc() {
     local ver url
+    [ -n "$PANDOC_ARCH" ] || { warn "  no pandoc binary for $ARCH"; return 1; }
     ver="$(curl -fsSL --max-time 30 "https://api.github.com/repos/jgm/pandoc/releases/latest" \
         | grep -oE '"tag_name": *"[^"]*"' | grep -oE '[0-9.]+' | head -1 || true)"
     [ -n "$ver" ] || { warn "  failed to resolve pandoc version"; return 1; }
-    url="https://github.com/jgm/pandoc/releases/download/${ver}/pandoc-${ver}-linux-amd64.tar.gz"
+    url="https://github.com/jgm/pandoc/releases/download/${ver}/pandoc-${ver}-linux-${PANDOC_ARCH}.tar.gz"
     echo "  Downloading $url"
     curl -fL --connect-timeout 20 --max-time 600 "$url" -o /tmp/pandoc.tar.gz || { warn "  pandoc download failed"; return 1; }
     tar xzf /tmp/pandoc.tar.gz -C "$USER_DIR"
@@ -231,13 +247,13 @@ user_install_nvim() { # Linux only (macOS uses brew)
     latest="$(curl -s --max-time 30 https://api.github.com/repos/neovim/neovim/releases/latest \
         | grep -oE '"tag_name": *"v[^"]+"' | head -1 | grep -oE 'v[0-9.]+' || true)"
     [ -z "$latest" ] && latest="v0.12.4"
-    url="https://github.com/neovim/neovim/releases/download/${latest}/nvim-linux-${ARCH}.tar.gz"
+    url="https://github.com/neovim/neovim/releases/download/${latest}/nvim-linux-${NVIM_ARCH}.tar.gz"
     log "Downloading $url"
     curl -fL --connect-timeout 20 --max-time 600 "$url" -o /tmp/nvim.tar.gz || { warn "  nvim download failed"; return 1; }
     mkdir -p "$USER_DIR"
     tar xzf /tmp/nvim.tar.gz -C "$USER_DIR"
     rm -rf "$USER_DIR/nvim"
-    mv "$USER_DIR/nvim-linux-${ARCH}" "$USER_DIR/nvim"
+    mv "$USER_DIR/nvim-linux-${NVIM_ARCH}" "$USER_DIR/nvim"
     export PATH="$USER_DIR/nvim/bin:$PATH"
     ok "nvim ${latest} installed to $USER_DIR/nvim"
 }
@@ -289,9 +305,9 @@ fi
 if command -v fzf >/dev/null 2>&1 && command -v rg >/dev/null 2>&1 && command -v fd >/dev/null 2>&1; then
     ok "fzf / rg / fd already present"
 elif confirm "Install fzf / rg / fd (fzf-lua search)? [y/N] "; then
-    ask_tool fzf "pkg_install fzf || user_install_gh_bin junegunn/fzf 'fzf-.*-linux_amd64\.tar\.gz' fzf"
-    ask_tool rg  "pkg_install ripgrep || user_install_gh_bin BurntSushi/ripgrep '.*x86_64-unknown-linux-musl\.tar\.gz' rg"
-    ask_tool fd  "pkg_install fd-find || user_install_gh_bin sharkdp/fd '.*x86_64-unknown-linux-musl\.tar\.gz' fd"
+    ask_tool fzf "pkg_install fzf || user_install_gh_bin junegunn/fzf 'fzf-.*-${FZF_ARCH}\\.tar\\.gz' fzf"
+    ask_tool rg  "pkg_install ripgrep || user_install_gh_bin BurntSushi/ripgrep '.*${GH_ARCH}-unknown-linux-musl.*\\.tar\\.gz' rg"
+    ask_tool fd  "pkg_install fd-find || user_install_gh_bin sharkdp/fd '.*${GH_ARCH}-unknown-linux-musl.*\\.tar\\.gz' fd"
 fi
 if command -v perl >/dev/null 2>&1; then
     ok "perl already present: $(command -v perl)"
@@ -325,7 +341,7 @@ else
         # Download official latest release tarball
         latest="$(curl -s https://api.github.com/repos/neovim/neovim/releases/latest | grep -oE '"tag_name": *"v[^"]+"' | head -1 | grep -oE 'v[0-9.]+' || true)"
         [ -z "$latest" ] && latest="v0.12.4"
-        url="https://github.com/neovim/neovim/releases/download/${latest}/nvim-linux-${ARCH}.tar.gz"
+        url="https://github.com/neovim/neovim/releases/download/${latest}/nvim-linux-${NVIM_ARCH}.tar.gz"
         log "Downloading $url"
         curl -fL "$url" -o /tmp/nvim.tar.gz
         sudo tar xzf /tmp/nvim.tar.gz -C /usr/local --strip-components=1
