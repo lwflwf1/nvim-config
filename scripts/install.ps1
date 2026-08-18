@@ -352,7 +352,12 @@ $masonCount = 0
 for ($attempt = 1; $attempt -le 3; $attempt++) {
     # Bug K fix: load mason explicitly, otherwise the lazy-loaded plugin is
     # never activated headless and every tool is skipped as "unknown".
-    Test-HeadlessOk { nvim --headless +"lua require('mason').setup()" +ToolInstall +"sleep 5000" +qa } | Out-Null
+    # Keep nvim alive while the async installs finish. Sleep is in MILLISECONDS
+    # ('m' suffix; bare `sleep 5000` is 5000 SECONDS and blocks for ~83 min).
+    # Give fresh compiles a 5-minute window, only 10s once parsers are done.
+    $curParsers = (Get-ChildItem "$DATA_DIR\site\parser\*.so" -ErrorAction SilentlyContinue).Count
+    $sleepMs = if ($curParsers -lt $expectedParsers) { 300000 } else { 10000 }
+    Test-HeadlessOk { nvim --headless +"lua require('mason').setup()" +ToolInstall +"sleep ${sleepMs}m" +qa } | Out-Null
     $parserCount = (Get-ChildItem "$DATA_DIR\site\parser\*.so" -ErrorAction SilentlyContinue).Count
     $masonCount  = (Get-ChildItem "$DATA_DIR\mason\packages" -Directory -ErrorAction SilentlyContinue).Count
     Write-Host "  Parsers: $parserCount/$expectedParsers  mason tools: $masonCount (attempt $attempt)" -ForegroundColor Cyan
