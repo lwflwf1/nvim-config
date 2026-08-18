@@ -388,6 +388,7 @@ RC=""
 case "${SHELL:-}" in
     *zsh)  RC="$HOME/.zshrc";;
     *bash) RC="$HOME/.bashrc";;
+    *tcsh) RC="$HOME/.cshrc";;
     *)     RC="$HOME/.profile";;
 esac
 if [ -n "$RC" ]; then
