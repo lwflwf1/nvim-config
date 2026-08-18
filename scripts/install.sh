@@ -176,11 +176,19 @@ user_install_node() {
 }
 
 user_install_tree_sitter() {
-    local url="https://github.com/tree-sitter/tree-sitter/releases/download/v0.26.12/tree-sitter-cli-linux-x64.gz"
+    local url bin
+    url="https://github.com/tree-sitter/tree-sitter/releases/download/v0.26.12/tree-sitter-cli-linux-x64.zip"
     echo "  Downloading $url"
-    curl -fL --connect-timeout 20 --max-time 300 "$url" -o /tmp/tscli.gz || { warn "  tree-sitter download failed"; return 1; }
-    mkdir -p "$USER_DIR/bin"
-    gunzip -c /tmp/tscli.gz > "$USER_DIR/bin/tree-sitter" && chmod +x "$USER_DIR/bin/tree-sitter"
+    curl -fL --connect-timeout 20 --max-time 300 "$url" -o /tmp/tscli.zip || { warn "  tree-sitter download failed"; return 1; }
+    mkdir -p "$USER_DIR/bin" /tmp/tscli
+    if command -v unzip >/dev/null 2>&1; then
+        unzip -oq /tmp/tscli.zip -d /tmp/tscli
+    else
+        python3 -m zipfile -e /tmp/tscli.zip /tmp/tscli
+    fi
+    bin="$(find /tmp/tscli -name tree-sitter -type f | head -1)"
+    [ -n "$bin" ] || { warn "  tree-sitter binary not found in archive"; return 1; }
+    mv -f "$bin" "$USER_DIR/bin/tree-sitter" && chmod +x "$USER_DIR/bin/tree-sitter"
     export PATH="$USER_DIR/bin:$PATH"
     ok "tree-sitter installed to $USER_DIR/bin"
 }

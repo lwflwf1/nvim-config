@@ -65,14 +65,19 @@ ls "$TMP" | tr '\n' ' '; echo
 # ---------------------------------------------------------------- External tools
 log "== External tool confirmation =="
 # Tool cache install helper
-install_from_cache() { # install_from_cache <tools/*.tar.gz> <binary name>
-    local cache="$TMP/tools/$1" name="$2"
+install_from_cache() { # install_from_cache <tools/*.tar.gz|*.zip> <binary name>
+    local cache="$TMP/tools/$1" name="$2" found
     [ -f "$cache" ] || return 1
     mkdir -p "$LOCAL_DIR/bin"
     case "$cache" in
         *.gz) tar xzf "$cache" -C "$LOCAL_DIR" 2>/dev/null || gunzip -c "$cache" > "$LOCAL_DIR/bin/$name";;
+        *.zip) unzip -oq "$cache" -d "$LOCAL_DIR/bin";;
     esac
-    find "$LOCAL_DIR" -name "$name" -type f -exec chmod +x {} \; 2>/dev/null || true
+    found="$(find "$LOCAL_DIR" -name "$name" -type f | head -1)"
+    [ -n "$found" ] || return 1
+    [ "$found" != "$LOCAL_DIR/bin/$name" ] && mv -f "$found" "$LOCAL_DIR/bin/$name"
+    chmod +x "$LOCAL_DIR/bin/$name"
+    rm -rf "$LOCAL_DIR/${name}-"* 2>/dev/null || true
     export PATH="$LOCAL_DIR/bin:$PATH"
     command -v "$name" >/dev/null 2>&1
 }

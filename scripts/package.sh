@@ -162,9 +162,8 @@ rg)
                        | grep -oE 'https://[^"]*linux_amd64\.tar\.gz' | head -1)"
                 [ -n "$url" ] && { curl -fL --connect-timeout 20 --max-time 300 "$url" -o "$BUNDLE_ROOT/tools/fzf.tar.gz"; echo "tool fzf $url" >> "$MANIFEST"; ok "fzf cached"; } || warn "fzf download failed";;
             tree-sitter-cli)
-                url="https://github.com/tree-sitter/tree-sitter/releases/download/v0.26.12/tree-sitter-cli-linux-x64.gz"
-                curl -fL --connect-timeout 20 --max-time 300 "$url" -o "$BUNDLE_ROOT/tools/tree-sitter-cli.gz"
-                echo "tool tree-sitter-cli $url" >> "$MANIFEST"; ok "tree-sitter-cli cached";;
+                url="https://github.com/tree-sitter/tree-sitter/releases/download/v0.26.12/tree-sitter-cli-linux-x64.zip"
+                [ -n "$url" ] && { curl -fL --connect-timeout 20 --max-time 300 "$url" -o "$BUNDLE_ROOT/tools/tree-sitter-cli.zip"; echo "tool tree-sitter-cli $url" >> "$MANIFEST"; ok "tree-sitter-cli cached"; } || warn "tree-sitter-cli download failed";;
             *) warn "Unknown tool: $t";;
         esac
     done
