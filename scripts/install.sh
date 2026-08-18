@@ -148,7 +148,9 @@ done
 
 # ---------------------------------------------------------------- Optional tools
 log "== Optional tools (confirm as needed) =="
-if confirm "Install rust toolchain (rustup, provides rust-analyzer/rustfmt)? [y/N] "; then
+if command -v rustup >/dev/null 2>&1; then
+    ok "rustup already present: $(command -v rustup)"
+elif confirm "Install rust toolchain (rustup, provides rust-analyzer/rustfmt)? [y/N] "; then
     ask_tool rustup 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
     # Bug C fix: rustup only adds ~/.cargo/bin to PATH for new shells; make it
     # available in this session so the component check/add below works.
@@ -158,18 +160,24 @@ if confirm "Install rust toolchain (rustup, provides rust-analyzer/rustfmt)? [y/
         ok "rust toolchain ready"
     fi
 fi
-if confirm "Install fzf / rg / fd (fzf-lua search)? [y/N] "; then
+if command -v fzf >/dev/null 2>&1 && command -v rg >/dev/null 2>&1 && command -v fd >/dev/null 2>&1; then
+    ok "fzf / rg / fd already present"
+elif confirm "Install fzf / rg / fd (fzf-lua search)? [y/N] "; then
     ask_tool fzf "pkg_install fzf"
     ask_tool rg  "pkg_install ripgrep"
     ask_tool fd  "pkg_install fd-find"
 fi
-if confirm "Install perl + perltidy (perl LSP)? [y/N] "; then
+if command -v perl >/dev/null 2>&1; then
+    ok "perl already present: $(command -v perl)"
+elif confirm "Install perl + perltidy (perltidy formatter)? [y/N] "; then
     if [ "$PLATFORM" = macos ]; then ask_tool perl "brew install perl perltidy"
     elif [ "$PKG" = apt ]; then ask_tool perl "pkg_install perl libperl-dev perltidy"
     elif [ "$PKG" = apk ]; then ask_tool perl "pkg_install perl perl-tidy"
     else ask_tool perl "pkg_install perl"; fi
 fi
-if confirm "Install pandoc + xelatex (orgmode export)? [y/N] "; then
+if command -v pandoc >/dev/null 2>&1 && command -v xelatex >/dev/null 2>&1; then
+    ok "pandoc + xelatex already present"
+elif confirm "Install pandoc + xelatex (orgmode export)? [y/N] "; then
     ask_tool pandoc "pkg_install pandoc"
     ask_tool xelatex "pkg_install texlive-xetex"
 fi

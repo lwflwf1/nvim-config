@@ -228,21 +228,30 @@ Need-Command tree-sitter {
 
 # win32yank (config hard dependency: clipboard)
 if (-not (Get-Command win32yank.exe -ErrorAction SilentlyContinue)) {
-    Log "Auto-installing win32yank (config clipboard dependency) ..."
-    $url = Resolve-LatestReleaseUrl "equalsraf" "win32yank" "win32yank-x64.zip"
-    if (-not $url) { Warn "Failed to resolve win32yank URL, install manually and add to PATH"; }
-    else {
-        $zip = Join-Path $env:TEMP "win32yank.zip"
-        Download $url $zip
-        Expand-Archive -Path $zip -DestinationPath $BIN_DIR -Force
+    if (Test-Path "$BIN_DIR\win32yank.exe") {
+        # Already installed to BIN_DIR by an earlier run; PATH may not reflect
+        # it in this terminal session yet, so do not re-download.
         Add-ToUserPath $BIN_DIR
-        Ok "win32yank installed"
+        Ok "win32yank already present: $BIN_DIR\win32yank.exe"
+    } else {
+        Log "Auto-installing win32yank (config clipboard dependency) ..."
+        $url = Resolve-LatestReleaseUrl "equalsraf" "win32yank" "win32yank-x64.zip"
+        if (-not $url) { Warn "Failed to resolve win32yank URL, install manually and add to PATH"; }
+        else {
+            $zip = Join-Path $env:TEMP "win32yank.zip"
+            Download $url $zip
+            Expand-Archive -Path $zip -DestinationPath $BIN_DIR -Force
+            Add-ToUserPath $BIN_DIR
+            Ok "win32yank installed"
+        }
     }
 } else { Ok "win32yank already present" }
 
 # ================================================================ Optional tools
 Log "== Optional tools (confirm as needed) =="
-if (-not (Get-Command rustup -ErrorAction SilentlyContinue) -and (Confirm-Q "Install rust toolchain (rustup, rust-analyzer/rustfmt)? [y/N]")) {
+if (Get-Command rustup -ErrorAction SilentlyContinue) {
+    Ok "rustup already present: $((Get-Command rustup).Source)"
+} elseif (Confirm-Q "Install rust toolchain (rustup, rust-analyzer/rustfmt)? [y/N]") {
     $exe = Join-Path $env:TEMP "rustup-init.exe"
     Download "https://win.rustup.rs/x86_64" $exe
     Start-Process $exe -ArgumentList "-y","--default-toolchain","stable" -Wait
@@ -258,7 +267,9 @@ if (-not (Get-Command rustup -ErrorAction SilentlyContinue) -and (Confirm-Q "Ins
         Warn "rustup installed but not on PATH yet; add $cargoBin to PATH and run 'rustup component add rust-analyzer rustfmt'"
     }
 }
-if (Confirm-Q "Install fzf / rg / fd (fzf-lua search)? [y/N]") {
+if ((Get-Command fzf -ErrorAction SilentlyContinue) -and (Get-Command rg -ErrorAction SilentlyContinue) -and (Get-Command fd -ErrorAction SilentlyContinue)) {
+    Ok "fzf / rg / fd already present"
+} elseif (Confirm-Q "Install fzf / rg / fd (fzf-lua search)? [y/N]") {
     foreach ($tool in @(@("fzf","junegunn","fzf","fzf-*-windows_amd64.zip"),
                        @("rg","BurntSushi","ripgrep","ripgrep-*-x86_64-pc-windows-msvc.zip"),
                        @("fd","sharkdp","fd","fd-*-x86_64-pc-windows-msvc.zip"))) {
@@ -275,10 +286,14 @@ if (Confirm-Q "Install fzf / rg / fd (fzf-lua search)? [y/N]") {
         Ok "$name installed"
     }
 }
-if (Confirm-Q "Install perl + perltidy (perl LSP)? [y/N]") {
+if (Get-Command perl -ErrorAction SilentlyContinue) {
+    Ok "perl already present: $((Get-Command perl).Source)"
+} elseif (Confirm-Q "Install perl + perltidy (perltidy formatter)? [y/N]") {
     Warn "On Windows install Strawberry Perl manually: https://strawberryperl.com (includes perltidy), and add it to PATH"
 }
-if (Confirm-Q "Install pandoc (orgmode export)? [y/N]") {
+if (Get-Command pandoc -ErrorAction SilentlyContinue) {
+    Ok "pandoc already present: $((Get-Command pandoc).Source)"
+} elseif (Confirm-Q "Install pandoc (orgmode export)? [y/N]") {
     $url = Resolve-LatestReleaseUrl "jgm" "pandoc" "pandoc-*-windows-x86_64.zip"
     if (-not $url) { Warn "Failed to resolve pandoc download URL, skipping" }
     else {
