@@ -13,7 +13,7 @@ M.tool_mapping = {
     ruff = "ruff",
     bashls = "bash-language-server",
     lua_ls = "lua-language-server",
-    jsonls = "vscode-json-languageserver",
+    jsonls = "json-lsp",
     yamlls = "yaml-language-server",
     clangd = "clangd",
 }
