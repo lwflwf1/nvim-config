@@ -95,6 +95,15 @@ function Need-Command($name, [scriptblock]$install, $hint = "", [switch]$Fatal) 
         Ok "$name already present: $((Get-Command $name).Source)"
         return
     }
+    # Script-installed tools live under $InstallDir; those paths were added to
+    # the User PATH but are not visible to this session (PATH changes only
+    # affect new processes), so probe the install locations too.
+    $inDir = Find-InstalledBinary $name
+    if ($inDir) {
+        Add-ToUserPath (Split-Path $inDir)
+        Ok "$name already present: $inDir"
+        return
+    }
     Warn "$name not found"
     if (Confirm-Q "  Is $name already installed manually? [y/N]") {
         if (Get-Command $name -ErrorAction SilentlyContinue) { Ok "$name confirmed available"; return }
@@ -119,6 +128,24 @@ function Add-ToUserPath($dir) {
         $env:PATH = "$env:PATH;$dir"
         Ok "PATH updated: $dir"
     }
+}
+
+# Script-installed tools live under $InstallDir ($BIN_DIR, nvim-win64, pandoc-*).
+# Add-ToUserPath records those dirs in the User PATH, but PATH changes only
+# affect newly started processes: a re-run in the same terminal session cannot
+# see them via Get-Command. Probe the install locations themselves as well.
+function Find-InstalledBinary($name) {
+    foreach ($dir in @($BIN_DIR, "$InstallDir\nvim-win64\bin")) {
+        $f = Get-ChildItem "$dir\$name*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($f) { return $f.FullName }
+    }
+    $p = Get-ChildItem "$InstallDir\pandoc-*\$name.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($p) { return $p.FullName }
+    return $null
+}
+
+function Test-ToolReady($name) {
+    return [bool](Get-Command $name -ErrorAction SilentlyContinue) -or [bool](Find-InstalledBinary $name)
 }
 
 # Headless nvim success check (Bug I fix): nvim --headless returns 0 even when
@@ -267,14 +294,19 @@ if (Get-Command rustup -ErrorAction SilentlyContinue) {
         Warn "rustup installed but not on PATH yet; add $cargoBin to PATH and run 'rustup component add rust-analyzer rustfmt'"
     }
 }
-if ((Get-Command fzf -ErrorAction SilentlyContinue) -and (Get-Command rg -ErrorAction SilentlyContinue) -and (Get-Command fd -ErrorAction SilentlyContinue)) {
+if ((Test-ToolReady "fzf") -and (Test-ToolReady "rg") -and (Test-ToolReady "fd")) {
     Ok "fzf / rg / fd already present"
 } elseif (Confirm-Q "Install fzf / rg / fd (fzf-lua search)? [y/N]") {
     foreach ($tool in @(@("fzf","junegunn","fzf","fzf-*-windows_amd64.zip"),
                        @("rg","BurntSushi","ripgrep","ripgrep-*-x86_64-pc-windows-msvc.zip"),
                        @("fd","sharkdp","fd","fd-*-x86_64-pc-windows-msvc.zip"))) {
         $name = $tool[0]
-        if (Get-Command $name -ErrorAction SilentlyContinue) { Ok "$name already present"; continue }
+        if (Test-ToolReady $name) {
+            $inDir = Find-InstalledBinary $name
+            if ($inDir) { Add-ToUserPath (Split-Path $inDir); Ok "$name already present: $inDir" }
+            else { Ok "$name already present: $((Get-Command $name).Source)" }
+            continue
+        }
         $url = Resolve-LatestReleaseUrl $tool[1] $tool[2] $tool[3]
         if (-not $url) { Warn "Failed to resolve $name download URL, skipping"; continue }
         $zip = Join-Path $env:TEMP "$name.zip"
@@ -293,6 +325,9 @@ if (Get-Command perl -ErrorAction SilentlyContinue) {
 }
 if (Get-Command pandoc -ErrorAction SilentlyContinue) {
     Ok "pandoc already present: $((Get-Command pandoc).Source)"
+} elseif ($pd = Find-InstalledBinary "pandoc") {
+    Add-ToUserPath (Split-Path $pd)
+    Ok "pandoc already present: $pd"
 } elseif (Confirm-Q "Install pandoc (orgmode export)? [y/N]") {
     $url = Resolve-LatestReleaseUrl "jgm" "pandoc" "pandoc-*-windows-x86_64.zip"
     if (-not $url) { Warn "Failed to resolve pandoc download URL, skipping" }
@@ -309,6 +344,10 @@ if (Get-Command pandoc -ErrorAction SilentlyContinue) {
 Log "== Installing Neovim =="
 if (Get-Command nvim -ErrorAction SilentlyContinue) {
     Ok "nvim already present: $((nvim --version | Select-Object -First 1))"
+} elseif (Test-Path "$InstallDir\nvim-win64\bin\nvim.exe") {
+    # installed by an earlier run; PATH may not reflect it in this session yet
+    Add-ToUserPath "$InstallDir\nvim-win64\bin"
+    Ok "nvim already present: $InstallDir\nvim-win64\bin\nvim.exe"
 } else {
     $zip = Join-Path $env:TEMP "nvim-win64.zip"
     Download "https://github.com/neovim/neovim/releases/download/$NVIM_VER/nvim-win64.zip" $zip
