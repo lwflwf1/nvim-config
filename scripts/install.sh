@@ -106,6 +106,7 @@ esac
 case "$OS" in
     Darwin)
         PLATFORM="macos"
+        PKG="brew"
         if ! command -v brew >/dev/null 2>&1; then
             err "Homebrew required, install first: https://brew.sh"; exit 1
         fi
