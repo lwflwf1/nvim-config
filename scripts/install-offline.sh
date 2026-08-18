@@ -44,9 +44,9 @@ need() { # need <name> [install-command] [description]
     local name="$1" inst="$2" desc="${3:-}"
     if command -v "$name" >/dev/null 2>&1; then ok "$name ($(command -v "$name"))"; return 0; fi
     warn "$name not found${desc:+ ($desc)}"
-    if confirm "  Is $name already installed manually? [y/N] "; then
-        command -v "$name" >/dev/null 2>&1 && { ok "$name confirmed available"; return 0; }
-        warn "$name still not found"; return 1
+    if ! confirm "  Install $name${desc:+ ($desc)}? [y/N] "; then
+        warn "$name skipped"
+        return 1
     fi
     if [ -n "$inst" ]; then
         echo "  Installing $name ..."
@@ -106,20 +106,12 @@ if [ "$(printf '%s\n4.9' "$GCC_VER" | sort -V | head -1)" != "4.9" ]; then
 fi
 CXX_BIN="${CXX:-$(dirname "$CC_BIN")/g++}"
 
-if confirm "Install fzf / rg / fd (fzf-lua search)? [y/N] "; then
-    need fzf "install_from_cache fzf.tar.gz fzf"
-    need rg  "install_from_cache rg.tar.gz rg"
-    need fd  "install_from_cache fd.tar.gz fd"
-fi
-if confirm "Install rust toolchain (rustup, rust-analyzer)? [y/N] "; then
-    need rustup "" "requires an intranet mirror or manual install"
-fi
-if confirm "Install perl + perltidy (perl LSP)? [y/N] "; then
-    need perl "" "requires an intranet mirror or manual install"
-fi
-if confirm "Install pandoc (orgmode export)? [y/N] "; then
-    need pandoc "install_from_cache pandoc.tar.gz pandoc"
-fi
+need fzf "install_from_cache fzf.tar.gz fzf" "fzf-lua search"
+need rg  "install_from_cache rg.tar.gz rg" "fzf-lua search"
+need fd  "install_from_cache fd.tar.gz fd" "fzf-lua search"
+need rustup "" "requires an intranet mirror or manual install"
+need perl "" "requires an intranet mirror or manual install"
+need pandoc "install_from_cache pandoc.tar.gz pandoc" "orgmode export"
 
 # ---------------------------------------------------------------- nvim
 log "== Installing Neovim =="

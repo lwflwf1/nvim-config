@@ -43,18 +43,17 @@ confirm() { # $1=prompt  $2=default (y/N)
     case "${ans:-$d}" in y|Y|yes|YES) return 0;; *) return 1;; esac
 }
 
-# Interactive tool check: ask_tool <name> <install-command>
-# Found -> skip; missing -> ask if manually installed -> otherwise run install command
+# Interactive tool check: ask_tool <name> <install-command> [description]
+# Found -> ok; missing -> ask to install -> run install command on confirm
 ask_tool() {
-    local name="$1" install_fn="$2"
+    local name="$1" install_fn="$2" desc="${3:-}"
     if command -v "$name" >/dev/null 2>&1; then
         ok "$name ($(command -v "$name"))"
         return 0
     fi
     warn "$name not found"
-    if confirm "  Is $name already installed manually? [y/N] "; then
-        if command -v "$name" >/dev/null 2>&1; then ok "$name confirmed available"; return 0; fi
-        warn "$name still not found, skipping"
+    if ! confirm "  Install $name${desc:+ ($desc)}? [y/N] "; then
+        warn "$name skipped"
         return 1
     fi
     echo "  Auto-installing $name ..."
@@ -300,8 +299,8 @@ done
 log "== Optional tools (confirm as needed) =="
 if command -v rustup >/dev/null 2>&1; then
     ok "rustup already present: $(command -v rustup)"
-elif confirm "Install rust toolchain (rustup, provides rust-analyzer/rustfmt)? [y/N] "; then
-    ask_tool rustup 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
+else
+    ask_tool rustup 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y' "rust toolchain (rust-analyzer/rustfmt)"
     # Bug C fix: rustup only adds ~/.cargo/bin to PATH for new shells; make it
     # available in this session so the component check/add below works.
     export PATH="$HOME/.cargo/bin:$PATH"
@@ -312,24 +311,26 @@ elif confirm "Install rust toolchain (rustup, provides rust-analyzer/rustfmt)? [
 fi
 if command -v fzf >/dev/null 2>&1 && command -v rg >/dev/null 2>&1 && command -v fd >/dev/null 2>&1; then
     ok "fzf / rg / fd already present"
-elif confirm "Install fzf / rg / fd (fzf-lua search)? [y/N] "; then
-    ask_tool fzf "pkg_install fzf || user_install_gh_bin junegunn/fzf 'fzf-.*-${FZF_ARCH}\\.tar\\.gz' fzf"
-    ask_tool rg  "pkg_install ripgrep || user_install_gh_bin BurntSushi/ripgrep '.*${GH_ARCH}-unknown-linux-musl.*\\.tar\\.gz' rg"
-    ask_tool fd  "pkg_install fd-find || user_install_gh_bin sharkdp/fd '.*${GH_ARCH}-unknown-linux-musl.*\\.tar\\.gz' fd"
+else
+    ask_tool fzf "pkg_install fzf || user_install_gh_bin junegunn/fzf 'fzf-.*-${FZF_ARCH}\\.tar\\.gz' fzf" "fzf-lua search"
+    ask_tool rg  "pkg_install ripgrep || user_install_gh_bin BurntSushi/ripgrep '.*${GH_ARCH}-unknown-linux-musl.*\\.tar\\.gz' rg" "fzf-lua grep"
+    ask_tool fd  "pkg_install fd-find || user_install_gh_bin sharkdp/fd '.*${GH_ARCH}-unknown-linux-musl.*\\.tar\\.gz' fd" "fzf-lua files"
 fi
 if command -v perl >/dev/null 2>&1; then
     ok "perl already present: $(command -v perl)"
-elif confirm "Install perl + perltidy (perltidy formatter)? [y/N] "; then
-    if [ "$PLATFORM" = macos ]; then ask_tool perl "brew install perl perltidy"
-    elif [ "$PKG" = apt ]; then ask_tool perl "pkg_install perl libperl-dev perltidy"
-    elif [ "$PKG" = apk ]; then ask_tool perl "pkg_install perl perl-tidy"
-    else ask_tool perl "pkg_install perl"; fi
-fi
+elif [ "$PLATFORM" = macos ]; then ask_tool perl "brew install perl perltidy" "perltidy formatter"
+elif [ "$PKG" = apt ]; then ask_tool perl "pkg_install perl libperl-dev perltidy" "perltidy formatter"
+elif [ "$PKG" = apk ]; then ask_tool perl "pkg_install perl perl-tidy" "perltidy formatter"
+else ask_tool perl "pkg_install perl" "perltidy formatter"; fi
 if command -v pandoc >/dev/null 2>&1 && command -v xelatex >/dev/null 2>&1; then
     ok "pandoc + xelatex already present"
-elif confirm "Install pandoc + xelatex (orgmode export)? [y/N] "; then
-    ask_tool pandoc "pkg_install pandoc || user_install_pandoc"
-    ask_tool xelatex "pkg_install texlive-xetex"
+else
+    ask_tool pandoc "pkg_install pandoc || user_install_pandoc" "orgmode export"
+    if [ "$PLATFORM" = macos ]; then
+        ask_tool xelatex "pkg_install texlive" "orgmode export (LaTeX)"
+    else
+        ask_tool xelatex "pkg_install texlive-xetex" "orgmode export (LaTeX)"
+    fi
 fi
 
 # ---------------------------------------------------------------- Neovim

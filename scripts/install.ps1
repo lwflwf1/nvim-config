@@ -88,7 +88,7 @@ function Confirm-Q($msg) {
     return ($ans -match '^[yY]')
 }
 
-function Need-Command($name, [scriptblock]$install, $hint = "", [switch]$Fatal) {
+function Need-Command($name, [scriptblock]$install, $desc = "", $hint = "", [switch]$Fatal) {
     if (Get-Command $name -ErrorAction SilentlyContinue) {
         Ok "$name already present: $((Get-Command $name).Source)"
         return
@@ -103,9 +103,10 @@ function Need-Command($name, [scriptblock]$install, $hint = "", [switch]$Fatal) 
         return
     }
     Warn "$name not found"
-    if (Confirm-Q "  Is $name already installed manually? [y/N]") {
-        if (Get-Command $name -ErrorAction SilentlyContinue) { Ok "$name confirmed available"; return }
-        Warn "$name still not found, skipping"
+    $descTxt = ""
+    if ($desc) { $descTxt = " ($desc)" }
+    if (-not (Confirm-Q "  Install $name$descTxt? [y/N]")) {
+        Warn "$name skipped"
         return
     }
     Log "Auto-installing $name ..."
@@ -280,25 +281,24 @@ if (-not (Get-Command win32yank.exe -ErrorAction SilentlyContinue)) {
 Log "== Optional tools (confirm as needed) =="
 if (Get-Command rustup -ErrorAction SilentlyContinue) {
     Ok "rustup already present: $((Get-Command rustup).Source)"
-} elseif (Confirm-Q "Install rust toolchain (rustup, rust-analyzer/rustfmt)? [y/N]") {
-    $exe = Join-Path $env:TEMP "rustup-init.exe"
-    Download "https://win.rustup.rs/x86_64" $exe
-    Start-Process $exe -ArgumentList "-y","--default-toolchain","stable" -Wait
-    $cargoBin = "$env:USERPROFILE\.cargo\bin"   # Bug C fix: rustup lands here, not on PATH yet
-    if (Test-Path (Join-Path $cargoBin "rustup.exe")) { $env:Path = "$env:Path;$cargoBin" }
-    if (Get-Command rustup -ErrorAction SilentlyContinue) {
-        # 2>&1 | Out-Null instead of 2>$null: with $ErrorActionPreference=Stop,
-        # PS 5.1 turns native stderr into a terminating NativeCommandError even
-        # through 2>$null (observed on a real machine during component add).
-        rustup component add rust-analyzer rustfmt 2>&1 | Out-Null
-        Ok "rust toolchain ready"
-    } else {
-        Warn "rustup installed but not on PATH yet; add $cargoBin to PATH and run 'rustup component add rust-analyzer rustfmt'"
-    }
+} else {
+    Need-Command rustup {
+        $exe = Join-Path $env:TEMP "rustup-init.exe"
+        Download "https://win.rustup.rs/x86_64" $exe
+        Start-Process $exe -ArgumentList "-y","--default-toolchain","stable" -Wait
+        $cargoBin = "$env:USERPROFILE\.cargo\bin"   # Bug C fix: rustup lands here, not on PATH yet
+        if (Test-Path (Join-Path $cargoBin "rustup.exe")) { $env:Path = "$env:Path;$cargoBin" }
+        if (Get-Command rustup -ErrorAction SilentlyContinue) {
+            # 2>&1 | Out-Null instead of 2>$null: with $ErrorActionPreference=Stop,
+            # PS 5.1 turns native stderr into a terminating NativeCommandError even
+            # through 2>$null (observed on a real machine during component add).
+            rustup component add rust-analyzer rustfmt 2>&1 | Out-Null
+        }
+    } "rust toolchain (rust-analyzer/rustfmt)"
 }
 if ((Test-ToolReady "fzf") -and (Test-ToolReady "rg") -and (Test-ToolReady "fd")) {
     Ok "fzf / rg / fd already present"
-} elseif (Confirm-Q "Install fzf / rg / fd (fzf-lua search)? [y/N]") {
+} else {
     foreach ($tool in @(@("fzf","junegunn","fzf","fzf-*-windows_amd64.zip"),
                        @("rg","BurntSushi","ripgrep","ripgrep-*-x86_64-pc-windows-msvc.zip"),
                        @("fd","sharkdp","fd","fd-*-x86_64-pc-windows-msvc.zip"))) {
@@ -309,6 +309,7 @@ if ((Test-ToolReady "fzf") -and (Test-ToolReady "rg") -and (Test-ToolReady "fd")
             else { Ok "$name already present: $((Get-Command $name).Source)" }
             continue
         }
+        if (-not (Confirm-Q "  Install $name (fzf-lua search)? [y/N]")) { Warn "$name skipped"; continue }
         $url = Resolve-LatestReleaseUrl $tool[1] $tool[2] $tool[3]
         if (-not $url) { Warn "Failed to resolve $name download URL, skipping"; continue }
         $zip = Join-Path $env:TEMP "$name.zip"
@@ -322,7 +323,7 @@ if ((Test-ToolReady "fzf") -and (Test-ToolReady "rg") -and (Test-ToolReady "fd")
 }
 if (Get-Command perl -ErrorAction SilentlyContinue) {
     Ok "perl already present: $((Get-Command perl).Source)"
-} elseif (Confirm-Q "Install perl + perltidy (perltidy formatter)? [y/N]") {
+} else {
     Warn "On Windows install Strawberry Perl manually: https://strawberryperl.com (includes perltidy), and add it to PATH"
 }
 if (Get-Command pandoc -ErrorAction SilentlyContinue) {
@@ -330,16 +331,18 @@ if (Get-Command pandoc -ErrorAction SilentlyContinue) {
 } elseif ($pd = Find-InstalledBinary "pandoc") {
     Add-ToUserPath (Split-Path $pd)
     Ok "pandoc already present: $pd"
-} elseif (Confirm-Q "Install pandoc (orgmode export)? [y/N]") {
-    $url = Resolve-LatestReleaseUrl "jgm" "pandoc" "pandoc-*-windows-x86_64.zip"
-    if (-not $url) { Warn "Failed to resolve pandoc download URL, skipping" }
-    else {
-        $zip = Join-Path $env:TEMP "pandoc.zip"
-        Download $url $zip
-        Expand-Archive -Path $zip -DestinationPath $InstallDir -Force
-        $pd = Get-ChildItem "$InstallDir\pandoc-*" -Directory | Select-Object -First 1
-        if ($pd) { Add-ToUserPath $pd.FullName }
-    }
+} else {
+    Need-Command pandoc {
+        $url = Resolve-LatestReleaseUrl "jgm" "pandoc" "pandoc-*-windows-x86_64.zip"
+        if (-not $url) { Warn "Failed to resolve pandoc download URL, skipping" }
+        else {
+            $zip = Join-Path $env:TEMP "pandoc.zip"
+            Download $url $zip
+            Expand-Archive -Path $zip -DestinationPath $InstallDir -Force
+            $pd = Get-ChildItem "$InstallDir\pandoc-*" -Directory | Select-Object -First 1
+            if ($pd) { Add-ToUserPath $pd.FullName }
+        }
+    } "orgmode export"
 }
 
 # ================================================================ Neovim
