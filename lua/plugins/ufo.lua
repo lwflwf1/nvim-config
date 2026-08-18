@@ -44,7 +44,15 @@ return {
                     if buftype ~= "" then
                         return ""
                     end
-                    if pcall(vim.treesitter.query.get, filetype, "folds") then
+                    -- vim.treesitter.query.get() alone succeeds even when the
+                    -- parser itself is not installed (e.g. sql/xml), which made
+                    -- the treesitter fallback throw UfoFallbackException with no
+                    -- handler -> UnhandledPromiseRejection. get_parser() returns
+                    -- nil (instead of throwing) when the parser is unavailable,
+                    -- so only use treesitter as the fallback when a real parser
+                    -- exists, otherwise keep the safe indent fallback.
+                    local ok, parser = pcall(vim.treesitter.get_parser, bufnr)
+                    if ok and parser and pcall(vim.treesitter.query.get, filetype, "folds") then
                         return { "lsp", "treesitter" }
                     end
                     return { "lsp", "indent" }
