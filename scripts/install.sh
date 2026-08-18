@@ -113,16 +113,125 @@ esac
 
 log "Platform: $PLATFORM / $ARCH"
 
+# ---------------------------------------------------------------- Privilege detection
+# Without admin rights (or a usable package manager) the tools are downloaded
+# manually and installed under the user's home directory instead.
+USER_MODE=0
+USER_DIR="$HOME/.local"
+if [ "$(id -u)" = 0 ]; then
+    log "Running as root; system-wide installs possible"
+elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    log "sudo available; system-wide installs possible"
+elif command -v sudo >/dev/null 2>&1; then
+    log "sudo present (may prompt for a password)"
+else
+    warn "No admin rights (no sudo); falling back to user-local installs under $USER_DIR"
+    USER_MODE=1
+fi
+if [ "$PLATFORM" = linux ] && [ "$PKG" = none ]; then
+    warn "No package manager detected; falling back to user-local installs"
+    USER_MODE=1
+fi
+if [ "$USER_MODE" = 1 ]; then
+    log "USER MODE: tools will be downloaded and installed under $USER_DIR"
+fi
+
 # ---------------------------------------------------------------- Package manager helpers
 pkg_install() { # pkg_install pkg1 pkg2 ...
+    if [ "$USER_MODE" = 1 ]; then
+        warn "No admin rights; skipping package-manager install: $*"
+        return 1
+    fi
     case "$PLATFORM:$PKG" in
         macos:*)  brew install "$@" ;;
-        linux:apk) sudo apk add --no-cache "$@" ;;
-        linux:apt) sudo apt-get update -qq && sudo apt-get install -y "$@" ;;
-        linux:dnf) sudo dnf install -y "$@" ;;
-        linux:yum) sudo yum install -y "$@" ;;
+        linux:apk) if [ "$(id -u)" = 0 ]; then apk add --no-cache "$@"; else sudo apk add --no-cache "$@"; fi ;;
+        linux:apt) if [ "$(id -u)" = 0 ]; then apt-get update -qq && apt-get install -y "$@"; else sudo apt-get update -qq && sudo apt-get install -y "$@"; fi ;;
+        linux:dnf) if [ "$(id -u)" = 0 ]; then dnf install -y "$@"; else sudo dnf install -y "$@"; fi ;;
+        linux:yum) if [ "$(id -u)" = 0 ]; then yum install -y "$@"; else sudo yum install -y "$@"; fi ;;
         *) err "Cannot auto-install: $*"; return 1;;
     esac
+}
+
+# User-local installs (no admin rights / no usable package manager): download
+# the official binaries and install them under $USER_DIR (~/.local).
+#   ~/.local/bin/      single-file tools (tree-sitter, fzf, rg, fd)
+#   ~/.local/node/     node (bin/ inside)
+#   ~/.local/pandoc/   pandoc (bin/ inside)
+#   ~/.local/nvim/     neovim (bin/ inside)
+
+user_install_node() {
+    local ver url
+    ver="$(curl -fsSL --max-time 30 https://nodejs.org/dist/latest/ \
+        | grep -oE 'node-v[0-9]+\.[0-9]+\.[0-9]+-linux-x64\.tar\.xz' | head -1 || true)"
+    [ -n "$ver" ] || { warn "  failed to resolve node version"; return 1; }
+    url="https://nodejs.org/dist/latest/$ver"
+    echo "  Downloading $url"
+    curl -fL --connect-timeout 20 --max-time 600 "$url" -o /tmp/node.tar.xz || { warn "  node download failed"; return 1; }
+    mkdir -p "$USER_DIR"
+    tar xf /tmp/node.tar.xz -C "$USER_DIR"
+    rm -rf "$USER_DIR/node"
+    mv "$USER_DIR/${ver%-linux-x64}" "$USER_DIR/node"
+    export PATH="$USER_DIR/node/bin:$PATH"
+    ok "node installed to $USER_DIR/node"
+}
+
+user_install_tree_sitter() {
+    local url="https://github.com/tree-sitter/tree-sitter/releases/download/v0.26.12/tree-sitter-cli-linux-x64.gz"
+    echo "  Downloading $url"
+    curl -fL --connect-timeout 20 --max-time 300 "$url" -o /tmp/tscli.gz || { warn "  tree-sitter download failed"; return 1; }
+    mkdir -p "$USER_DIR/bin"
+    gunzip -c /tmp/tscli.gz > "$USER_DIR/bin/tree-sitter" && chmod +x "$USER_DIR/bin/tree-sitter"
+    export PATH="$USER_DIR/bin:$PATH"
+    ok "tree-sitter installed to $USER_DIR/bin"
+}
+
+user_install_gh_bin() { # user_install_gh_bin <owner/repo> <asset-regex> <binary-name>
+    local repo="$1" pat="$2" bin="$3" url found
+    url="$(curl -fsSL --max-time 30 "https://api.github.com/repos/$repo/releases/latest" \
+        | grep -oE '"browser_download_url": *"[^"]*' | grep -oE 'https://[^"]*' \
+        | grep -E "$pat" | head -1 || true)"
+    [ -n "$url" ] || { warn "  failed to resolve $bin download URL"; return 1; }
+    echo "  Downloading $url"
+    curl -fL --connect-timeout 20 --max-time 300 "$url" -o /tmp/tool.tar.gz || { warn "  $bin download failed"; return 1; }
+    mkdir -p "$USER_DIR/bin"
+    tar xzf /tmp/tool.tar.gz -C "$USER_DIR/bin" 2>/dev/null || gunzip -c /tmp/tool.tar.gz > "$USER_DIR/bin/$bin"
+    found="$(find "$USER_DIR/bin" -name "$bin" -type f | head -1)"
+    [ -n "$found" ] || { warn "  $bin not found in the archive"; return 1; }
+    chmod +x "$found"
+    [ "$found" != "$USER_DIR/bin/$bin" ] && mv -f "$found" "$USER_DIR/bin/$bin"
+    export PATH="$USER_DIR/bin:$PATH"
+    ok "$bin installed to $USER_DIR/bin"
+}
+
+user_install_pandoc() {
+    local ver url
+    ver="$(curl -fsSL --max-time 30 "https://api.github.com/repos/jgm/pandoc/releases/latest" \
+        | grep -oE '"tag_name": *"[^"]*"' | grep -oE '[0-9.]+' | head -1 || true)"
+    [ -n "$ver" ] || { warn "  failed to resolve pandoc version"; return 1; }
+    url="https://github.com/jgm/pandoc/releases/download/${ver}/pandoc-${ver}-linux-amd64.tar.gz"
+    echo "  Downloading $url"
+    curl -fL --connect-timeout 20 --max-time 600 "$url" -o /tmp/pandoc.tar.gz || { warn "  pandoc download failed"; return 1; }
+    tar xzf /tmp/pandoc.tar.gz -C "$USER_DIR"
+    rm -rf "$USER_DIR/pandoc"
+    mv "$USER_DIR/pandoc-${ver}" "$USER_DIR/pandoc"
+    export PATH="$USER_DIR/pandoc/bin:$PATH"
+    ok "pandoc installed to $USER_DIR/pandoc"
+}
+
+user_install_nvim() { # Linux only (macOS uses brew)
+    local latest url
+    latest="$(curl -s --max-time 30 https://api.github.com/repos/neovim/neovim/releases/latest \
+        | grep -oE '"tag_name": *"v[^"]+"' | head -1 | grep -oE 'v[0-9.]+' || true)"
+    [ -z "$latest" ] && latest="v0.12.4"
+    url="https://github.com/neovim/neovim/releases/download/${latest}/nvim-linux-${ARCH}.tar.gz"
+    log "Downloading $url"
+    curl -fL --connect-timeout 20 --max-time 600 "$url" -o /tmp/nvim.tar.gz || { warn "  nvim download failed"; return 1; }
+    mkdir -p "$USER_DIR"
+    tar xzf /tmp/nvim.tar.gz -C "$USER_DIR"
+    rm -rf "$USER_DIR/nvim"
+    mv "$USER_DIR/nvim-linux-${ARCH}" "$USER_DIR/nvim"
+    export PATH="$USER_DIR/nvim/bin:$PATH"
+    ok "nvim ${latest} installed to $USER_DIR/nvim"
 }
 
 # ---------------------------------------------------------------- Required tools
@@ -130,20 +239,29 @@ log "== Checking required tools =="
 ask_tool git   "pkg_install git"
 ask_tool gcc   "pkg_install gcc make"
 ask_tool make  "pkg_install make"
-ask_tool node  "pkg_install nodejs npm"
+ask_tool node  "pkg_install nodejs npm || user_install_node"
 ask_tool npm   "pkg_install npm"
 ask_tool python3 "pkg_install python3"
 if [ "$PLATFORM" = macos ]; then
     ask_tool tree-sitter "brew install tree-sitter-cli"
 else
-    ask_tool tree-sitter "pkg_install tree-sitter-cli"
+    ask_tool tree-sitter "pkg_install tree-sitter-cli || user_install_tree_sitter"
 fi
 
 # Bug E fix: required tools must be present or the install is aborted with a
 # clear message (previously the script silently continued and failed later
-# with a confusing error).
+# with a confusing error). In USER MODE only node/tree-sitter can be
+# auto-installed (official binaries); the rest need admin rights or manual
+# installation.
 for t in git gcc make node npm python3 tree-sitter; do
-    command -v "$t" >/dev/null 2>&1 || { err "Required tool '$t' is missing after the install attempt; install it manually and re-run (see the messages above)"; exit 1; }
+    if ! command -v "$t" >/dev/null 2>&1; then
+        if [ "$USER_MODE" = 1 ]; then
+            err "Required tool '$t' could not be auto-installed without admin rights; install it manually (e.g. into $USER_DIR/bin) and re-run. Note: gcc/make are needed to compile the treesitter parsers."
+        else
+            err "Required tool '$t' is missing after the install attempt; install it manually and re-run (see the messages above)"
+        fi
+        exit 1
+    fi
 done
 
 # ---------------------------------------------------------------- Optional tools
@@ -163,9 +281,9 @@ fi
 if command -v fzf >/dev/null 2>&1 && command -v rg >/dev/null 2>&1 && command -v fd >/dev/null 2>&1; then
     ok "fzf / rg / fd already present"
 elif confirm "Install fzf / rg / fd (fzf-lua search)? [y/N] "; then
-    ask_tool fzf "pkg_install fzf"
-    ask_tool rg  "pkg_install ripgrep"
-    ask_tool fd  "pkg_install fd-find"
+    ask_tool fzf "pkg_install fzf || user_install_gh_bin junegunn/fzf 'fzf-.*-linux_amd64\.tar\.gz' fzf"
+    ask_tool rg  "pkg_install ripgrep || user_install_gh_bin BurntSushi/ripgrep '.*x86_64-unknown-linux-musl\.tar\.gz' rg"
+    ask_tool fd  "pkg_install fd-find || user_install_gh_bin sharkdp/fd '.*x86_64-unknown-linux-musl\.tar\.gz' fd"
 fi
 if command -v perl >/dev/null 2>&1; then
     ok "perl already present: $(command -v perl)"
@@ -178,7 +296,7 @@ fi
 if command -v pandoc >/dev/null 2>&1 && command -v xelatex >/dev/null 2>&1; then
     ok "pandoc + xelatex already present"
 elif confirm "Install pandoc + xelatex (orgmode export)? [y/N] "; then
-    ask_tool pandoc "pkg_install pandoc"
+    ask_tool pandoc "pkg_install pandoc || user_install_pandoc"
     ask_tool xelatex "pkg_install texlive-xetex"
 fi
 
@@ -192,6 +310,9 @@ if command -v nvim >/dev/null 2>&1; then
 else
     if [ "$PLATFORM" = macos ]; then
         brew install neovim
+    elif [ "$USER_MODE" = 1 ]; then
+        user_install_nvim
+        command -v nvim >/dev/null 2>&1 || { err "nvim install to $USER_DIR/nvim failed; install it manually"; exit 1; }
     else
         # Download official latest release tarball
         latest="$(curl -s https://api.github.com/repos/neovim/neovim/releases/latest | grep -oE '"tag_name": *"v[^"]+"' | head -1 | grep -oE 'v[0-9.]+' || true)"
@@ -260,6 +381,9 @@ fi
 # ---------------------------------------------------------------- PATH
 log "== Configuring PATH (mason tools) =="
 export PATH="$DATA_DIR/mason/bin:$PATH"
+if [ "$USER_MODE" = 1 ]; then
+    export PATH="$USER_DIR/nvim/bin:$USER_DIR/node/bin:$USER_DIR/pandoc/bin:$USER_DIR/bin:$PATH"
+fi
 RC=""
 case "${SHELL:-}" in
     *zsh)  RC="$HOME/.zshrc";;
@@ -267,6 +391,14 @@ case "${SHELL:-}" in
     *)     RC="$HOME/.profile";;
 esac
 if [ -n "$RC" ]; then
+    if [ "$USER_MODE" = 1 ]; then
+        grep -q "nvim-config: user-local" "$RC" 2>/dev/null || cat >> "$RC" <<EOF
+
+# nvim-config: user-local tools (installed without admin rights)
+export PATH="$USER_DIR/nvim/bin:$USER_DIR/node/bin:$USER_DIR/pandoc/bin:$USER_DIR/bin:\$PATH"
+EOF
+        ok "user-local tool dirs added to PATH ($RC), takes effect in new terminals"
+    fi
     grep -q "nvim/mason/bin" "$RC" 2>/dev/null || cat >> "$RC" <<EOF
 
 # nvim-config: add mason tools (LSP / formatter) to PATH
@@ -287,4 +419,7 @@ else
 fi
 echo
 log "Installation done: plugins=$plugins  parsers=$parsers  masonTools=$mason"
+if [ "$USER_MODE" = 1 ]; then
+    log "User-local install mode: tools live under $USER_DIR (PATH updated in $RC)"
+fi
 log "Run nvim to get started."

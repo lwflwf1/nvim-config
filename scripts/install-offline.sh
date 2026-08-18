@@ -23,6 +23,8 @@ NO_INTERACTIVE="${2:-}"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nvim"
 PARSER_DIR="$DATA_DIR/site/parser"
+# User-local install root for all tools (no admin rights needed)
+LOCAL_DIR="$HOME/.local"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -66,12 +68,12 @@ log "== External tool confirmation =="
 install_from_cache() { # install_from_cache <tools/*.tar.gz> <binary name>
     local cache="$TMP/tools/$1" name="$2"
     [ -f "$cache" ] || return 1
-    mkdir -p "$HOME/local/bin"
+    mkdir -p "$LOCAL_DIR/bin"
     case "$cache" in
-        *.gz) tar xzf "$cache" -C "$HOME/local" 2>/dev/null || gunzip -c "$cache" > "$HOME/local/bin/$name";;
+        *.gz) tar xzf "$cache" -C "$LOCAL_DIR" 2>/dev/null || gunzip -c "$cache" > "$LOCAL_DIR/bin/$name";;
     esac
-    find "$HOME/local" -name "$name" -type f -exec chmod +x {} \; 2>/dev/null || true
-    export PATH="$HOME/local/bin:$PATH"
+    find "$LOCAL_DIR" -name "$name" -type f -exec chmod +x {} \; 2>/dev/null || true
+    export PATH="$LOCAL_DIR/bin:$PATH"
     command -v "$name" >/dev/null 2>&1
 }
 
@@ -119,14 +121,14 @@ log "== Installing Neovim =="
 if command -v nvim >/dev/null 2>&1; then
     ok "nvim already present: $(nvim --version | head -1)"
 else
-    mkdir -p "$HOME/local"
-    tar xzf "$TMP/nvim/nvim-linux-x86_64.tar.gz" -C "$HOME/local"
-    mv "$HOME/local/nvim-linux-x86_64" "$HOME/local/nvim" 2>/dev/null || true
-    export PATH="$HOME/local/nvim/bin:$PATH"
+    mkdir -p "$LOCAL_DIR"
+    tar xzf "$TMP/nvim/nvim-linux-x86_64.tar.gz" -C "$LOCAL_DIR"
+    mv "$LOCAL_DIR/nvim-linux-x86_64" "$LOCAL_DIR/nvim" 2>/dev/null || true
+    export PATH="$LOCAL_DIR/nvim/bin:$PATH"
     command -v nvim >/dev/null 2>&1 || err "nvim install failed"
-    ok "nvim installed to $HOME/local/nvim ($(nvim --version | head -1))"
+    ok "nvim installed to $LOCAL_DIR/nvim ($(nvim --version | head -1))"
 fi
-case ":$PATH:" in *":$HOME/local/nvim/bin:"*) ;; *) export PATH="$HOME/local/nvim/bin:$PATH";; esac
+case ":$PATH:" in *":$LOCAL_DIR/nvim/bin:"*) ;; *) export PATH="$LOCAL_DIR/nvim/bin:$PATH";; esac
 
 # ---------------------------------------------------------------- Config and data
 log "== Restoring config and data =="
@@ -177,12 +179,12 @@ log "Parser compilation done: ok=$parse_ok  failed=$parse_fail"
 
 # ---------------------------------------------------------------- PATH
 log "== Configuring PATH =="
-export PATH="$HOME/local/nvim/bin:$HOME/local/bin:$PATH"
+export PATH="$LOCAL_DIR/nvim/bin:$LOCAL_DIR/bin:$PATH"
 # Add mason binaries (lsp/formatter) to PATH
 export PATH="$DATA_DIR/mason/bin:$PATH"
-grep -q "$HOME/local" "$HOME/.bashrc" 2>/dev/null || cat >> "$HOME/.bashrc" <<EOF
+grep -q "$LOCAL_DIR" "$HOME/.bashrc" 2>/dev/null || cat >> "$HOME/.bashrc" <<EOF
 # nvim-config (offline install)
-export PATH="$HOME/local/nvim/bin:$HOME/local/bin:$DATA_DIR/mason/bin:\$PATH"
+export PATH="$LOCAL_DIR/nvim/bin:$LOCAL_DIR/bin:$DATA_DIR/mason/bin:\$PATH"
 EOF
 ok "PATH written to ~/.bashrc"
 
