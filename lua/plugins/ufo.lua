@@ -2,6 +2,7 @@ return {
     {
         "kevinhwang91/nvim-ufo",
         dependencies = { "kevinhwang91/promise-async" },
+        event = "VeryLazy",
         init = function()
             vim.o.fillchars = "eob: ,fold: ,foldopen:,foldsep: ,foldclose:"
             vim.o.foldcolumn = "1"
@@ -73,7 +74,6 @@ return {
             })
         end,
         keys = {
-            "za",
             { "zR", function() require("ufo").openAllFolds() end, desc = "Open all folds" },
             { "zM", function() require("ufo").closeAllFolds() end, desc = "Close all folds" },
             { "zr", function() require("ufo").openFoldsExceptKinds() end, desc = "Open folds except kinds" },
