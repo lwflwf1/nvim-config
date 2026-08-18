@@ -1,14 +1,15 @@
 <#
-.nvim-config 在线安装脚本 (Windows, 无包管理器依赖)
-用法:
+.nvim-config online installer (Windows, no package manager dependency)
+Usage:
   powershell -ExecutionPolicy Bypass -File install.ps1 [-Proxy http://host:port]
 
-行为:
-  - 直接下载官方 zip/exe: neovim, git, mingw(gcc), node, win32yank, tree-sitter-cli, python
-  - 交互式确认外部工具: 已安装则跳过
-  - 配置 PATH (用户级)
-  - 克隆配置到 %USERPROFILE%\AppData\Local\nvim
-  - headless 安装插件 + mason 工具 + treesitter 解析器
+Behavior:
+  - Downloads official zip/exe directly: neovim, git, mingw(gcc), node, win32yank, tree-sitter-cli, python
+  - Interactive confirmation for external tools: skip if already installed
+  - Configures PATH (user level)
+  - Clones config to %USERPROFILE%\AppData\Local\nvim
+  - Headless install: plugins + mason tools + treesitter parsers
+  - Verifies and reports results
 #>
 [CmdletBinding()]
 param(
@@ -24,6 +25,10 @@ $BIN_DIR     = Join-Path $InstallDir "bin"
 $NVIM_VER    = "v0.12.4"
 $TSCLI_VER   = "v0.26.12"
 
+# nvim on Windows prefers XDG_* env vars when set; clear them so CONFIG_DIR /
+# DATA_DIR above always match the paths nvim actually reads (Bug J fix).
+Remove-Item Env:XDG_CONFIG_HOME,Env:XDG_DATA_HOME,Env:XDG_CACHE_HOME -ErrorAction SilentlyContinue
+
 if ($Proxy) { $env:http_proxy = $Proxy; $env:https_proxy = $Proxy }
 
 function Log  { Write-Host "[install] $args" -ForegroundColor Cyan }
@@ -31,16 +36,50 @@ function Ok   { Write-Host "  [OK] $args" -ForegroundColor Green }
 function Warn { Write-Host "  [!] $args" -ForegroundColor Yellow }
 function Err  { Write-Host "[error] $args" -ForegroundColor Red; exit 1 }
 
-# curl.exe (Win10+ 自带) 下载, 更快且支持代理
+# Proxy-aware web helpers (Bug D fix): WinINET-based cmdlets ignore the env proxy.
+function Get-Page($url, [switch]$NoProxy) {
+    try {
+        if ($NoProxy) {
+            $oldH = $env:http_proxy; $oldS = $env:https_proxy
+            $env:http_proxy = ""; $env:https_proxy = ""
+        }
+        try {
+            if ($Proxy -and -not $NoProxy) { return (Invoke-WebRequest -UseBasicParsing -Proxy $Proxy -Uri $url -TimeoutSec 30).Content }
+            return (Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 30).Content
+        }
+        finally {
+            if ($NoProxy) { $env:http_proxy = $oldH; $env:https_proxy = $oldS }
+        }
+    }
+    catch { return "" }
+}
+function Get-Json($url, [switch]$NoProxy) {
+    try {
+        if ($NoProxy) {
+            $oldH = $env:http_proxy; $oldS = $env:https_proxy
+            $env:http_proxy = ""; $env:https_proxy = ""
+        }
+        try {
+            if ($Proxy -and -not $NoProxy) { return Invoke-RestMethod -Proxy $Proxy -Uri $url -TimeoutSec 30 }
+            return Invoke-RestMethod -Uri $url -TimeoutSec 30
+        }
+        finally {
+            if ($NoProxy) { $env:http_proxy = $oldH; $env:https_proxy = $oldS }
+        }
+    }
+    catch { return $null }
+}
+
+# curl.exe (built into Win10+) for downloads: faster and proxy-aware
 function Download($url, $out) {
-    Log "下载 $url"
+    Log "Downloading $url"
     & curl.exe -fL --retry 3 --connect-timeout 20 -o $out $url
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $out)) { Err "下载失败: $url" }
-    Ok "已下载 $out"
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $out)) { Err "Download failed: $url" }
+    Ok "Downloaded $out"
 }
 
 function Resolve-LatestReleaseUrl($owner, $repo, $assetPattern) {
-    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$owner/$repo/releases/latest"
+    $release = Get-Json "https://api.github.com/repos/$owner/$repo/releases/latest"
     $asset = $release.assets | Where-Object { $_.name -like $assetPattern } | Select-Object -First 1
     if (-not $asset) { return $null }
     return $asset.browser_download_url
@@ -51,21 +90,25 @@ function Confirm-Q($msg) {
     return ($ans -match '^[yY]')
 }
 
-function Need-Command($name, [scriptblock]$install, $hint = "") {
+function Need-Command($name, [scriptblock]$install, $hint = "", [switch]$Fatal) {
     if (Get-Command $name -ErrorAction SilentlyContinue) {
-        Ok "$name 已存在: $((Get-Command $name).Source)"
+        Ok "$name already present: $((Get-Command $name).Source)"
         return
     }
-    Warn "$name 未找到"
-    if (Confirm-Q "  $name 是否已手动安装? [y/N]") {
-        if (Get-Command $name -ErrorAction SilentlyContinue) { Ok "$name 确认可用"; return }
-        Warn "$name 仍未找到, 跳过"
+    Warn "$name not found"
+    if (Confirm-Q "  Is $name already installed manually? [y/N]") {
+        if (Get-Command $name -ErrorAction SilentlyContinue) { Ok "$name confirmed available"; return }
+        Warn "$name still not found, skipping"
         return
     }
-    Log "自动安装 $name ..."
+    Log "Auto-installing $name ..."
     & $install
-    if (Get-Command $name -ErrorAction SilentlyContinue) { Ok "$name 安装完成" }
-    else { Warn "$name 安装失败或不在 PATH, 跳过" }
+    if (Get-Command $name -ErrorAction SilentlyContinue) { Ok "$name installed" }
+    elseif ($Fatal) {
+        Err "$name install failed. $hint"
+    } else {
+        Warn "$name install failed or not on PATH, skipping"
+    }
 }
 
 function Add-ToUserPath($dir) {
@@ -74,74 +117,108 @@ function Add-ToUserPath($dir) {
     if ($cur -notlike "*$dir*") {
         [Environment]::SetEnvironmentVariable("PATH", "$cur;$dir", "User")
         $env:PATH = "$env:PATH;$dir"
-        Ok "PATH 已添加: $dir"
+        Ok "PATH updated: $dir"
     }
+}
+
+# Headless nvim success check (Bug I fix): nvim --headless returns 0 even when
+# the config fails to load (E492/E5113), so inspect the output, not just the exit code.
+function Test-HeadlessOk {
+    param([scriptblock]$Command)
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $out = (& $Command 2>&1 | ForEach-Object { $_ | Out-String }) -join ""
+    }
+    finally { $ErrorActionPreference = $prev }
+    if ($LASTEXITCODE -ne 0) { return $false }
+    return ($out -notmatch 'E\d+: |Error detected|Error in ')
 }
 
 New-Item -ItemType Directory -Force -Path $InstallDir, $BIN_DIR | Out-Null
 
-# ================================================================ 必需工具
-Log "== 检查必需工具 =="
+# ================================================================ Required tools
+Log "== Checking required tools =="
 
-# git
+# git (Bug E fix: fail hard when the silent install does not work)
 Need-Command git {
     $url = Resolve-LatestReleaseUrl "git-for-windows" "git" "Git-*-64-bit.exe"
-    if (-not $url) { Err "无法解析 git-for-windows 下载地址" }
+    if (-not $url) { Err "Failed to resolve git-for-windows download URL" }
     $exe = Join-Path $env:TEMP "git-setup.exe"
     Download $url $exe
     Start-Process $exe -ArgumentList "/VERYSILENT","/NORESTART","/SP-" -Wait
-    $env:Path = "$env:Path;$env:ProgramFiles\Git\cmd"
-} "需要手动安装: https://git-scm.com/download/win"
+    $candidates = @(
+        "$env:LOCALAPPDATA\Programs\Git\cmd",
+        "$env:ProgramFiles\Git\cmd",
+        "${env:ProgramFiles(x86)}\Git\cmd"
+    )
+    foreach ($c in $candidates) {
+        if (Test-Path (Join-Path $c "git.exe")) { $env:Path = "$env:Path;$c"; break }
+    }
+} -Fatal "install git manually: https://git-scm.com/download/win"
 
-# gcc (mingw-w64 winlibs)
+# gcc (mingw-w64 winlibs; Bug H fix: PATH entry must point at the bin subdir)
 Need-Command gcc {
     $url = Resolve-LatestReleaseUrl "brechtsanders" "winlibs_mingw" "winlibs-x86_64-*.zip"
-    if (-not $url) { Warn "无法解析 winlibs 地址, 请手动安装 gcc (https://winlibs.com) 后重试"; return }
+    if (-not $url) { Warn "Failed to resolve winlibs URL, install gcc manually (https://winlibs.com) and retry"; return }
     $zip = Join-Path $env:TEMP "winlibs.zip"
     Download $url $zip
     Expand-Archive -Path $zip -DestinationPath $InstallDir -Force
-    $mingwBin = Get-ChildItem "$InstallDir\mingw*" -Directory | Select-Object -First 1
-    if (-not $mingwBin) { Warn "mingw 解压异常, 请手动安装 gcc"; return }
-    Add-ToUserPath $mingwBin.FullName
-} "需要手动安装: https://winlibs.com (mingw-w64, 含 gcc)"
+    $mingwRoot = Get-ChildItem "$InstallDir\mingw*" -Directory | Select-Object -First 1
+    if (-not $mingwRoot) { Warn "mingw extraction failed, install gcc manually"; return }
+    $mingwBin = Join-Path $mingwRoot.FullName "bin"
+    if (-not (Test-Path (Join-Path $mingwBin "gcc.exe"))) { Warn "gcc.exe not found under $mingwBin, install gcc manually"; return }
+    Add-ToUserPath $mingwBin
+} "install manually: https://winlibs.com (mingw-w64, includes gcc)"
 
-# make (随 mingw 提供, 若无则提示)
+# make (bundled with mingw; warn if missing)
 if (-not (Get-Command make -ErrorAction SilentlyContinue)) {
-    Warn "make 未找到 (gcc 安装时通常自带 make, 若后续解析器编译失败请确认)"
+    Warn "make not found (winlibs does not bundle it by default; install it if parser compilation fails later)"
 }
 
-# node
+# node (Bug B fix: resolve the latest release from the dist listing directly)
 Need-Command node {
-    $nodeUrl = "https://nodejs.org/dist/latest/"
-    $ver = (Invoke-RestMethod -Uri $nodeUrl).dist.index 2>$null
-    if (-not $ver) {
-        $listing = (Invoke-WebRequest -UseBasicParsing -Uri $nodeUrl).Content
-        $m = [regex]::Match($listing, 'v(\d+)\.(\d+)\.(\d+)/"')
-        if (-not $m.Success) { Warn "无法解析 node 版本, 请手动安装: https://nodejs.org"; return }
-        $ver = "v$($m.Groups[1]).$($m.Groups[2]).$($m.Groups[3])"
-    } else {
-        $latest = $ver | Sort-Object { [version]$_.version.TrimStart('v') } -Descending | Select-Object -First 1
-        $ver = $latest.version
-    }
+    $listing = Get-Page "https://nodejs.org/dist/latest/"
+    $m = [regex]::Match($listing, 'node-v(\d+\.\d+\.\d+)-win-x64\.zip')
+    if (-not $m.Success) { Warn "Failed to resolve node version, install manually: https://nodejs.org"; return }
+    $ver = "v$($m.Groups[1].Value)"
     $zip = Join-Path $env:TEMP "node.zip"
-    Download "https://nodejs.org/dist/$ver/node-$ver-win-x64.zip" $zip
+    Download "https://nodejs.org/dist/latest/node-$ver-win-x64.zip" $zip
     Expand-Archive -Path $zip -DestinationPath $InstallDir -Force
     $nodeDir = Get-ChildItem "$InstallDir\node-*" -Directory | Select-Object -First 1
     Add-ToUserPath $nodeDir.FullName
-} "需要手动安装: https://nodejs.org"
+} "install manually: https://nodejs.org"
 
-# python3 (pyrefly/mason venv 需要)
+# python3 (Bug A fix: pick the NEWEST version from the ftp listing, with fallback)
 Need-Command python {
-    $listing = (Invoke-WebRequest -UseBasicParsing -Uri "https://www.python.org/ftp/python/").Content
-    $m = [regex]::Match($listing, '([0-9]+\.[0-9]+\.[0-9]+)')
-    if (-not $m.Success) { Warn "无法解析 python 版本, 请手动安装: https://python.org"; return }
-    $pv = $m.Groups[1].Value
+    $listing = Get-Page "https://www.python.org/ftp/python/"
+    if (-not $listing) {
+        Warn "python.org version listing unreachable via proxy, retrying direct"
+        $listing = Get-Page "https://www.python.org/ftp/python/" -NoProxy
+    }
+    $versions = @([regex]::Matches($listing, '([0-9]+\.[0-9]+\.[0-9]+)/') |
+        ForEach-Object { $_.Groups[1].Value } |
+        Sort-Object { [version]$_ } -Descending)
+    if ($versions.Count -eq 0) { Err "Failed to resolve python version, install manually: https://python.org" }
     $exe = Join-Path $env:TEMP "python-setup.exe"
-    Download "https://www.python.org/ftp/python/$pv/python-$pv-amd64.exe" $exe
+    $downloaded = $false
+    foreach ($pv in ($versions | Select-Object -First 5)) {
+        $url = "https://www.python.org/ftp/python/$pv/python-$pv-amd64.exe"
+        Log "Downloading $url"
+        $oldH = $env:http_proxy; $oldS = $env:https_proxy
+        $env:http_proxy = ""; $env:https_proxy = ""
+        & curl.exe -fL --retry 2 --connect-timeout 20 -o $exe $url
+        $env:http_proxy = $oldH; $env:https_proxy = $oldS
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $exe)) { $downloaded = $true; break }
+        Warn "Download failed for python $pv, trying the next version"
+    }
+    if (-not $downloaded) { Err "Failed to download any python installer, install manually: https://python.org" }
     Start-Process $exe -ArgumentList "/quiet","InstallAllUsers=0","PrependPath=1" -Wait
-} "需要手动安装: https://python.org"
+    Get-ChildItem "$env:LOCALAPPDATA\Programs\Python" -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object { $env:Path = "$env:Path;$($_.FullName)" }
+} "install manually: https://python.org"
 
-# tree-sitter-cli (在线机编译解析器用)
+# tree-sitter-cli (compiles parsers on online machines)
 Need-Command tree-sitter {
     $zip = Join-Path $env:TEMP "tscli.zip"
     Download "https://github.com/tree-sitter/tree-sitter/releases/download/$TSCLI_VER/tree-sitter-cli-windows-x64.zip" $zip
@@ -149,52 +226,58 @@ Need-Command tree-sitter {
     Add-ToUserPath $BIN_DIR
 }
 
-# win32yank (配置硬依赖: 剪贴板)
+# win32yank (config hard dependency: clipboard)
 if (-not (Get-Command win32yank.exe -ErrorAction SilentlyContinue)) {
-    Log "自动安装 win32yank (配置剪贴板依赖) ..."
+    Log "Auto-installing win32yank (config clipboard dependency) ..."
     $url = Resolve-LatestReleaseUrl "equalsraf" "win32yank" "win32yank-x64.zip"
-    if (-not $url) { Warn "无法解析 win32yank 地址, 请手动安装后加入 PATH"; }
+    if (-not $url) { Warn "Failed to resolve win32yank URL, install manually and add to PATH"; }
     else {
         $zip = Join-Path $env:TEMP "win32yank.zip"
         Download $url $zip
         Expand-Archive -Path $zip -DestinationPath $BIN_DIR -Force
         Add-ToUserPath $BIN_DIR
-        Ok "win32yank 安装完成"
+        Ok "win32yank installed"
     }
-} else { Ok "win32yank 已存在" }
+} else { Ok "win32yank already present" }
 
-# ================================================================ 可选工具
-Log "== 可选工具 (按需确认) =="
-if (Confirm-Q "安装 rust 工具链 (rustup, rust-analyzer/rustfmt)? [y/N]") {
+# ================================================================ Optional tools
+Log "== Optional tools (confirm as needed) =="
+if (Confirm-Q "Install rust toolchain (rustup, rust-analyzer/rustfmt)? [y/N]") {
     $exe = Join-Path $env:TEMP "rustup-init.exe"
     Download "https://win.rustup.rs/x86_64" $exe
     Start-Process $exe -ArgumentList "-y","--default-toolchain","stable" -Wait
-    rustup component add rust-analyzer rustfmt 2>$null
-    Ok "rust 工具链就绪"
+    $cargoBin = "$env:USERPROFILE\.cargo\bin"   # Bug C fix: rustup lands here, not on PATH yet
+    if (Test-Path (Join-Path $cargoBin "rustup.exe")) { $env:Path = "$env:Path;$cargoBin" }
+    if (Get-Command rustup -ErrorAction SilentlyContinue) {
+        rustup component add rust-analyzer rustfmt 2>$null
+        Ok "rust toolchain ready"
+    } else {
+        Warn "rustup installed but not on PATH yet; add $cargoBin to PATH and run 'rustup component add rust-analyzer rustfmt'"
+    }
 }
-if (Confirm-Q "安装 fzf / rg / fd (fzf-lua 搜索)? [y/N]") {
+if (Confirm-Q "Install fzf / rg / fd (fzf-lua search)? [y/N]") {
     foreach ($tool in @(@("fzf","junegunn","fzf","fzf-*-windows_amd64.zip"),
                        @("rg","BurntSushi","ripgrep","ripgrep-*-x86_64-pc-windows-msvc.zip"),
                        @("fd","sharkdp","fd","fd-*-x86_64-pc-windows-msvc.zip"))) {
         $name = $tool[0]
-        if (Get-Command $name -ErrorAction SilentlyContinue) { Ok "$name 已存在"; continue }
+        if (Get-Command $name -ErrorAction SilentlyContinue) { Ok "$name already present"; continue }
         $url = Resolve-LatestReleaseUrl $tool[1] $tool[2] $tool[3]
-        if (-not $url) { Warn "无法解析 $name 下载地址, 跳过"; continue }
+        if (-not $url) { Warn "Failed to resolve $name download URL, skipping"; continue }
         $zip = Join-Path $env:TEMP "$name.zip"
         Download $url $zip
         Expand-Archive -Path $zip -DestinationPath $BIN_DIR -Force
-        # 把子目录里的可执行文件提升到 BIN_DIR
+        # promote executables from subdirectories to BIN_DIR
         Get-ChildItem $BIN_DIR -Recurse -Filter "$name*.exe" | Move-Item -Destination $BIN_DIR -Force -ErrorAction SilentlyContinue
         Add-ToUserPath $BIN_DIR
-        Ok "$name 安装完成"
+        Ok "$name installed"
     }
 }
-if (Confirm-Q "安装 perl + perltidy (perl LSP)? [y/N]") {
-    Warn "Windows 请手动安装 Strawberry Perl: https://strawberryperl.com (含 perltidy), 并加入 PATH"
+if (Confirm-Q "Install perl + perltidy (perl LSP)? [y/N]") {
+    Warn "On Windows install Strawberry Perl manually: https://strawberryperl.com (includes perltidy), and add it to PATH"
 }
-if (Confirm-Q "安装 pandoc (orgmode 导出)? [y/N]") {
+if (Confirm-Q "Install pandoc (orgmode export)? [y/N]") {
     $url = Resolve-LatestReleaseUrl "jgm" "pandoc" "pandoc-*-windows-x86_64.zip"
-    if (-not $url) { Warn "无法解析 pandoc 下载地址, 跳过" }
+    if (-not $url) { Warn "Failed to resolve pandoc download URL, skipping" }
     else {
         $zip = Join-Path $env:TEMP "pandoc.zip"
         Download $url $zip
@@ -205,62 +288,78 @@ if (Confirm-Q "安装 pandoc (orgmode 导出)? [y/N]") {
 }
 
 # ================================================================ Neovim
-Log "== 安装 Neovim =="
+Log "== Installing Neovim =="
 if (Get-Command nvim -ErrorAction SilentlyContinue) {
-    Ok "nvim 已存在: $((nvim --version | Select-Object -First 1))"
+    Ok "nvim already present: $((nvim --version | Select-Object -First 1))"
 } else {
     $zip = Join-Path $env:TEMP "nvim-win64.zip"
     Download "https://github.com/neovim/neovim/releases/download/$NVIM_VER/nvim-win64.zip" $zip
     Expand-Archive -Path $zip -DestinationPath $InstallDir -Force
     $nvimBin = Join-Path $InstallDir "nvim-win64\bin"
     Add-ToUserPath $nvimBin
-    Ok "nvim $NVIM_VER 安装完成"
+    Ok "nvim $NVIM_VER installed"
 }
 
-# ================================================================ 配置
-Log "== 克隆配置 =="
+# ================================================================ Config
+Log "== Cloning config =="
 if (Test-Path (Join-Path $CONFIG_DIR "init.lua")) {
-    Log "$CONFIG_DIR 已存在, 跳过克隆"
+    Log "$CONFIG_DIR already exists, skipping clone"
 } else {
+    # Bug F fix: check the clone result explicitly
     git clone --depth 1 $CONFIG_REPO $CONFIG_DIR
-    Ok "配置已克隆到 $CONFIG_DIR"
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $CONFIG_DIR "init.lua"))) {
+        Err "Config clone failed; check network/proxy and retry: git clone --depth 1 $CONFIG_REPO $CONFIG_DIR"
+    }
+    Ok "Config cloned to $CONFIG_DIR"
 }
 
-# ================================================================ 安装插件/工具/解析器
+# ================================================================ Plugins/tools/parsers
 Set-Location $CONFIG_DIR
-Log "== 安装插件 (Lazy) =="
+Log "== Installing plugins (Lazy) =="
 $env:LANG = "en_US.UTF-8"; $env:LC_ALL = "en_US.UTF-8"
 for ($attempt = 1; $attempt -le 3; $attempt++) {
-    nvim --headless "+Lazy! sync" +qa
-    if ($LASTEXITCODE -eq 0) { break }
-    Warn "Lazy sync 失败 (第 $attempt 次), 清理 lazy.nvim 缓存后重试 ..."
+    if (Test-HeadlessOk { nvim --headless "+Lazy! sync" +qa }) { break }
+    Warn "Lazy sync failed (attempt $attempt), clearing lazy.nvim cache and retrying ..."
     Remove-Item -Recurse -Force "$DATA_DIR\lazy\lazy.nvim" -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 3
-    if ($attempt -eq 3) { Err "插件安装失败, 请检查网络/代理后重试" }
+    if ($attempt -eq 3) { Err "Plugin install failed, check network/proxy and retry" }
 }
-Ok "插件安装完成"
+$lazyCount = (Get-ChildItem "$DATA_DIR\lazy" -Directory -ErrorAction SilentlyContinue).Count
+if ($lazyCount -eq 0) { Err "No plugins were installed by Lazy, aborting" }
+Ok "Plugins installed ($lazyCount)"
 
-Log "== 安装 mason 工具 + treesitter 解析器 (ToolInstall) =="
+Log "== Installing mason tools + treesitter parsers (ToolInstall) =="
 $expectedParsers = 27
+$masonCount = 0
 for ($attempt = 1; $attempt -le 3; $attempt++) {
-    nvim --headless +ToolInstall +"sleep 300" +qa
+    # Bug K fix: load mason explicitly, otherwise the lazy-loaded plugin is
+    # never activated headless and every tool is skipped as "unknown".
+    Test-HeadlessOk { nvim --headless +"lua require('mason').setup()" +ToolInstall +"sleep 5000" +qa } | Out-Null
     $parserCount = (Get-ChildItem "$DATA_DIR\site\parser\*.so" -ErrorAction SilentlyContinue).Count
-    Write-Host "  解析器已就绪: $parserCount/$expectedParsers (第 $attempt 次)" -ForegroundColor Cyan
+    $masonCount  = (Get-ChildItem "$DATA_DIR\mason\packages" -Directory -ErrorAction SilentlyContinue).Count
+    Write-Host "  Parsers: $parserCount/$expectedParsers  mason tools: $masonCount (attempt $attempt)" -ForegroundColor Cyan
     if ($parserCount -ge $expectedParsers) { break }
     Start-Sleep -Seconds 3
-    if ($attempt -eq 3) { Warn "解析器未完全安装 ($parserCount/$expectedParsers), 可稍后运行 :ToolInstall" }
+    if ($attempt -eq 3) { Warn "Parsers not fully installed ($parserCount/$expectedParsers), run :ToolInstall later" }
 }
-Ok "mason 工具 + 解析器安装完成"
+if ($masonCount -eq 0) {
+    Warn "No mason tools were installed headless; run :ToolInstall once in an interactive nvim session (needs network)"
+} else {
+    Ok "mason tools installed ($masonCount)"
+}
 
-# ================================================================ 校验
-Log "== 校验 =="
+# ================================================================ Verification
+Log "== Verification =="
 $plugins = (Get-ChildItem "$DATA_DIR\lazy" -Directory -ErrorAction SilentlyContinue).Count
 $parsers = (Get-ChildItem "$DATA_DIR\site\parser\*.so" -ErrorAction SilentlyContinue).Count
 $mason   = (Get-ChildItem "$DATA_DIR\mason\packages" -Directory -ErrorAction SilentlyContinue).Count
 $masonBin = Join-Path $DATA_DIR "mason\bin"
 Add-ToUserPath $masonBin
-nvim --headless +qa 2>$null
-Ok "启动验证完成"
+if (Test-HeadlessOk { nvim --headless +qa }) {
+    Ok "Startup verification passed"
+} else {
+    Warn "Startup verification reported errors, run nvim manually to inspect"
+}
 Write-Host ""
-Write-Host "[install] 完成: 插件=$plugins  解析器=$parsers  mason工具=$mason" -ForegroundColor Cyan
-Write-Host "请重新打开终端使 PATH 生效, 然后运行 nvim"
+Write-Host "[install] Done: plugins=$plugins  parsers=$parsers  masonTools=$mason" -ForegroundColor Cyan
+Write-Host "Reopen your terminal for PATH to take effect, then run nvim"

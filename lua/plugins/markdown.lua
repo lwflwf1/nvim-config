@@ -34,7 +34,7 @@ return {
             vim.g.mkdp_markdown_css = ""
             vim.g.mkdp_highlight_css = ""
             vim.g.mkdp_port = ""
-            vim.g.mkdp_page_title = "「${name}」"
+            vim.g.mkdp_page_title = "${name}"
             vim.g.mkdp_filetypes = { "markdown" }
         end,
     },

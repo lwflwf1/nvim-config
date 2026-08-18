@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 #
-# nvim-config 在线安装脚本 (macOS + Linux / WSL)
+# nvim-config online installer (macOS + Linux / WSL)
 #
-# 用法:
+# Usage:
 #   ./install.sh [--proxy http://host:port]
 #
-# 行为:
-#   - 检测操作系统 / 发行版
-#   - 交互式确认外部工具: 已安装则跳过, 否则按包管理器安装
-#   - 安装 neovim + git + gcc + tree-sitter-cli + node + python3 (必需)
-#   - 可选: rustup / fzf / rg / fd / perl / pandoc / verible
-#   - 克隆配置到 ~/.config/nvim
-#   - headless 安装插件 (Lazy) + mason 工具 + treesitter 解析器
-#   - 校验并输出结果
+# Behavior:
+#   - Detects OS / distribution
+#   - Interactive confirmation for external tools: skip if installed, otherwise install via package manager
+#   - Installs neovim + git + gcc + tree-sitter-cli + node + python3 (required)
+#   - Optional: rustup / fzf / rg / fd / perl / pandoc / verible
+#   - Clones config to ~/.config/nvim
+#   - Headless install: plugins (Lazy) + mason tools + treesitter parsers
+#   - Verifies and reports results
 #
 set -euo pipefail
 
@@ -24,87 +24,96 @@ if [ -n "$PROXY" ]; then
     export http_proxy="$PROXY" https_proxy="$PROXY"
 fi
 
-# ---------------------------------------------------------------- 基础工具
+# ---------------------------------------------------------------- Basic utilities
 log()  { printf '\033[1;34m[install]\033[0m %s\n' "$*"; }
 err()  { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; }
-ok()   { printf '\033[1;32m  ✓ %s\033[0m\n' "$*"; }
-warn() { printf '\033[1;33m  ⚠ %s\033[0m\n' "$*"; }
+ok()   { printf '\033[1;32m  [OK] %s\033[0m\n' "$*"; }
+warn() { printf '\033[1;33m  [!] %s\033[0m\n' "$*"; }
 
-confirm() { # $1=提示  $2=默认(y/N)
+confirm() { # $1=prompt  $2=default (y/N)
     local d="${2:-n}"
     read -r -p "$1" ans
     case "${ans:-$d}" in y|Y|yes|YES) return 0;; *) return 1;; esac
 }
 
-# 交互式工具检查: ask_tool <name> <install命令>
-# 找到 → 跳过; 未找到 → 询问是否已手动安装 → 否则执行 install命令
+# Interactive tool check: ask_tool <name> <install-command>
+# Found -> skip; missing -> ask if manually installed -> otherwise run install command
 ask_tool() {
     local name="$1" install_fn="$2"
     if command -v "$name" >/dev/null 2>&1; then
         ok "$name ($(command -v "$name"))"
         return 0
     fi
-    warn "$name 未找到"
-    if confirm "  $name 是否已手动安装? [y/N] "; then
-        if command -v "$name" >/dev/null 2>&1; then ok "$name 确认可用"; return 0; fi
-        warn "$name 仍未找到, 跳过"
+    warn "$name not found"
+    if confirm "  Is $name already installed manually? [y/N] "; then
+        if command -v "$name" >/dev/null 2>&1; then ok "$name confirmed available"; return 0; fi
+        warn "$name still not found, skipping"
         return 1
     fi
-    echo "  自动安装 $name ..."
+    echo "  Auto-installing $name ..."
     eval "$install_fn"
-    if command -v "$name" >/dev/null 2>&1; then ok "$name 安装完成"; return 0; fi
-    warn "$name 安装失败或不在 PATH, 跳过"
+    if command -v "$name" >/dev/null 2>&1; then ok "$name installed"; return 0; fi
+    warn "$name install failed or not on PATH, skipping"
     return 1
 }
 
-# 带超时执行命令 (防止 headless nvim 卡死). 返回 124 表示超时
-run_with_timeout() {
+# Run nvim headless with timeout, capture output, and require BOTH a clean exit
+# code AND no error output. Bug I fix: nvim --headless exits 0 even when the
+# config fails to load (E492/E5113), so the output must be inspected too.
+# Returns 124 on timeout, 0 on success, nonzero otherwise.
+run_headless() {
     local secs="$1"; shift
-    "$@" & local pid=$!
-    local n=0
+    local logf n rc pid
+    logf="$(mktemp)"
+    "$@" >"$logf" 2>&1 & pid=$!
+    n=0; rc=0
     while kill -0 "$pid" 2>/dev/null; do
         if [ "$n" -ge "$secs" ]; then
             kill -9 "$pid" 2>/dev/null || true
-            warn "超时(${secs}s), 已终止: $*"
+            warn "Timed out (${secs}s), killed: $*"
+            rm -f "$logf"
             return 124
         fi
         sleep 2; n=$((n+2))
     done
-    wait "$pid"
-    return $?
+    wait "$pid" || rc=$?
+    if [ "$rc" -ne 0 ]; then rm -f "$logf"; return "$rc"; fi
+    if grep -qE 'E[0-9]+: |Error detected|Error in ' "$logf"; then rm -f "$logf"; return 1; fi
+    rm -f "$logf"
+    return 0
 }
 
 count_parsers() { ls "$DATA_DIR/site/parser"/*.so 2>/dev/null | wc -l | tr -d ' '; }
 EXPECTED_PARSERS=27
 
-# ---------------------------------------------------------------- OS 检测
+# ---------------------------------------------------------------- OS detection
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 case "$OS" in
     Darwin)
         PLATFORM="macos"
         if ! command -v brew >/dev/null 2>&1; then
-            err "需要 Homebrew, 请先安装: https://brew.sh"; exit 1
+            err "Homebrew required, install first: https://brew.sh"; exit 1
         fi
         ;;
     Linux)
         PLATFORM="linux"
         if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
-            log "检测到 WSL ($WSL_DISTRO_NAME)"
+            log "WSL detected ($WSL_DISTRO_NAME)"
         fi
         if command -v apk >/dev/null 2>&1; then PKG=apk
         elif command -v apt-get >/dev/null 2>&1; then PKG=apt
         elif command -v dnf >/dev/null 2>&1; then PKG=dnf
         elif command -v yum >/dev/null 2>&1; then PKG=yum
         else PKG=none; fi
-        log "Linux 发行版包管理器: $PKG"
+        log "Linux package manager: $PKG"
         ;;
-    *) err "不支持的系统: $OS (仅支持 macOS/Linux)"; exit 1;;
+    *) err "Unsupported system: $OS (only macOS/Linux supported)"; exit 1;;
 esac
 
-log "平台: $PLATFORM / $ARCH"
+log "Platform: $PLATFORM / $ARCH"
 
-# ---------------------------------------------------------------- 包管理器辅助
+# ---------------------------------------------------------------- Package manager helpers
 pkg_install() { # pkg_install pkg1 pkg2 ...
     case "$PLATFORM:$PKG" in
         macos:*)  brew install "$@" ;;
@@ -112,12 +121,12 @@ pkg_install() { # pkg_install pkg1 pkg2 ...
         linux:apt) sudo apt-get update -qq && sudo apt-get install -y "$@" ;;
         linux:dnf) sudo dnf install -y "$@" ;;
         linux:yum) sudo yum install -y "$@" ;;
-        *) err "无法自动安装: $*"; return 1;;
+        *) err "Cannot auto-install: $*"; return 1;;
     esac
 }
 
-# ---------------------------------------------------------------- 必需工具
-log "== 检查必需工具 =="
+# ---------------------------------------------------------------- Required tools
+log "== Checking required tools =="
 ask_tool git   "pkg_install git"
 ask_tool gcc   "pkg_install gcc make"
 ask_tool make  "pkg_install make"
@@ -130,92 +139,113 @@ else
     ask_tool tree-sitter "pkg_install tree-sitter-cli"
 fi
 
-# ---------------------------------------------------------------- 可选工具
-log "== 可选工具 (按需确认) =="
-if confirm "安装 rust 工具链 (rustup, 提供 rust-analyzer/rustfmt)? [y/N] "; then
+# Bug E fix: required tools must be present or the install is aborted with a
+# clear message (previously the script silently continued and failed later
+# with a confusing error).
+for t in git gcc make node npm python3 tree-sitter; do
+    command -v "$t" >/dev/null 2>&1 || { err "Required tool '$t' is missing after the install attempt; install it manually and re-run (see the messages above)"; exit 1; }
+done
+
+# ---------------------------------------------------------------- Optional tools
+log "== Optional tools (confirm as needed) =="
+if confirm "Install rust toolchain (rustup, provides rust-analyzer/rustfmt)? [y/N] "; then
     ask_tool rustup 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y'
+    # Bug C fix: rustup only adds ~/.cargo/bin to PATH for new shells; make it
+    # available in this session so the component check/add below works.
+    export PATH="$HOME/.cargo/bin:$PATH"
     if command -v rustup >/dev/null 2>&1; then
         rustup component add rust-analyzer rustfmt 2>/dev/null || true
-        ok "rust 工具链就绪"
+        ok "rust toolchain ready"
     fi
 fi
-if confirm "安装 fzf / rg / fd (fzf-lua 搜索)? [y/N] "; then
+if confirm "Install fzf / rg / fd (fzf-lua search)? [y/N] "; then
     ask_tool fzf "pkg_install fzf"
     ask_tool rg  "pkg_install ripgrep"
     ask_tool fd  "pkg_install fd-find"
 fi
-if confirm "安装 perl + perltidy (perl LSP)? [y/N] "; then
+if confirm "Install perl + perltidy (perl LSP)? [y/N] "; then
     if [ "$PLATFORM" = macos ]; then ask_tool perl "brew install perl perltidy"
     elif [ "$PKG" = apt ]; then ask_tool perl "pkg_install perl libperl-dev perltidy"
     elif [ "$PKG" = apk ]; then ask_tool perl "pkg_install perl perl-tidy"
     else ask_tool perl "pkg_install perl"; fi
 fi
-if confirm "安装 pandoc + xelatex (orgmode 导出)? [y/N] "; then
+if confirm "Install pandoc + xelatex (orgmode export)? [y/N] "; then
     ask_tool pandoc "pkg_install pandoc"
     ask_tool xelatex "pkg_install texlive-xetex"
 fi
 
 # ---------------------------------------------------------------- Neovim
-log "== 安装 Neovim =="
+log "== Installing Neovim =="
 if command -v nvim >/dev/null 2>&1; then
     ok "nvim $(nvim --version | head -1)"
     if [ "$(nvim --version | grep -oE 'v?0\.1[12]\.[0-9]+' | head -1)" = "" ]; then
-        warn "nvim 版本可能过旧 (配置需要 >= 0.11, 建议 0.12)"
+        warn "nvim version may be too old (config requires >= 0.11, 0.12 recommended)"
     fi
 else
     if [ "$PLATFORM" = macos ]; then
         brew install neovim
     else
-        # 下载官方最新 release tarball
+        # Download official latest release tarball
         latest="$(curl -s https://api.github.com/repos/neovim/neovim/releases/latest | grep -oE '"tag_name": *"v[^"]+"' | head -1 | grep -oE 'v[0-9.]+' || true)"
         [ -z "$latest" ] && latest="v0.12.4"
         url="https://github.com/neovim/neovim/releases/download/${latest}/nvim-linux-${ARCH}.tar.gz"
-        log "下载 $url"
+        log "Downloading $url"
         curl -fL "$url" -o /tmp/nvim.tar.gz
         sudo tar xzf /tmp/nvim.tar.gz -C /usr/local --strip-components=1
-        ok "nvim ${latest} 安装完成"
+        ok "nvim ${latest} installed"
     fi
 fi
 
-# ---------------------------------------------------------------- 配置
-log "== 克隆配置 =="
+# ---------------------------------------------------------------- Config
+log "== Cloning config =="
 if [ -f "$CONFIG_DIR/init.lua" ]; then
-    log "$CONFIG_DIR 已存在, 跳过克隆 (如需重新安装请先删除)"
+    log "$CONFIG_DIR already exists, skipping clone (delete it first to reinstall)"
 else
-    git clone --depth 1 "$CONFIG_REPO" "$CONFIG_DIR"
-    ok "配置已克隆到 $CONFIG_DIR"
+    # Bug F fix: check the clone result explicitly instead of relying on set -e.
+    if ! git clone --depth 1 "$CONFIG_REPO" "$CONFIG_DIR"; then
+        err "Config clone failed (check network/proxy). Retry with: git clone --depth 1 $CONFIG_REPO $CONFIG_DIR"
+        exit 1
+    fi
+    [ -f "$CONFIG_DIR/init.lua" ] || { err "Config clone succeeded but init.lua is missing; re-run the installer"; exit 1; }
+    ok "Config cloned to $CONFIG_DIR"
 fi
 
-# ---------------------------------------------------------------- 安装插件/工具/解析器
+# ---------------------------------------------------------------- Install plugins/tools/parsers
 cd "$CONFIG_DIR"
-log "== 安装插件 (Lazy) =="
+log "== Installing plugins (Lazy) =="
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 for attempt in 1 2 3; do
-    if run_with_timeout 1500 nvim --headless "+Lazy! sync" +qa; then
+    if run_headless 1500 nvim --headless "+Lazy! sync" +qa; then
         break
     fi
-    warn "Lazy sync 失败 (第 $attempt 次), 清理 lazy.nvim 缓存后重试 ..."
+    warn "Lazy sync failed (attempt $attempt), clearing lazy.nvim cache and retrying ..."
     rm -rf "$DATA_DIR/lazy/lazy.nvim"
     sleep 3
-    [ "$attempt" = 3 ] && { err "插件安装失败, 请检查网络/代理后重试"; exit 1; }
+    [ "$attempt" = 3 ] && { err "Plugin install failed, check network/proxy and retry"; exit 1; }
 done
-ok "插件安装完成"
+ok "Plugins installed"
 
-log "== 安装 mason 工具 + treesitter 解析器 (ToolInstall) =="
-# 解析器自动安装逻辑: ToolInstall 后等待异步任务完成, 不足则重试
+log "== Installing mason tools + treesitter parsers (ToolInstall) =="
+# Bug K fix: load mason explicitly first. It is lazy-loaded in the config, so
+# headless nvim never activates it and every tool would be skipped as "unknown".
 for attempt in 1 2 3; do
-    run_with_timeout 1500 nvim --headless +ToolInstall +"sleep 240" +qa \
-        || warn "ToolInstall 第 $attempt 次执行异常"
+    run_headless 1500 nvim --headless +"lua require('mason').setup()" +ToolInstall +"sleep 240" +qa \
+        || warn "ToolInstall attempt $attempt exited abnormally"
     cnt="$(count_parsers)"
-    log "解析器已就绪: $cnt/$EXPECTED_PARSERS (第 $attempt 次)"
+    log "Parsers ready: $cnt/$EXPECTED_PARSERS (attempt $attempt)"
     [ "$cnt" -ge "$EXPECTED_PARSERS" ] && break
     sleep 3
-    [ "$attempt" = 3 ] && warn "解析器未完全安装 ($cnt/$EXPECTED_PARSERS), 可稍后运行 :ToolInstall"
+    [ "$attempt" = 3 ] && warn "Parsers not fully installed ($cnt/$EXPECTED_PARSERS), run :ToolInstall later"
 done
-ok "mason 工具 + 解析器安装完成"
+mason_count="$(ls "$DATA_DIR/mason/packages" 2>/dev/null | wc -l | tr -d ' ')"
+if [ "$mason_count" = 0 ]; then
+    warn "No mason tools were installed headless; run :ToolInstall once in an interactive nvim session (needs network)"
+else
+    ok "mason tools installed ($mason_count)"
+fi
 
 # ---------------------------------------------------------------- PATH
-log "== 配置 PATH (mason 工具) =="
+log "== Configuring PATH (mason tools) =="
 export PATH="$DATA_DIR/mason/bin:$PATH"
 RC=""
 case "${SHELL:-}" in
@@ -226,22 +256,22 @@ esac
 if [ -n "$RC" ]; then
     grep -q "nvim/mason/bin" "$RC" 2>/dev/null || cat >> "$RC" <<EOF
 
-# nvim-config: mason 工具 (LSP / formatter) 加入 PATH
+# nvim-config: add mason tools (LSP / formatter) to PATH
 export PATH="$DATA_DIR/mason/bin:\$PATH"
 EOF
-    ok "mason bin 已加入 PATH ($RC), 新终端生效"
+    ok "mason bin added to PATH ($RC), takes effect in new terminals"
 fi
 
-# ---------------------------------------------------------------- 校验
-log "== 校验 =="
+# ---------------------------------------------------------------- Verification
+log "== Verification =="
 plugins=$(ls "$DATA_DIR/lazy" 2>/dev/null | wc -l | tr -d ' ')
 parsers=$(find "$DATA_DIR/site/parser" -name '*.so' 2>/dev/null | wc -l | tr -d ' ')
 mason=$(ls "$DATA_DIR/mason/packages" 2>/dev/null | wc -l | tr -d ' ')
-if nvim --headless +qa 2>/tmp/nvim-install-verify.log && ! grep -qE 'E5113|Error' /tmp/nvim-install-verify.log; then
-    ok "启动验证通过"
+if run_headless 60 nvim --headless +qa; then
+    ok "Startup verification passed"
 else
-    warn "启动验证有报错, 查看 /tmp/nvim-install-verify.log"
+    warn "Startup verification reported errors, run nvim manually to inspect"
 fi
 echo
-log "安装完成: 插件=$plugins  解析器=$parsers  mason工具=$mason"
-log "运行 nvim 即可使用。"
+log "Installation done: plugins=$plugins  parsers=$parsers  masonTools=$mason"
+log "Run nvim to get started."

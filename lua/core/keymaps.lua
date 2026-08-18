@@ -130,21 +130,21 @@ map("n", "<leader>sw", toggle_value, vim.tbl_extend("force", opts, { desc = "Tog
 
 -- Smart GF: open file and jump to line
 local smart_gf_config = {
-    -- 文件名包裹符号（可添加更多，如 [[ 或 ` ）
+    -- Characters wrapping the filename (add more, e.g. [[ or `)
     quote_chars = { '"', "'" },
 
-    -- 行号分隔符（可添加更多，如 | 或 -> 等）
+    -- Line-number separators (add more, e.g. | or ->)
     separators = { ":", ";", ",", "(" },
 
-    -- 需要从文件名中移除的字符
+    -- Characters to strip from the filename
     trim_chars = { '"', "'", " " },
 }
 
--- 根据配置生成匹配模式
+-- Build the match patterns from the config
 local function build_smart_gf_patterns()
     local patterns = {}
 
-    -- 1. 带引号的格式: "file", line 或 'file', line
+    -- 1. Quoted formats: "file", line or 'file', line
     for _, q in ipairs(smart_gf_config.quote_chars) do
         local q_esc = vim.pesc(q)
         table.insert(patterns, {
@@ -153,22 +153,22 @@ local function build_smart_gf_patterns()
         })
     end
 
-    -- 2. 不带引号但有分隔符的格式: file:line, file;line, file, line
+    -- 2. Unquoted formats with a separator: file:line, file;line, file, line
     for _, sep in ipairs(smart_gf_config.separators) do
         local sep_esc = vim.pesc(sep)
         if sep == ":" then
             -- file:line
             table.insert(patterns, { '([^%s]+)' .. sep_esc .. '(%d+)', 1, 2 })
         elseif sep == "," then
-            -- file, line (逗号后可能有空格)
+            -- file, line (optional space after the comma)
             table.insert(patterns, { '([^%s]+)' .. sep_esc .. '%s*(%d+)', 1, 2 })
         else
-            -- file;line 等
+            -- file;line etc.
             table.insert(patterns, { '([^%s]+)' .. sep_esc .. '(%d+)', 1, 2 })
         end
     end
 
-    -- 3. file(line) 格式 (如果有 ( 作为分隔符)
+    -- 3. file(line) format (when ( is used as the separator)
     for _, sep in ipairs(smart_gf_config.separators) do
         if sep == "(" then
             table.insert(patterns, { '([^%s]+)%((%d+)%)', 1, 2 })
@@ -210,7 +210,7 @@ local function smart_gf(cmd)
 
     local ok = pcall(vim.cmd, "normal! " .. (cmd == "split" and "gF" or "gf"))
     if not ok then
-        vim.notify("gf: can't find file — " .. vim.fn.expand("<cfile>"), vim.log.levels.WARN)
+        vim.notify("gf: can't find file - " .. vim.fn.expand("<cfile>"), vim.log.levels.WARN)
     end
 end
 
