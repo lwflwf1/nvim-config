@@ -44,7 +44,10 @@ confirm() { # $1=prompt  $2=default (y/N)
 }
 
 # Interactive tool check: ask_tool <name> <install-command> [description]
-# Found -> ok; missing -> ask to install -> run install command on confirm
+# Found -> ok; missing -> ask to install -> run install command on confirm.
+# Declining or a failed install only warns: callers run under set -e, so a
+# non-zero return here would abort the whole script. Required tools are
+# enforced later by the required-tools check loop.
 ask_tool() {
     local name="$1" install_fn="$2" desc="${3:-}"
     if command -v "$name" >/dev/null 2>&1; then
@@ -54,13 +57,13 @@ ask_tool() {
     warn "$name not found"
     if ! confirm "  Install $name${desc:+ ($desc)}? [y/N] "; then
         warn "$name skipped"
-        return 1
+        return 0
     fi
     echo "  Auto-installing $name ..."
     eval "$install_fn" || true   # set -e safety: failures are handled below (warn)
     if command -v "$name" >/dev/null 2>&1; then ok "$name installed"; return 0; fi
     warn "$name install failed or not on PATH, skipping"
-    return 1
+    return 0
 }
 
 # Run nvim headless with timeout, capture output, and require BOTH a clean exit

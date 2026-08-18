@@ -46,14 +46,14 @@ need() { # need <name> [install-command] [description]
     warn "$name not found${desc:+ ($desc)}"
     if ! confirm "  Install $name${desc:+ ($desc)}? [y/N] "; then
         warn "$name skipped"
-        return 1
+        return 0
     fi
     if [ -n "$inst" ]; then
         echo "  Installing $name ..."
         eval "$inst" && command -v "$name" >/dev/null 2>&1 && { ok "$name installed"; return 0; }
     fi
     warn "$name not installed (skipped)"
-    return 1
+    return 0
 }
 
 # ---------------------------------------------------------------- Extract
@@ -87,6 +87,15 @@ need gcc   "" "required to compile treesitter parsers"
 need make  "" "compile helper"
 need node  "install_from_cache node.tar.gz node 2>/dev/null || true" "mason npm packages (bash/json/yaml-lsp, prettier)"
 need python3 "" "required by pyrefly"
+
+# Required tools must be present or the install is aborted with a clear message
+# (declining a need() above only warns, so enforce it here)
+for t in git gcc make node python3; do
+    if ! command -v "$t" >/dev/null 2>&1; then
+        err "Required tool '$t' is missing; install it manually (e.g. into $LOCAL_DIR/bin) and re-run"
+        exit 1
+    fi
+done
 
 # gcc version check (parsers need C11, gcc >= 5 recommended, 7.x best)
 CC_BIN="${CC:-gcc}"
