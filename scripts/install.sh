@@ -43,15 +43,19 @@ confirm() { # $1=prompt  $2=default (y/N)
     case "${ans:-$d}" in y|Y|yes|YES) return 0;; *) return 1;; esac
 }
 
-# Interactive tool check: ask_tool <name> <install-command> [description]
+# Interactive tool check: ask_tool <name> <install-command> [description] [extra-PATH] [verify-binary]
 # Found -> ok; missing -> ask to install -> run install command on confirm.
 # Declining or a failed install only warns: callers run under set -e, so a
 # non-zero return here would abort the whole script. Required tools are
 # enforced later by the required-tools check loop.
+# extra-PATH is prepended to PATH after the install command, for tools that
+# install outside the current PATH (e.g. rustup -> ~/.cargo/bin).
+# verify-binary defaults to <name>; used for Debian/Ubuntu's fd-find package,
+# whose binary is installed as `fdfind`.
 ask_tool() {
-    local name="$1" install_fn="$2" desc="${3:-}"
-    if command -v "$name" >/dev/null 2>&1; then
-        ok "$name ($(command -v "$name"))"
+    local name="$1" install_fn="$2" desc="${3:-}" check="${5:-$1}"
+    if command -v "$check" >/dev/null 2>&1; then
+        ok "$name ($(command -v "$check"))"
         return 0
     fi
     warn "$name not found"
@@ -61,7 +65,8 @@ ask_tool() {
     fi
     echo "  Auto-installing $name ..."
     eval "$install_fn" || true   # set -e safety: failures are handled below (warn)
-    if command -v "$name" >/dev/null 2>&1; then ok "$name installed"; return 0; fi
+    [ -n "${4:-}" ] && export PATH="$4:$PATH"
+    if command -v "$check" >/dev/null 2>&1; then ok "$name installed"; return 0; fi
     warn "$name install failed or not on PATH, skipping"
     return 0
 }
@@ -303,10 +308,10 @@ log "== Optional tools (confirm as needed) =="
 if command -v rustup >/dev/null 2>&1; then
     ok "rustup already present: $(command -v rustup)"
 else
-    ask_tool rustup 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y' "rust toolchain (rust-analyzer/rustfmt)"
-    # Bug C fix: rustup only adds ~/.cargo/bin to PATH for new shells; make it
-    # available in this session so the component check/add below works.
-    export PATH="$HOME/.cargo/bin:$PATH"
+    # Bug C fix: rustup only adds ~/.cargo/bin to PATH for new shells; ask_tool's
+    # extra-PATH arg makes it available in this session before verification.
+    ask_tool rustup 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y' \
+        "rust toolchain (rust-analyzer/rustfmt)" "$HOME/.cargo/bin"
     if command -v rustup >/dev/null 2>&1; then
         rustup component add rust-analyzer rustfmt 2>/dev/null || true
         ok "rust toolchain ready"
@@ -317,7 +322,23 @@ if command -v fzf >/dev/null 2>&1 && command -v rg >/dev/null 2>&1 && command -v
 else
     ask_tool fzf "pkg_install fzf || user_install_gh_bin junegunn/fzf 'fzf-.*-${FZF_ARCH}\\.tar\\.gz' fzf" "fzf-lua search"
     ask_tool rg  "pkg_install ripgrep || user_install_gh_bin BurntSushi/ripgrep '.*${GH_ARCH}-unknown-linux-musl.*\\.tar\\.gz' rg" "fzf-lua grep"
-    ask_tool fd  "pkg_install fd-find || user_install_gh_bin sharkdp/fd '.*${GH_ARCH}-unknown-linux-musl.*\\.tar\\.gz' fd" "fzf-lua files"
+    ask_tool fd  "pkg_install fd-find || user_install_gh_bin sharkdp/fd '.*${GH_ARCH}-unknown-linux-musl.*\\.tar\\.gz' fd" "fzf-lua files" "" fdfind
+fi
+# Bug N fix: Debian/Ubuntu package fd-find installs the binary as `fdfind`;
+# fzf-lua invokes `fd`, so link it into a bin dir that is on PATH.
+if ! command -v fd >/dev/null 2>&1 && command -v fdfind >/dev/null 2>&1; then
+    if [ "$USER_MODE" = 1 ]; then
+        mkdir -p "$USER_DIR/bin"
+        ln -sf "$(command -v fdfind)" "$USER_DIR/bin/fd"
+        export PATH="$USER_DIR/bin:$PATH"
+    elif [ "$(id -u)" = 0 ]; then
+        ln -sf "$(command -v fdfind)" /usr/local/bin/fd
+    else
+        sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd
+    fi
+    command -v fd >/dev/null 2>&1 \
+        && ok "fd linked from fdfind ($(command -v fd))" \
+        || warn "fd-find is installed as fdfind; create the link manually: sudo ln -s $(command -v fdfind) /usr/local/bin/fd"
 fi
 if command -v perl >/dev/null 2>&1; then
     ok "perl already present: $(command -v perl)"
