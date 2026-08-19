@@ -294,7 +294,10 @@ ask_tool python3 "pkg_install python3"
 if [ "$PLATFORM" = macos ]; then
     ask_tool tree-sitter "brew install tree-sitter-cli"
 else
-    ask_tool tree-sitter "pkg_install tree-sitter-cli || user_install_tree_sitter"
+    # Bug Q fix: prefer the latest GitHub binary — distro packages are ancient
+    # (e.g. Ubuntu 24.04 ships tree-sitter-cli 0.20.8), which modern
+    # nvim-treesitter refuses to use.
+    ask_tool tree-sitter "user_install_tree_sitter || pkg_install tree-sitter-cli"
 fi
 
 # Bug E fix: required tools must be present or the install is aborted with a
