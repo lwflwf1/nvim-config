@@ -37,6 +37,9 @@ err()  { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; }
 ok()   { printf '\033[1;32m  [OK] %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m  [!] %s\033[0m\n' "$*"; }
 
+# Bug O fix: any unexpected exit prints its code, so a silent death is diagnosable.
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then err "Script exited with rc=$rc"; fi' EXIT
+
 confirm() { # $1=prompt  $2=default (y/N)
     local d="${2:-n}"
     read -r -p "$1" ans
@@ -121,7 +124,14 @@ case "$OS" in
     Linux)
         PLATFORM="linux"
         if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
-            log "WSL detected ($WSL_DISTRO_NAME)"
+            log "WSL detected (${WSL_DISTRO_NAME:-unknown})"
+            # Bug P fix: WSL appends the Windows PATH (e.g. /mnt/c/...) to the
+            # Linux PATH. Windows binaries (node.exe, tree-sitter shims, ...) are
+            # not executable by Linux, so tool checks would falsely pass and
+            # parser builds would fail with "Exec format error". Strip them from
+            # PATH for this script (only affects this process).
+            export PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '^/mnt/' | paste -sd ':' -)"
+            log "Windows-interop paths stripped from PATH"
         fi
         if command -v apk >/dev/null 2>&1; then PKG=apk
         elif command -v apt-get >/dev/null 2>&1; then PKG=apt
@@ -420,6 +430,7 @@ log "== Installing mason tools + treesitter parsers (ToolInstall) =="
 for attempt in 1 2 3; do
     cnt_now="$(count_parsers)"
     if [ "$cnt_now" -ge "$EXPECTED_PARSERS" ]; then sleep_ms=10000; else sleep_ms=300000; fi
+    log "ToolInstall running (attempt $attempt/3): downloading LSP tools + parsers, may take several minutes (no output during download) ..."
     run_headless 1500 nvim --headless +"lua require('mason').setup()" +ToolInstall +"sleep ${sleep_ms}m" +qa \
         || warn "ToolInstall attempt $attempt exited abnormally"
     cnt="$(count_parsers)"
