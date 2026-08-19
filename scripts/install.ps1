@@ -412,8 +412,19 @@ for ($attempt = 1; $attempt -le 3; $attempt++) {
     Start-Sleep -Seconds 3
     if ($attempt -eq 3) { Warn "Parsers not fully installed ($parserCount/$expectedParsers), run :ToolInstall later" }
 }
-if ($masonCount -eq 0) {
-    Warn "No mason tools were installed headless; run :ToolInstall once in an interactive nvim session (needs network)"
+# Bug R fix: the parser loop above breaks the moment parsers are complete, so
+# mason tools only ever get whatever window parsers left over (often 10s).
+# Give mason its own retry loop with a fixed 5-minute window per round.
+$expectedMasonTools = 10
+$masonAttempt = 1
+while ($masonCount -lt $expectedMasonTools -and $masonAttempt -le 3) {
+    Log "Mason tools $masonCount/$expectedMasonTools — retry $masonAttempt/3 (5-min window) ..."
+    Test-HeadlessOk { nvim --headless +"lua require('mason').setup()" +ToolInstall +"sleep 300000m" +qa } | Out-Null
+    $masonCount = (Get-ChildItem "$DATA_DIR\mason\packages" -Directory -ErrorAction SilentlyContinue).Count
+    $masonAttempt++
+}
+if ($masonCount -lt $expectedMasonTools) {
+    Warn "Mason tools installed: $masonCount/$expectedMasonTools — run :ToolInstall once in an interactive nvim session (needs network)"
 } else {
     Ok "mason tools installed ($masonCount)"
 }
