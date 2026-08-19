@@ -45,6 +45,20 @@ ok()   { printf '\033[1;32m  [OK] %s\033[0m\n' "$*"; }
 err()  { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 warn() { printf '\033[1;33m  [!] %s\033[0m\n' "$*"; }
 
+# P1 fix: on WSL the Windows-interop paths (/mnt/c/...) sit at the END of PATH
+# and can shadow Linux tools with non-executable Windows shims (tree-sitter
+# would resolve to node.exe and every download/parse would fail).
+if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
+    log "WSL detected (${WSL_DISTRO_NAME:-unknown}), stripping Windows-interop paths from PATH"
+    export PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '^/mnt/' | paste -sd ':' -)"
+fi
+
+# P6 fix: bounded git transfers (codeload fallback path)
+export GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=30
+
+# P7 fix: report a clear non-zero exit instead of a silent rc=1
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then printf "\033[1;31m[error]\033[0m script exited with rc=$rc\n" >&2; fi' EXIT
+
 BUNDLE_ROOT="$OUT_DIR/.bundle-tmp"
 rm -rf "$BUNDLE_ROOT"; mkdir -p "$BUNDLE_ROOT"
 mkdir -p "$BUNDLE_ROOT/parser-sources" "$BUNDLE_ROOT/tools"
@@ -52,8 +66,14 @@ MANIFEST="$BUNDLE_ROOT/manifest.txt"
 : > "$MANIFEST"
 
 # ---------------------------------------------------------------- Preflight checks
-command -v nvim >/dev/null 2>&1 || err "nvim not found, run install.sh first"
-command -v tree-sitter >/dev/null 2>&1 || err "tree-sitter CLI not found (needed to pre-generate the perl parser), install it first"
+# P5 fix: this script only knows how to build x86_64 bundles
+[ "$(uname -m)" = "x86_64" ] || err "package.sh only builds x86_64 bundles (host is $(uname -m))"
+# P2 fix: smoke-test the binaries, not just their presence (a Windows shim or a
+# non-executable binary would pass `command -v` and fail confusingly later)
+command -v nvim >/dev/null 2>&1 && nvim --version >/dev/null 2>&1 \
+    || err "nvim not found or not runnable, run install.sh first"
+command -v tree-sitter >/dev/null 2>&1 && tree-sitter --version >/dev/null 2>&1 \
+    || err "tree-sitter CLI missing or not runnable (needed to pre-generate the perl parser), install it first"
 [ -f "$CONFIG_DIR/init.lua" ] || err "Config directory not found: $CONFIG_DIR"
 [ -d "$DATA_DIR/lazy" ] || err "Plugins not installed, run install.sh first"
 log "Packaging sources: config=$CONFIG_DIR  data=$DATA_DIR"
@@ -66,6 +86,8 @@ cp -a "$DATA_DIR" "$BUNDLE_ROOT/data"
 rm -rf "$BUNDLE_ROOT/data/backup" "$BUNDLE_ROOT/data/undo" "$BUNDLE_ROOT/data/swap" \
        "$BUNDLE_ROOT/data/view" "$BUNDLE_ROOT/data/shada" 2>/dev/null || true
 ok "config + data copied"
+# Record the tool counts for the offline installer's verification thresholds
+echo "mason=$(ls "$DATA_DIR/mason/packages" 2>/dev/null | wc -l | tr -d ' ')" >> "$MANIFEST"
 
 # ---------------------------------------------------------------- nvim binary
 log "== Downloading Neovim (old-glibc build) =="
@@ -113,6 +135,7 @@ fetch_source() { # fetch_source <out.tar.gz> <owner> <repo> <rev>
     return 0
 }
 
+GEN_FAILED=""
 for lang in "${LANGS[@]}"; do
     if [ "$lang" = systemverilog ]; then
         # Config overrides to a personal fork (treesitter.lua)
@@ -135,18 +158,27 @@ for lang in "${LANGS[@]}"; do
         REPO="$(echo "$URL" | sed -E 's#https://github.com/[^/]+/([^/]+).*#\1#')"
         fetch_source "$TGZ" "$OWNER" "$REPO" "$REV" \
             || { warn "  Fetch failed, skipping $lang"; continue; }
-        if [ "$(get_gen "$lang")" = yes ]; then
+        # P3 fix: get_gen returns a COUNT (grep -c), not "yes" — the old test
+        # never matched, so perl (generate = true) was never pre-generated and
+        # the bundle header line was a lie. Fail loud if generation fails.
+        if [ "$(get_gen "$lang")" -gt 0 ]; then
             log "  $lang needs tree-sitter generate, pre-generating parser.c ..."
             work="$BUNDLE_ROOT/_gen"; rm -rf "$work"; mkdir -p "$work"
             tar xzf "$TGZ" -C "$work"
             dir="$(find "$work" -mindepth 1 -maxdepth 1 -type d | head -1)"
-            ( cd "$dir" && tree-sitter generate >/dev/null 2>&1 ) || warn "  generate failed, skipping $lang"
+            if ( cd "$dir" && tree-sitter generate >/dev/null 2>&1 ); then
+                ok "  $lang parser.c generated"
+            else
+                GEN_FAILED="$GEN_FAILED $lang"
+                warn "  generate failed for $lang (bundle will lack parser.c)"
+            fi
             tar czf "$TGZ" -C "$work" "$(basename "$dir")"
             rm -rf "$work"
         fi
     fi
     echo "parser $lang $URL $REV" >> "$MANIFEST"
 done
+[ -z "$GEN_FAILED" ] || err "tree-sitter generate failed for:$GEN_FAILED — fix the parser sources before packaging"
 rm -f "$BUNDLE_ROOT/parser-sources/.keep" 2>/dev/null || true
 PSRC_COUNT="$(ls "$BUNDLE_ROOT/parser-sources" | grep -c '\.tar\.gz')"
 log "Parser source packages: ${PSRC_COUNT}"
@@ -178,6 +210,17 @@ rg)
                     *)    ts_cache="tree-sitter-cli.zip";;
                 esac
                 [ -n "$url" ] && { curl -fL --connect-timeout 20 --max-time 300 "$url" -o "$BUNDLE_ROOT/tools/$ts_cache"; echo "tool tree-sitter-cli $url" >> "$MANIFEST"; ok "tree-sitter-cli cached"; } || warn "tree-sitter-cli download failed";;
+            node)
+                # P4 fix: node.tar.xz so offline machines can install npm tools
+                # without their own copy (consumed by install-offline.sh)
+                file="$(curl -fsSL --max-time 30 https://nodejs.org/dist/latest-v24.x/ \
+                       | grep -oE 'node-v[0-9]+\.[0-9]+\.[0-9]+-linux-x64\.tar\.xz' | head -1 || true)"
+                [ -n "$file" ] && { curl -fL --connect-timeout 20 --max-time 600 "https://nodejs.org/dist/latest-v24.x/$file" -o "$BUNDLE_ROOT/tools/node.tar.xz"; echo "tool node $file" >> "$MANIFEST"; ok "node cached"; } || warn "node download failed";;
+            pandoc)
+                # P4 fix: pandoc.tar.gz consumed by install-offline.sh
+                ver="$(curl -fsSL --max-time 30 https://api.github.com/repos/jgm/pandoc/releases/latest \
+                       | grep -oE '"tag_name": *"[^"]+"' | head -1 | grep -oE '[0-9.]+' || true)"
+                [ -n "$ver" ] && { curl -fL --connect-timeout 20 --max-time 600 "https://github.com/jgm/pandoc/releases/download/${ver}/pandoc-${ver}-linux-amd64.tar.gz" -o "$BUNDLE_ROOT/tools/pandoc.tar.gz"; echo "tool pandoc ${ver}" >> "$MANIFEST"; ok "pandoc cached"; } || warn "pandoc download failed";;
             *) warn "Unknown tool: $t";;
         esac
     done

@@ -55,9 +55,13 @@ confirm() { # $1=prompt  $2=default (y/N)
 # install outside the current PATH (e.g. rustup -> ~/.cargo/bin).
 # verify-binary defaults to <name>; used for Debian/Ubuntu's fd-find package,
 # whose binary is installed as `fdfind`.
+# Bug T fix: presence on PATH is not enough — the binary must also RUN
+# (`$check --version`). A non-executable Windows shim (WSL), a stale/corrupt
+# install, or a node with a broken interpreter would otherwise pass the check
+# and fail confusingly later. All tools here support --version.
 ask_tool() {
     local name="$1" install_fn="$2" desc="${3:-}" check="${5:-$1}"
-    if command -v "$check" >/dev/null 2>&1; then
+    if command -v "$check" >/dev/null 2>&1 && "$check" --version >/dev/null 2>&1; then
         ok "$name ($(command -v "$check"))"
         return 0
     fi
@@ -69,7 +73,9 @@ ask_tool() {
     echo "  Auto-installing $name ..."
     eval "$install_fn" || true   # set -e safety: failures are handled below (warn)
     [ -n "${4:-}" ] && export PATH="$4:$PATH"
-    if command -v "$check" >/dev/null 2>&1; then ok "$name installed"; return 0; fi
+    if command -v "$check" >/dev/null 2>&1 && "$check" --version >/dev/null 2>&1; then
+        ok "$name installed"; return 0
+    fi
     warn "$name install failed or not on PATH, skipping"
     return 0
 }
@@ -104,6 +110,14 @@ count_parsers() { ls "$DATA_DIR/site/parser"/*.so 2>/dev/null | wc -l | tr -d ' 
 count_mason()  { ls "$DATA_DIR/mason/packages" 2>/dev/null | wc -l | tr -d ' '; }
 EXPECTED_PARSERS=27
 EXPECTED_MASON_TOOLS=10
+
+# Bug R follow-up: run_headless kills only nvim's direct PID, so a curl that
+# mason spawned can survive as an orphan and keep downloading into staging
+# forever; stale *.lock files also block re-queuing. Clean both before retries.
+cleanup_mason_stale() {
+    pkill -f 'curl .*mason/staging' 2>/dev/null || true
+    find "$DATA_DIR/mason" -name '*.lock' -delete 2>/dev/null || true
+}
 
 # ---------------------------------------------------------------- OS detection
 OS="$(uname -s)"
@@ -207,7 +221,14 @@ user_install_node() {
     rm -rf "$USER_DIR/node"
     mv "$USER_DIR/$dir" "$USER_DIR/node"
     export PATH="$USER_DIR/node/bin:$PATH"
-    ok "node installed to $USER_DIR/node"
+    # Bug T fix: fail loud when the binary cannot RUN (WSL1 cannot exec node
+    # ELFs, so it lands on disk but every invocation fails)
+    if node --version >/dev/null 2>&1; then
+        ok "node installed to $USER_DIR/node ($(node --version))"
+    else
+        warn "node binary present but not runnable (Exec format error? broken interpreter?)"
+        return 1
+    fi
 }
 
 user_install_tree_sitter() {
@@ -232,7 +253,12 @@ user_install_tree_sitter() {
     [ -n "$bin" ] || { warn "  tree-sitter binary not found in archive"; return 1; }
     mv -f "$bin" "$USER_DIR/bin/tree-sitter" && chmod +x "$USER_DIR/bin/tree-sitter"
     export PATH="$USER_DIR/bin:$PATH"
-    ok "tree-sitter installed to $USER_DIR/bin"
+    if tree-sitter --version >/dev/null 2>&1; then
+        ok "tree-sitter installed to $USER_DIR/bin ($(tree-sitter --version))"
+    else
+        warn "tree-sitter binary present but not runnable"
+        return 1
+    fi
 }
 
 user_install_gh_bin() { # user_install_gh_bin <owner/repo> <asset-regex> <binary-name>
@@ -302,13 +328,15 @@ else
     ask_tool tree-sitter "user_install_tree_sitter || pkg_install tree-sitter-cli"
 fi
 
-# Bug E fix: required tools must be present or the install is aborted with a
-# clear message (previously the script silently continued and failed later
-# with a confusing error). In USER MODE only node/tree-sitter can be
-# auto-installed (official binaries); the rest need admin rights or manual
+# Bug E fix: required tools must be present OR RUNNABLE or the install is
+# aborted with a clear message (previously the script silently continued and
+# failed later with a confusing error). In USER MODE only node/tree-sitter can
+# be auto-installed (official binaries); the rest need admin rights or manual
 # installation.
+# Bug T fix: `$t --version` smoke test — a binary that cannot run (Windows
+# shim, ENOEXEC, broken interpreter) counts as missing.
 for t in git gcc make node npm python3 tree-sitter; do
-    if ! command -v "$t" >/dev/null 2>&1; then
+    if ! command -v "$t" >/dev/null 2>&1 || ! "$t" --version >/dev/null 2>&1; then
         if [ "$USER_MODE" = 1 ]; then
             err "Required tool '$t' could not be auto-installed without admin rights; install it manually (e.g. into $USER_DIR/bin) and re-run. Note: gcc/make are needed to compile the treesitter parsers."
         else
@@ -387,11 +415,11 @@ else
         command -v nvim >/dev/null 2>&1 || { err "nvim install to $USER_DIR/nvim failed; install it manually"; exit 1; }
     else
         # Download official latest release tarball
-        latest="$(curl -s https://api.github.com/repos/neovim/neovim/releases/latest | grep -oE '"tag_name": *"v[^"]+"' | head -1 | grep -oE 'v[0-9.]+' || true)"
+        latest="$(curl -s --max-time 30 https://api.github.com/repos/neovim/neovim/releases/latest | grep -oE '"tag_name": *"v[^"]+"' | head -1 | grep -oE 'v[0-9.]+' || true)"
         [ -z "$latest" ] && latest="v0.12.4"
         url="https://github.com/neovim/neovim/releases/download/${latest}/nvim-linux-${NVIM_ARCH}.tar.gz"
         log "Downloading $url"
-        curl -fL "$url" -o /tmp/nvim.tar.gz
+        curl -fL --connect-timeout 20 --max-time 600 "$url" -o /tmp/nvim.tar.gz
         sudo tar xzf /tmp/nvim.tar.gz -C /usr/local --strip-components=1
         ok "nvim ${latest} installed"
     fi
@@ -433,6 +461,7 @@ log "== Installing mason tools + treesitter parsers (ToolInstall) =="
 # ('m' suffix; bare `sleep 240` is 240 SECONDS). Give fresh compiles a
 # 5-minute window, only 10s once parsers are all present.
 for attempt in 1 2 3; do
+    cleanup_mason_stale
     cnt_now="$(count_parsers)"
     if [ "$cnt_now" -ge "$EXPECTED_PARSERS" ]; then sleep_ms=10000; else sleep_ms=300000; fi
     log "ToolInstall running (attempt $attempt/3): downloading LSP tools + parsers, may take several minutes (no output during download) ..."
@@ -450,6 +479,7 @@ done
 mason_count="$(count_mason)"
 mason_attempt=1
 while [ "$mason_count" -lt "$EXPECTED_MASON_TOOLS" ] && [ "$mason_attempt" -le 3 ]; do
+    cleanup_mason_stale
     log "Mason tools $mason_count/$EXPECTED_MASON_TOOLS — retry $mason_attempt/3 (5-min window) ..."
     run_headless 1500 nvim --headless +"lua require('mason').setup()" +ToolInstall +"sleep 300000m" +qa \
         || warn "ToolInstall (mason) attempt $mason_attempt exited abnormally"

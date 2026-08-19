@@ -34,6 +34,16 @@ function Ok   { Write-Host "  [OK] $args" -ForegroundColor Green }
 function Warn { Write-Host "  [!] $args" -ForegroundColor Yellow }
 function Err  { Write-Host "[error] $args" -ForegroundColor Red; exit 1 }
 
+# Report terminating errors with a clear exit instead of a bare stack trace.
+trap { Write-Host "[error] $($_.Exception.Message)" -ForegroundColor Red; exit 1 }
+
+# Bug P fix (Windows side): install.ps1 installs Windows binaries; on WSL it
+# must refuse to run — the two environments share the same filesystem and
+# would corrupt each other. WSL users must run scripts/install.sh instead.
+if ($env:WSL_DISTRO_NAME -or (Test-Path /proc/version -and (Select-String -Path /proc/version -Pattern "microsoft" -Quiet))) {
+    Err "WSL detected - use scripts/install.sh instead; install.ps1 installs Windows binaries and would break the WSL environment"
+}
+
 # Proxy-aware web helpers (Bug D fix): WinINET-based cmdlets ignore the env proxy.
 function Get-Page($url, [switch]$NoProxy) {
     try {
@@ -71,7 +81,7 @@ function Get-Json($url, [switch]$NoProxy) {
 # curl.exe (built into Win10+) for downloads: faster and proxy-aware
 function Download($url, $out) {
     Log "Downloading $url"
-    & curl.exe -fL --retry 3 --connect-timeout 20 -o $out $url
+    & curl.exe -fL --retry 3 --connect-timeout 20 --max-time 600 -o $out $url
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $out)) { Err "Download failed: $url" }
     Ok "Downloaded $out"
 }
@@ -88,8 +98,20 @@ function Confirm-Q($msg) {
     return ($ans -match '^[yY]')
 }
 
+# Bug T fix: presence on PATH is not enough - the binary must actually run.
+# A non-executable Windows shim (WSL), a corrupt install, or a broken
+# interpreter would pass a presence check and fail confusingly later.
+# Accepts a bare name or a full path; all tools here support --version.
+function Test-CmdRuns($cmd) {
+    try {
+        $null = & $cmd --version 2>&1
+        return ($LASTEXITCODE -eq 0)
+    }
+    catch { return $false }
+}
+
 function Need-Command($name, [scriptblock]$install, $desc = "", $hint = "", [switch]$Fatal) {
-    if (Get-Command $name -ErrorAction SilentlyContinue) {
+    if ((Get-Command $name -ErrorAction SilentlyContinue) -and (Test-CmdRuns $name)) {
         Ok "$name already present: $((Get-Command $name).Source)"
         return
     }
@@ -97,11 +119,12 @@ function Need-Command($name, [scriptblock]$install, $desc = "", $hint = "", [swi
     # the User PATH but are not visible to this session (PATH changes only
     # affect new processes), so probe the install locations too.
     $inDir = Find-InstalledBinary $name
-    if ($inDir) {
+    if ($inDir -and (Test-CmdRuns $inDir)) {
         Add-ToUserPath (Split-Path $inDir)
         Ok "$name already present: $inDir"
         return
     }
+    if ($inDir) { Warn "$name present but not runnable ($inDir), reinstalling" }
     Warn "$name not found"
     $descTxt = ""
     if ($desc) { $descTxt = " ($desc)" }
@@ -111,7 +134,7 @@ function Need-Command($name, [scriptblock]$install, $desc = "", $hint = "", [swi
     }
     Log "Auto-installing $name ..."
     & $install
-    if (Get-Command $name -ErrorAction SilentlyContinue) { Ok "$name installed" }
+    if ((Get-Command $name -ErrorAction SilentlyContinue) -and (Test-CmdRuns $name)) { Ok "$name installed" }
     elseif ($Fatal) {
         Err "$name install failed. $hint"
     } else {
@@ -144,21 +167,35 @@ function Find-InstalledBinary($name) {
 }
 
 function Test-ToolReady($name) {
-    return [bool](Get-Command $name -ErrorAction SilentlyContinue) -or [bool](Find-InstalledBinary $name)
+    if ((Get-Command $name -ErrorAction SilentlyContinue) -and (Test-CmdRuns $name)) { return $true }
+    $f = Find-InstalledBinary $name
+    if ($f -and (Test-CmdRuns $f)) { return $true }
+    return $false
 }
 
 # Headless nvim success check (Bug I fix): nvim --headless returns 0 even when
 # the config fails to load (E492/E5113), so inspect the output, not just the exit code.
+# Runs in a background job with a 1500s watchdog (Bug O fix): a hung
+# download must not block the script forever.
 function Test-HeadlessOk {
     param([scriptblock]$Command)
-    $prev = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    try {
-        $out = (& $Command 2>&1 | ForEach-Object { $_ | Out-String }) -join ""
+    $job = Start-Job -ScriptBlock {
+        param($c)
+        $ErrorActionPreference = "Continue"
+        $o = & $c 2>&1 | ForEach-Object { $_ | Out-String }
+        [pscustomobject]@{ Out = ($o -join ""); Code = $LASTEXITCODE }
+    } -ArgumentList $Command
+    if (-not (Wait-Job $job -Timeout 1500)) {
+        Stop-Job $job; Remove-Job $job -Force
+        # nvim spawned by the job may have survived the job kill
+        Get-Process nvim -ErrorAction SilentlyContinue | Stop-Process -Force
+        Warn "headless nvim timed out (1500s), killed"
+        return $false
     }
-    finally { $ErrorActionPreference = $prev }
-    if ($LASTEXITCODE -ne 0) { return $false }
-    return ($out -notmatch 'E\d+: |Error detected|Error in ')
+    $r = Receive-Job $job
+    Remove-Job $job -Force
+    if ($r.Code -ne 0) { return $false }
+    return ($r.Out -notmatch 'E\d+: |Error detected|Error in ')
 }
 
 New-Item -ItemType Directory -Force -Path $InstallDir, $BIN_DIR | Out-Null
@@ -198,7 +235,7 @@ Need-Command gcc {
 } "install manually: https://winlibs.com (mingw-w64, includes gcc)"
 
 # make (bundled with mingw; warn if missing)
-if (-not (Get-Command make -ErrorAction SilentlyContinue)) {
+if (-not (Test-CmdRuns "make")) {
     Warn "make not found (winlibs does not bundle it by default; install it if parser compilation fails later)"
 }
 
@@ -235,7 +272,7 @@ Need-Command python {
         Log "Downloading $url"
         $oldH = $env:http_proxy; $oldS = $env:https_proxy
         $env:http_proxy = ""; $env:https_proxy = ""
-        & curl.exe -fL --retry 2 --connect-timeout 20 -o $exe $url
+        & curl.exe -fL --retry 2 --connect-timeout 20 --max-time 600 -o $exe $url
         $env:http_proxy = $oldH; $env:https_proxy = $oldS
         if ($LASTEXITCODE -eq 0 -and (Test-Path $exe)) { $downloaded = $true; break }
         Warn "Download failed for python $pv, trying the next version"
@@ -257,7 +294,7 @@ Need-Command tree-sitter {
 }
 
 # win32yank (config hard dependency: clipboard)
-if (-not (Get-Command win32yank.exe -ErrorAction SilentlyContinue)) {
+if (-not (Test-CmdRuns "win32yank.exe")) {
     if (Test-Path "$BIN_DIR\win32yank.exe") {
         # Already installed to BIN_DIR by an earlier run; PATH may not reflect
         # it in this terminal session yet, so do not re-download.
@@ -279,7 +316,7 @@ if (-not (Get-Command win32yank.exe -ErrorAction SilentlyContinue)) {
 
 # ================================================================ Optional tools
 Log "== Optional tools (confirm as needed) =="
-if (Get-Command rustup -ErrorAction SilentlyContinue) {
+if (Test-CmdRuns "rustup") {
     Ok "rustup already present: $((Get-Command rustup).Source)"
 } else {
     Need-Command rustup {
@@ -321,16 +358,31 @@ if ((Test-ToolReady "fzf") -and (Test-ToolReady "rg") -and (Test-ToolReady "fd")
         Ok "$name installed"
     }
 }
-if (Get-Command perl -ErrorAction SilentlyContinue) {
+if (Test-CmdRuns "perl") {
     Ok "perl already present: $((Get-Command perl).Source)"
 } else {
     Warn "On Windows install Strawberry Perl manually: https://strawberryperl.com (includes perltidy), and add it to PATH"
 }
-if (Get-Command pandoc -ErrorAction SilentlyContinue) {
+if (Test-CmdRuns "pandoc") {
     Ok "pandoc already present: $((Get-Command pandoc).Source)"
 } elseif ($pd = Find-InstalledBinary "pandoc") {
-    Add-ToUserPath (Split-Path $pd)
-    Ok "pandoc already present: $pd"
+    if (Test-CmdRuns $pd) {
+        Add-ToUserPath (Split-Path $pd)
+        Ok "pandoc already present: $pd"
+    } else {
+        Warn "pandoc present but not runnable ($pd), reinstalling"
+        Need-Command pandoc {
+            $url = Resolve-LatestReleaseUrl "jgm" "pandoc" "pandoc-*-windows-x86_64.zip"
+            if (-not $url) { Warn "Failed to resolve pandoc download URL, skipping" }
+            else {
+                $zip = Join-Path $env:TEMP "pandoc.zip"
+                Download $url $zip
+                Expand-Archive -Path $zip -DestinationPath $InstallDir -Force
+                $pd = Get-ChildItem "$InstallDir\pandoc-*" -Directory | Select-Object -First 1
+                if ($pd) { Add-ToUserPath $pd.FullName }
+            }
+        } "orgmode export"
+    }
 } else {
     Need-Command pandoc {
         $url = Resolve-LatestReleaseUrl "jgm" "pandoc" "pandoc-*-windows-x86_64.zip"
@@ -347,9 +399,9 @@ if (Get-Command pandoc -ErrorAction SilentlyContinue) {
 
 # ================================================================ Neovim
 Log "== Installing Neovim =="
-if (Get-Command nvim -ErrorAction SilentlyContinue) {
+if ((Get-Command nvim -ErrorAction SilentlyContinue) -and (Test-CmdRuns "nvim")) {
     Ok "nvim already present: $((nvim --version | Select-Object -First 1))"
-} elseif (Test-Path "$InstallDir\nvim-win64\bin\nvim.exe") {
+} elseif ((Test-Path "$InstallDir\nvim-win64\bin\nvim.exe") -and (Test-CmdRuns "$InstallDir\nvim-win64\bin\nvim.exe")) {
     # installed by an earlier run; PATH may not reflect it in this session yet
     Add-ToUserPath "$InstallDir\nvim-win64\bin"
     Ok "nvim already present: $InstallDir\nvim-win64\bin\nvim.exe"

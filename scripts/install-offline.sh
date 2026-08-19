@@ -13,7 +13,7 @@
 #   - Compiles treesitter parsers directly with gcc -> ~/.local/share/nvim/site/parser/ (no tree-sitter CLI needed)
 #   - Verifies
 #
-set -euo
+set -euo pipefail
 
 BUNDLE="${1:-}"
 NO_INTERACTIVE="${2:-}"
@@ -26,23 +26,40 @@ PARSER_DIR="$DATA_DIR/site/parser"
 # User-local install root for all tools (no admin rights needed)
 LOCAL_DIR="$HOME/.local"
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+# O7 fix: report a clear non-zero exit instead of a silent rc=1
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then printf "\033[1;31m[error]\033[0m script exited with rc=$rc\n" >&2; fi; rm -rf "$TMP"' EXIT
 
 log()  { printf '\033[1;34m[offline]\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m  [OK] %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m  [!] %s\033[0m\n' "$*"; }
 err()  { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 
+# O1 fix: on WSL the Windows-interop paths (/mnt/c/...) sit at the END of PATH
+# and can shadow Linux tools with non-executable Windows shims.
+if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
+    log "WSL detected (${WSL_DISTRO_NAME:-unknown}), stripping Windows-interop paths from PATH"
+    export PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '^/mnt/' | paste -sd ':' -)"
+fi
+
 confirm() {
-    [ -n "$NO_INTERACTIVE" ] && return 1
+    # O6 fix: non-interactive runs default to YES for safety — the config/data
+    # backup prompts then back up before overwriting (instead of silently
+    # destroying the old setup), and cached tools get installed automatically.
+    # Missing caches still fail safely: the install command returns 1 -> warn.
+    [ -n "$NO_INTERACTIVE" ] && return 0
     local d="${2:-n}"
     read -r -p "$1" ans
     case "${ans:-$d}" in y|Y|yes|YES) return 0;; *) return 1;; esac
 }
 
-need() { # need <name> [install-command] [description]
-    local name="$1" inst="$2" desc="${3:-}"
-    if command -v "$name" >/dev/null 2>&1; then ok "$name ($(command -v "$name"))"; return 0; fi
+need() { # need <name> [install-command] [description] [probe]
+    local name="$1" inst="$2" desc="${3:-}" probe="${4:-}"
+    # O2 fix: smoke-test the binary (--version) — "present on PATH" is not
+    # enough (a non-executable binary would pass `command -v` and fail later).
+    if command -v "$name" >/dev/null 2>&1 \
+       && { [ -z "$probe" ] || "$probe" >/dev/null 2>&1; }; then
+        ok "$name ($(command -v "$name"))"; return 0
+    fi
     warn "$name not found${desc:+ ($desc)}"
     if ! confirm "  Install $name${desc:+ ($desc)}? [y/N] "; then
         warn "$name skipped"
@@ -50,7 +67,9 @@ need() { # need <name> [install-command] [description]
     fi
     if [ -n "$inst" ]; then
         echo "  Installing $name ..."
-        eval "$inst" && command -v "$name" >/dev/null 2>&1 && { ok "$name installed"; return 0; }
+        eval "$inst" && command -v "$name" >/dev/null 2>&1 \
+            && { [ -z "$probe" ] || "$probe" >/dev/null 2>&1; } \
+            && { ok "$name installed"; return 0; }
     fi
     warn "$name not installed (skipped)"
     return 0
@@ -65,34 +84,55 @@ ls "$TMP" | tr '\n' ' '; echo
 # ---------------------------------------------------------------- External tools
 log "== External tool confirmation =="
 # Tool cache install helper
-install_from_cache() { # install_from_cache <tools/*.tar.gz|*.zip> <binary name>
+install_from_cache() { # install_from_cache <tools/*.tar.gz|*.xz|*.zip> <binary name>
     local cache="$TMP/tools/$1" name="$2" found
     [ -f "$cache" ] || return 1
     mkdir -p "$LOCAL_DIR/bin"
     case "$cache" in
         *.gz) tar xzf "$cache" -C "$LOCAL_DIR" 2>/dev/null || gunzip -c "$cache" > "$LOCAL_DIR/bin/$name";;
-        *.zip) unzip -oq "$cache" -d "$LOCAL_DIR/bin";;
+        *.xz) tar xJf "$cache" -C "$LOCAL_DIR" 2>/dev/null || return 1;;
+        *.zip)
+            # O8 fix: unzip may be absent on minimal machines; python3 (required) can unpack zip
+            if command -v unzip >/dev/null 2>&1; then unzip -oq "$cache" -d "$LOCAL_DIR/bin"
+            else python3 -m zipfile -e "$cache" "$LOCAL_DIR/bin" 2>/dev/null || return 1; fi;;
     esac
     found="$(find "$LOCAL_DIR" -name "$name" -type f | head -1)"
     [ -n "$found" ] || return 1
     [ "$found" != "$LOCAL_DIR/bin/$name" ] && mv -f "$found" "$LOCAL_DIR/bin/$name"
     chmod +x "$LOCAL_DIR/bin/$name"
-    rm -rf "$LOCAL_DIR/${name}-"* 2>/dev/null || true
+    # O8 fix: ripgrep extracts to ripgrep-*, which the ${name}-* pattern missed
+    rm -rf "$LOCAL_DIR/${name}-"* "$LOCAL_DIR/ripgrep-"* 2>/dev/null || true
     export PATH="$LOCAL_DIR/bin:$PATH"
     command -v "$name" >/dev/null 2>&1
 }
 
-need git   "" "required for lazy plugin repositories"
-need gcc   "" "required to compile treesitter parsers"
-need make  "" "compile helper"
-need node  "install_from_cache node.tar.gz node 2>/dev/null || true" "mason npm packages (bash/json/yaml-lsp, prettier)"
-need python3 "" "required by pyrefly"
+# node from the bundle cache: the official tarball keeps bin/ relative to
+# lib/node_modules, so the whole directory must be installed (moving only the
+# binary would leave npm broken). Complements install_from_cache for node.tar.xz.
+install_node_from_cache() { # install_node_from_cache <tools/node.tar.xz>
+    local cache="$TMP/tools/$1" d
+    [ -f "$cache" ] || return 1
+    mkdir -p "$LOCAL_DIR"
+    tar xJf "$cache" -C "$LOCAL_DIR" 2>/dev/null || return 1
+    d="$(find "$LOCAL_DIR" -maxdepth 1 -type d -name 'node-v*' | head -1)"
+    [ -n "$d" ] || return 1
+    rm -rf "$LOCAL_DIR/node"
+    mv "$d" "$LOCAL_DIR/node"
+    export PATH="$LOCAL_DIR/node/bin:$PATH"
+    command -v node >/dev/null 2>&1
+}
 
-# Required tools must be present or the install is aborted with a clear message
-# (declining a need() above only warns, so enforce it here)
+need git   "" "required for lazy plugin repositories" "git --version"
+need gcc   "" "required to compile treesitter parsers" "gcc --version"
+need make  "" "compile helper" "make --version"
+need node  "install_node_from_cache node.tar.xz || install_from_cache node.tar.gz node" "mason npm packages (bash/json/yaml-lsp, prettier)" "node --version"
+need python3 "" "required by pyrefly" "python3 --version"
+
+# Required tools must be present and RUNNABLE or the install is aborted with a
+# clear message (declining a need() above only warns, so enforce it here).
 for t in git gcc make node python3; do
-    if ! command -v "$t" >/dev/null 2>&1; then
-        err "Required tool '$t' is missing; install it manually (e.g. into $LOCAL_DIR/bin) and re-run"
+    if ! command -v "$t" >/dev/null 2>&1 || ! "$t" --version >/dev/null 2>&1; then
+        err "Required tool '$t' is missing or not runnable; install it manually (e.g. into $LOCAL_DIR/bin) and re-run"
         exit 1
     fi
 done
@@ -115,12 +155,12 @@ if [ "$(printf '%s\n4.9' "$GCC_VER" | sort -V | head -1)" != "4.9" ]; then
 fi
 CXX_BIN="${CXX:-$(dirname "$CC_BIN")/g++}"
 
-need fzf "install_from_cache fzf.tar.gz fzf" "fzf-lua search"
-need rg  "install_from_cache rg.tar.gz rg" "fzf-lua search"
-need fd  "install_from_cache fd.tar.gz fd" "fzf-lua search"
+need fzf "install_from_cache fzf.tar.gz fzf" "fzf-lua search" "fzf --version"
+need rg  "install_from_cache rg.tar.gz rg" "fzf-lua search" "rg --version"
+need fd  "install_from_cache fd.tar.gz fd" "fzf-lua search" "fd --version"
 need rustup "" "requires an intranet mirror or manual install"
 need perl "" "requires an intranet mirror or manual install"
-need pandoc "install_from_cache pandoc.tar.gz pandoc" "orgmode export"
+need pandoc "install_from_cache pandoc.tar.gz pandoc" "orgmode export" "pandoc --version"
 
 # ---------------------------------------------------------------- nvim
 log "== Installing Neovim =="
@@ -153,6 +193,9 @@ ok "Config -> $CONFIG_DIR  Data -> $DATA_DIR"
 
 # ---------------------------------------------------------------- Compile parsers
 log "== Compiling treesitter parsers (directly with gcc) =="
+# O5 fix: a stale .so from a previous run would mask compile failures below
+# (nvim loads whatever exists silently), so clear them first.
+rm -f "$PARSER_DIR"/*.so 2>/dev/null || true
 parse_ok=0; parse_fail=0
 for tgz in "$TMP/parser-sources/"*.tar.gz; do
     [ -f "$tgz" ] || continue
@@ -200,13 +243,32 @@ export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 plugins=$(ls "$DATA_DIR/lazy" 2>/dev/null | wc -l | tr -d ' ') || true
 parsers=$(ls "$PARSER_DIR"/*.so 2>/dev/null | wc -l | tr -d ' ') || true
 mason=$(ls "$DATA_DIR/mason/packages" 2>/dev/null | wc -l | tr -d ' ') || true
+# O4 fix: compare against the counts recorded on the packaging machine instead
+# of raw presence (a bundle that lost parsers would otherwise "verify" fine).
+EXPECTED_PARSERS="$(grep -oE '^parsers=[0-9]+' "$TMP/manifest.txt" 2>/dev/null | cut -d= -f2 || true)"
+EXPECTED_MASON="$(grep -oE '^mason=[0-9]+' "$TMP/manifest.txt" 2>/dev/null | cut -d= -f2 || true)"
+if [ -n "$EXPECTED_PARSERS" ] && [ "$parsers" -lt "$EXPECTED_PARSERS" ]; then
+    warn "Parsers compiled: $parsers/$EXPECTED_PARSERS — the bundle shipped $EXPECTED_PARSERS, some failed or were skipped"
+fi
+if [ -n "$EXPECTED_MASON" ] && [ "$mason" -lt "$EXPECTED_MASON" ]; then
+    warn "Mason tools: $mason/$EXPECTED_MASON — the bundle shipped $EXPECTED_MASON, install extras via :MasonInstall in nvim"
+fi
 # Bug I fix: check the output for real error patterns, not just the exit code
 # (nvim --headless exits 0 even when the config fails to load).
-if nvim --headless +qa 2>/tmp/nvim-offline-verify.log && ! grep -qE 'E[0-9]+: |Error detected|Error in ' /tmp/nvim-offline-verify.log; then
+# O7 fix: bounded headless run — a hung network/plugin must not block forever.
+LOG="/tmp/nvim-offline-verify.log"
+rm -f "$LOG"
+( nvim --headless +qa >"$LOG" 2>&1 & pid=$!; n=0
+  while kill -0 "$pid" 2>/dev/null; do
+      if [ "$n" -ge 60 ]; then kill -9 "$pid" 2>/dev/null || true; warn "Startup verification timed out (60s), killed"; break; fi
+      sleep 2; n=$((n+2))
+  done
+  wait "$pid" ) >/dev/null 2>&1 || true
+if ! grep -qE 'E[0-9]+: |Error detected|Error in ' "$LOG"; then
     ok "Startup verification passed"
 else
-    warn "Startup verification reported errors, see /tmp/nvim-offline-verify.log"
-    grep -aE 'E[0-9]+: |Error detected|Error in ' /tmp/nvim-offline-verify.log | head -3
+    warn "Startup verification reported errors, see $LOG"
+    grep -aE 'E[0-9]+: |Error detected|Error in ' "$LOG" | head -3
 fi
 echo
 log "Installation done: plugins=$plugins  parsers=$parsers  masonTools=$mason"
