@@ -138,9 +138,9 @@ return {
                     local bb = tonumber(hex:sub(6, 7), 16)
                     return ("#%02x%02x%02x"):format(math.floor(rr * f), math.floor(gg * f), math.floor(bb * f))
                 end
-                local fill_bg = shade(bg, -18)
-                local bar_bg = shade(bg, -12)
-                local vis_bg = shade(bg, -8)
+                local fill_bg = shade(bg, -30)
+                local bar_bg = shade(bg, -22)
+                local vis_bg = shade(bg, -14)
                 local out = {}
                 for g, d in pairs(defaults.highlights) do
                     if d and type(d) == "table" then
