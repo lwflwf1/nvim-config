@@ -110,6 +110,31 @@ return {
             { "<leader>br", "<cmd>BufferLineCloseRight<CR>", desc = "Close right" },
         },
         opts = {
+            -- Bufferline derives its colors by darkening the colorscheme's
+            -- Normal bg by 25-45%, which looks near-black on dark themes like
+            -- onedark_vivid (#282c34). Override every group's bg with the
+            -- current theme's Normal bg (keeps each group's fg), so the
+            -- tabline blends with the editor regardless of colorscheme.
+            -- Note: bufferline passes the FULL defaults table (options +
+            -- highlights map) to the function.
+            highlights = function(defaults)
+                local ok, norm = pcall(vim.api.nvim_get_hl_by_name, "Normal", true)
+                local fallback = defaults.highlights.fill and defaults.highlights.fill.bg or "#000000"
+                local bg = ok and norm.background and ("#%06x"):format(norm.background) or fallback
+                local out = {}
+                for g, d in pairs(defaults.highlights) do
+                    if d and type(d) == "table" then
+                        local o = { bg = bg }
+                        if d.fg then o.fg = d.fg end
+                        if d.bold then o.bold = true end
+                        if d.italic then o.italic = true end
+                        if d.underline then o.underline = true end
+                        if d.sp then o.sp = d.sp end
+                        out[g] = o
+                    end
+                end
+                return out
+            end,
             options = {
                 mode = "buffers_and_tabs",
                 numbers = "none",

@@ -123,16 +123,25 @@ cleanup_mason_stale() {
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 # Asset names differ from uname -m: aarch64 -> arm64 (nvim/rg/fd), armv7l (fzf)
+# NVIM/NODE/TSCLI/PANDOC arch names are Linux-only (macOS installs those via
+# brew); FZF_ARCH/GH_ARCH are platform-specific and assigned per-OS below.
 case "$ARCH" in
-    x86_64)       NVIM_ARCH="x86_64"; GH_ARCH="x86_64"; FZF_ARCH="linux_amd64"; NODE_ARCH="linux-x64"; TSCLI_ARCH="x64"; PANDOC_ARCH="amd64";;
-    aarch64|arm64) NVIM_ARCH="arm64"; GH_ARCH="aarch64"; FZF_ARCH="linux_arm64"; NODE_ARCH="linux-arm64"; TSCLI_ARCH="arm64"; PANDOC_ARCH="arm64";;
-    armv7l)       NVIM_ARCH="armv7l"; GH_ARCH="arm"; FZF_ARCH="linux_armv7"; NODE_ARCH="linux-armv7l"; TSCLI_ARCH="arm"; PANDOC_ARCH="";;
-    *)            NVIM_ARCH="$ARCH"; GH_ARCH="$ARCH"; FZF_ARCH="linux_$ARCH"; NODE_ARCH="linux-$ARCH"; TSCLI_ARCH="$ARCH"; PANDOC_ARCH="";;
+    x86_64)       NVIM_ARCH="x86_64"; NODE_ARCH="linux-x64"; TSCLI_ARCH="x64"; PANDOC_ARCH="amd64";;
+    aarch64|arm64) NVIM_ARCH="arm64"; NODE_ARCH="linux-arm64"; TSCLI_ARCH="arm64"; PANDOC_ARCH="arm64";;
+    armv7l)       NVIM_ARCH="armv7l"; NODE_ARCH="linux-armv7l"; TSCLI_ARCH="arm"; PANDOC_ARCH="";;
+    *)            NVIM_ARCH="$ARCH"; NODE_ARCH="linux-$ARCH"; TSCLI_ARCH="$ARCH"; PANDOC_ARCH="";;
 esac
 case "$OS" in
     Darwin)
         PLATFORM="macos"
         PKG="brew"
+        # fzf/rg/fd GitHub-release fallback must use macOS builds, not the
+        # linux musl ones (a Linux ELF would give "Exec format error").
+        case "$ARCH" in
+            x86_64)        FZF_ARCH="darwin_amd64"; GH_ARCH="x86_64-apple-darwin";;
+            aarch64|arm64) FZF_ARCH="darwin_arm64"; GH_ARCH="aarch64-apple-darwin";;
+            *)             FZF_ARCH="darwin_$ARCH"; GH_ARCH="$ARCH-apple-darwin";;
+        esac
         if ! command -v brew >/dev/null 2>&1; then
             err "Homebrew required, install first: https://brew.sh"; exit 1
         fi
@@ -154,6 +163,13 @@ case "$OS" in
         elif command -v dnf >/dev/null 2>&1; then PKG=dnf
         elif command -v yum >/dev/null 2>&1; then PKG=yum
         else PKG=none; fi
+        # fzf/rg/fd GitHub-release fallback uses musl static builds.
+        case "$ARCH" in
+            x86_64)        FZF_ARCH="linux_amd64"; GH_ARCH="x86_64-unknown-linux-musl";;
+            aarch64|arm64) FZF_ARCH="linux_arm64"; GH_ARCH="aarch64-unknown-linux-musl";;
+            armv7l)        FZF_ARCH="linux_armv7"; GH_ARCH="arm-unknown-linux-musleabihf";;
+            *)             FZF_ARCH="linux_$ARCH"; GH_ARCH="$ARCH-unknown-linux-musl";;
+        esac
         log "Linux package manager: $PKG"
         ;;
     *) err "Unsupported system: $OS (only macOS/Linux supported)"; exit 1;;
@@ -363,9 +379,16 @@ fi
 if command -v fzf >/dev/null 2>&1 && command -v rg >/dev/null 2>&1 && command -v fd >/dev/null 2>&1; then
     ok "fzf / rg / fd already present"
 else
+    # Package name / binary differ per manager: brew->fd (fd-find was renamed),
+    # apk->fd, apt->fd-find (binary `fdfind`), dnf/yum->fd-find (binary `fd`)
+    case "$PKG" in
+        apt) fd_pkg="fd-find"; fd_check="fdfind";;
+        dnf|yum) fd_pkg="fd-find"; fd_check="fd";;
+        *) fd_pkg="fd"; fd_check="fd";;
+    esac
     ask_tool fzf "pkg_install fzf || user_install_gh_bin junegunn/fzf 'fzf-.*-${FZF_ARCH}\\.tar\\.gz' fzf" "fzf-lua search"
-    ask_tool rg  "pkg_install ripgrep || user_install_gh_bin BurntSushi/ripgrep '.*${GH_ARCH}-unknown-linux-musl.*\\.tar\\.gz' rg" "fzf-lua grep"
-    ask_tool fd  "pkg_install fd-find || user_install_gh_bin sharkdp/fd '.*${GH_ARCH}-unknown-linux-musl.*\\.tar\\.gz' fd" "fzf-lua files" "" fdfind
+    ask_tool rg  "pkg_install ripgrep || user_install_gh_bin BurntSushi/ripgrep '.*${GH_ARCH}\\.tar\\.gz' rg" "fzf-lua grep"
+    ask_tool fd  "pkg_install '$fd_pkg' || user_install_gh_bin sharkdp/fd '.*${GH_ARCH}\\.tar\\.gz' fd" "fzf-lua files" "" "$fd_check"
 fi
 # Bug N fix: Debian/Ubuntu package fd-find installs the binary as `fdfind`;
 # fzf-lua invokes `fd`, so link it into a bin dir that is on PATH.
