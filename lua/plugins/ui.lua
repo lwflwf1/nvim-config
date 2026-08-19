@@ -111,20 +111,48 @@ return {
         },
         opts = {
             -- Bufferline derives its colors by darkening the colorscheme's
-            -- Normal bg by 25-45%, which looks near-black on dark themes like
-            -- onedark_vivid (#282c34). Override every group's bg with the
-            -- current theme's Normal bg (keeps each group's fg), so the
-            -- tabline blends with the editor regardless of colorscheme.
+            -- Normal bg by 25-45%, which collapses to near-black on dark
+            -- themes (onedark_vivid #282c34). On dark themes, re-shade with
+            -- gentle factors (fill < bar < selected) so the tabline stays a
+            -- distinct, statusline-like strip instead of black edges. Light
+            -- themes keep bufferline's own shading, which reads fine there.
             -- Note: bufferline passes the FULL defaults table (options +
             -- highlights map) to the function.
             highlights = function(defaults)
                 local ok, norm = pcall(vim.api.nvim_get_hl_by_name, "Normal", true)
-                local fallback = defaults.highlights.fill and defaults.highlights.fill.bg or "#000000"
-                local bg = ok and norm.background and ("#%06x"):format(norm.background) or fallback
+                if not ok or not norm.background then
+                    return {}
+                end
+                local bg = ("#%06x"):format(norm.background)
+                local r = tonumber(bg:sub(2, 3), 16)
+                local g = tonumber(bg:sub(4, 5), 16)
+                local b = tonumber(bg:sub(6, 7), 16)
+                local luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+                if luminance > 0.5 then
+                    return {}
+                end
+                local function shade(hex, pct)
+                    local f = (100 + pct) / 100
+                    local rr = tonumber(hex:sub(2, 3), 16)
+                    local gg = tonumber(hex:sub(4, 5), 16)
+                    local bb = tonumber(hex:sub(6, 7), 16)
+                    return ("#%02x%02x%02x"):format(math.floor(rr * f), math.floor(gg * f), math.floor(bb * f))
+                end
+                local fill_bg = shade(bg, -18)
+                local bar_bg = shade(bg, -12)
+                local vis_bg = shade(bg, -8)
                 local out = {}
                 for g, d in pairs(defaults.highlights) do
                     if d and type(d) == "table" then
-                        local o = { bg = bg }
+                        local tier = bar_bg
+                        if g == "fill" then
+                            tier = fill_bg
+                        elseif g:match("_selected$") then
+                            tier = bg
+                        elseif g:match("_visible$") then
+                            tier = vis_bg
+                        end
+                        local o = { bg = tier }
                         if d.fg then o.fg = d.fg end
                         if d.bold then o.bold = true end
                         if d.italic then o.italic = true end
