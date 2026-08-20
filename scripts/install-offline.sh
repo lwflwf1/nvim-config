@@ -155,6 +155,25 @@ if [ "$(printf '%s\n4.9' "$GCC_VER" | sort -V | head -1)" != "4.9" ]; then
 fi
 CXX_BIN="${CXX:-$(dirname "$CC_BIN")/g++}"
 
+# Bug U fix: a runnable gcc does not guarantee compilable headers — minimal
+# images / RHEL6 often ship gcc without glibc-devel + libstdc++-devel. Probe a
+# real link so the failure is a clear message instead of N identical compile
+# errors in the parser loop below.
+CC_PROBE_OK=0
+printf '#include <stdio.h>\nint main(void){return 0;}\n' | "$CC_BIN" -x c - -o /tmp/.cc-probe 2>/dev/null && CC_PROBE_OK=1 || CC_PROBE_OK=0
+rm -f /tmp/.cc-probe
+if [ "$CC_PROBE_OK" != 1 ]; then
+    warn "C compiler '$CC_BIN' cannot compile+link a program that includes <stdio.h> — the C headers are missing (libc6-dev / glibc-devel)"
+    warn "Ubuntu/Debian: sudo apt-get install -y build-essential"
+    warn "RHEL6: scl enable devtoolset-7 bash (provides glibc-devel/libstdc++-devel), or yum install -y glibc-devel libstdc++-devel"
+fi
+if [ -x "$CXX_BIN" ]; then
+    CXX_PROBE_OK=0
+    printf '#include <iostream>\nint main(){return 0;}\n' | "$CXX_BIN" -x c++ - -o /tmp/.cc-probe2 2>/dev/null && CXX_PROBE_OK=1 || CXX_PROBE_OK=0
+    rm -f /tmp/.cc-probe2
+    [ "$CXX_PROBE_OK" = 1 ] || warn "g++ ('$CXX_BIN') cannot compile+link a program that includes <iostream> — C++ scanners (scanner.cc) will fail; install libstdc++-devel"
+fi
+
 need fzf "install_from_cache fzf.tar.gz fzf" "fzf-lua search" "fzf --version"
 need rg  "install_from_cache rg.tar.gz rg" "fzf-lua search" "rg --version"
 need fd  "install_from_cache fd.tar.gz fd" "fzf-lua search" "fd --version"
@@ -239,10 +258,15 @@ ok "PATH written to ~/.bashrc"
 
 # ---------------------------------------------------------------- Verification
 log "== Verification =="
-export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
-plugins=$(ls "$DATA_DIR/lazy" 2>/dev/null | wc -l | tr -d ' ') || true
-parsers=$(ls "$PARSER_DIR"/*.so 2>/dev/null | wc -l | tr -d ' ') || true
-mason=$(ls "$DATA_DIR/mason/packages" 2>/dev/null | wc -l | tr -d ' ') || true
+# Bug U fix: en_US.UTF-8 is often not generated on fresh/minimal images;
+# export the first locale that actually exists (C.UTF-8 ships everywhere).
+if locale -a 2>/dev/null | grep -qix 'en_US.UTF-8'; then LANG_LOC=en_US.UTF-8
+elif locale -a 2>/dev/null | grep -qix 'C.UTF-8'; then LANG_LOC=C.UTF-8
+else LANG_LOC=C; fi
+export LANG="$LANG_LOC" LC_ALL="$LANG_LOC"
+plugins=$(ls "$DATA_DIR/lazy" 2>/dev/null | wc -l | tr -d ' ' || true)
+parsers=$(ls "$PARSER_DIR"/*.so 2>/dev/null | wc -l | tr -d ' ' || true)
+mason=$(ls "$DATA_DIR/mason/packages" 2>/dev/null | wc -l | tr -d ' ' || true)
 # O4 fix: compare against the counts recorded on the packaging machine instead
 # of raw presence (a bundle that lost parsers would otherwise "verify" fine).
 EXPECTED_PARSERS="$(grep -oE '^parsers=[0-9]+' "$TMP/manifest.txt" 2>/dev/null | cut -d= -f2 || true)"
