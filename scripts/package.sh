@@ -3,21 +3,22 @@
 # nvim-config packaging script (Linux only, run on an online/installed machine)
 #
 # Usage:
-#   ./package.sh [--out DIR] [--with-tools "rg fd fzf"] [--nvim-version v0.12.4]
+#   ./package.sh [--out DIR] [--nvim-version v0.12.4]
+#   Every download group is confirmed interactively (default answer: download).
+#   Piped answers are honored; a closed stdin (CI/background) auto-accepts.
 #
 # Output: <out>/nvim-bundle-linux-x86_64-<date>.tar.gz
 #   config/            config directory
 #   data/              nvim data directory (lazy plugins / mason tools / site)
 #   nvim/              neovim binary (old-glibc build from neovim-releases, supports RHEL6/glibc2.17)
 #   parser-sources/    treesitter parser sources (incl. perl with pre-generated parser.c, systemverilog fork)
-#   tools/             optional external tool binary cache (set via --with-tools)
+#   tools/             optional external tool binary cache (selected interactively)
 #   lazy-lock.json
 #   manifest.txt
 #
 set -euo pipefail
 
 OUT_DIR="$(pwd)"
-WITH_TOOLS=""
 NVIM_VER=""
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nvim"
@@ -25,7 +26,6 @@ DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nvim"
 while [ $# -gt 0 ]; do
     case "$1" in
         --out) OUT_DIR="$2"; shift 2;;
-        --with-tools) WITH_TOOLS="$2"; shift 2;;
         --nvim-version) NVIM_VER="$2"; shift 2;;
         --proxy) export http_proxy="$2" https_proxy="$2"; shift 2;;
         *) echo "Unknown argument: $1"; exit 1;;
@@ -44,6 +44,19 @@ log()  { printf '\033[1;34m[package]\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m  [OK] %s\033[0m\n' "$*"; }
 err()  { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
 warn() { printf '\033[1;33m  [!] %s\033[0m\n' "$*"; }
+
+# Interactive download confirmation. Default answer is YES (download).
+# Non-TTY stdin: piped answers are honored; no input at all (CI/background,
+# closed stdin) falls back to YES after a short timeout instead of hanging.
+confirm_download() { # confirm_download <prompt> -> 0 = download
+    local ans
+    if [ -t 0 ]; then
+        read -r -p "$1" ans
+    else
+        read -r -t 30 -p "$1" ans 2>/dev/null || return 0
+    fi
+    case "${ans:-y}" in y|Y|yes|YES) return 0;; *) return 1;; esac
+}
 
 # P1 fix: on WSL the Windows-interop paths (/mnt/c/...) sit at the END of PATH
 # and can shadow Linux tools with non-executable Windows shims (tree-sitter
@@ -64,6 +77,7 @@ rm -rf "$BUNDLE_ROOT"; mkdir -p "$BUNDLE_ROOT"
 mkdir -p "$BUNDLE_ROOT/parser-sources" "$BUNDLE_ROOT/tools"
 MANIFEST="$BUNDLE_ROOT/manifest.txt"
 : > "$MANIFEST"
+echo "format=2" >> "$MANIFEST"
 
 # ---------------------------------------------------------------- Preflight checks
 # P5 fix: this script only knows how to build x86_64 bundles
@@ -90,17 +104,24 @@ ok "config + data copied"
 echo "mason=$(ls "$DATA_DIR/mason/packages" 2>/dev/null | wc -l | tr -d ' ')" >> "$MANIFEST"
 
 # ---------------------------------------------------------------- nvim binary
-log "== Downloading Neovim (old-glibc build) =="
-mkdir -p "$BUNDLE_ROOT/nvim"
-# neovim/neovim-releases provides prebuilt binaries that run on old glibc (2.17)
-NVIM_URL="https://github.com/neovim/neovim-releases/releases/download/${NVIM_VER}/nvim-linux-x86_64.tar.gz"
-# Bug L fix: bounded timeouts so a slow/unreachable host fails instead of hanging
-curl -fL --retry 3 --connect-timeout 20 --max-time 600 "$NVIM_URL" -o "$BUNDLE_ROOT/nvim/nvim-linux-x86_64.tar.gz"
-ok "nvim ${NVIM_VER} downloaded ($(du -h "$BUNDLE_ROOT/nvim/nvim-linux-x86_64.tar.gz" | cut -f1))"
-echo "nvim=${NVIM_VER} url=${NVIM_URL}" >> "$MANIFEST"
+log "== Neovim binary (old-glibc build) =="
+if command -v nvim >/dev/null 2>&1 && nvim --version >/dev/null 2>&1; then
+    warn "local nvim: $(nvim --version | head -1) (bundle carries its own old-glibc build)"
+fi
+if confirm_download "Download and bundle neovim ${NVIM_VER} (old-glibc build for offline machines)? [Y/n] "; then
+    mkdir -p "$BUNDLE_ROOT/nvim"
+    # neovim/neovim-releases provides prebuilt binaries that run on old glibc (2.17)
+    NVIM_URL="https://github.com/neovim/neovim-releases/releases/download/${NVIM_VER}/nvim-linux-x86_64.tar.gz"
+    # Bug L fix: bounded timeouts so a slow/unreachable host fails instead of hanging
+    curl -fL --retry 3 --connect-timeout 20 --max-time 600 "$NVIM_URL" -o "$BUNDLE_ROOT/nvim/nvim-linux-x86_64.tar.gz"
+    ok "nvim ${NVIM_VER} downloaded ($(du -h "$BUNDLE_ROOT/nvim/nvim-linux-x86_64.tar.gz" | cut -f1))"
+    echo "nvim=${NVIM_VER} url=${NVIM_URL}" >> "$MANIFEST"
+else
+    warn "nvim binary skipped — offline machines keep their existing nvim"
+fi
 
 # ---------------------------------------------------------------- Parser sources
-log "== Downloading treesitter parser sources (pinned revisions) =="
+log "== Treesitter parser sources (pinned revisions) =="
 PARSERS_LUA="$DATA_DIR/lazy/nvim-treesitter/lua/nvim-treesitter/parsers.lua"
 [ -f "$PARSERS_LUA" ] || err "nvim-treesitter not found: $PARSERS_LUA"
 
@@ -111,6 +132,8 @@ while IFS= read -r line; do
 done < <(grep -oE '"[a-z_]+"' "$CONFIG_DIR/lua/config/parsers.lua" | tr -d '"')
 [ ${#LANGS[@]} -gt 0 ] || err "Failed to read config.parsers"
 log "${#LANGS[@]} parsers: ${LANGS[*]}"
+
+if confirm_download "Download sources for ${#LANGS[@]} treesitter parsers (needed to compile new parsers offline)? [Y/n] "; then
 
 get_url() { grep -A8 "^  $1 = {" "$PARSERS_LUA" | grep "url = " | head -1 | sed -E "s/.*url = '([^']*)'.*/\1/"; }
 get_rev() { grep -A8 "^  $1 = {" "$PARSERS_LUA" | grep "revision = " | head -1 | sed -E "s/.*revision = '([^']*)'.*/\1/"; }
@@ -182,12 +205,25 @@ done
 rm -f "$BUNDLE_ROOT/parser-sources/.keep" 2>/dev/null || true
 PSRC_COUNT="$(ls "$BUNDLE_ROOT/parser-sources" | grep -c '\.tar\.gz')"
 log "Parser source packages: ${PSRC_COUNT}"
+else
+    warn "Parser sources skipped — offline machines keep their existing compiled parsers"
+    PSRC_COUNT=0
+fi
 echo "parsers=${PSRC_COUNT}" >> "$MANIFEST"
 
 # ---------------------------------------------------------------- Optional tool cache
-if [ -n "$WITH_TOOLS" ]; then
-    log "== Downloading external tool cache: $WITH_TOOLS =="
-    for t in $WITH_TOOLS; do
+TOOLS="rg fd fzf tree-sitter-cli node pandoc"
+log "== External tool cache (options: $TOOLS) =="
+if confirm_download "Process external tool cache for offline install? [Y/n] "; then
+    for t in $TOOLS; do
+        local_hint=""
+        if command -v "$t" >/dev/null 2>&1 && "$t" --version >/dev/null 2>&1; then
+            local_hint="  (local: $("$t" --version 2>/dev/null | head -1))"
+        fi
+        if ! confirm_download "  Download and bundle $t?$local_hint [Y/n] "; then
+            warn "  $t skipped"
+            continue
+        fi
         case "$t" in
 rg)
                 url="$(curl -s --max-time 30 https://api.github.com/repos/BurntSushi/ripgrep/releases/latest \
@@ -227,31 +263,36 @@ rg)
 fi
 
 # ---------------------------------------------------------------- npm tools cache (offline mason fallback)
-log "== Packaging npm tools (offline fallback for mason npm packages) =="
+log "== npm tools cache (offline fallback for mason npm packages) =="
 NPM_TOOLS="yaml-language-server json-lsp bash-language-server prettier prettierd"
-if command -v npm >/dev/null 2>&1 && npm --version >/dev/null 2>&1; then
-    NP="$BUNDLE_ROOT/npmtools"
-    mkdir -p "$NP"
-    if ( cd "$NP" && npm install --no-audit --no-fund --loglevel=error $NPM_TOOLS >/dev/null 2>&1 ) \
-       && [ -d "$NP/node_modules" ]; then
-        tar czf "$BUNDLE_ROOT/tools/npm-tools.tar.gz" -C "$NP" node_modules
-        echo "npmtools=$NPM_TOOLS" >> "$MANIFEST"
-        ok "npm tools cached: $NPM_TOOLS"
+if confirm_download "Bundle npm tools ($NPM_TOOLS)? [Y/n] "; then
+    if command -v npm >/dev/null 2>&1 && npm --version >/dev/null 2>&1; then
+        NP="$BUNDLE_ROOT/npmtools"
+        mkdir -p "$NP"
+        if ( cd "$NP" && npm install --no-audit --no-fund --loglevel=error $NPM_TOOLS >/dev/null 2>&1 ) \
+           && [ -d "$NP/node_modules" ]; then
+            tar czf "$BUNDLE_ROOT/tools/npm-tools.tar.gz" -C "$NP" node_modules
+            echo "npmtools=$(md5sum "$BUNDLE_ROOT/tools/npm-tools.tar.gz" | cut -d' ' -f1)" >> "$MANIFEST"
+            ok "npm tools cached: $NPM_TOOLS"
+        else
+            warn "npm install failed, npm-tools cache skipped (tools will need an online :MasonInstall)"
+        fi
+        rm -rf "$NP"
     else
-        warn "npm install failed, npm-tools cache skipped (tools will need an online :MasonInstall)"
+        warn "npm not found, npm-tools cache skipped"
     fi
-    rm -rf "$NP"
 else
-    warn "npm not found, npm-tools cache skipped"
+    warn "npm tools cache skipped"
 fi
 
 # ---------------------------------------------------------------- Packaging
 log "== Generating bundle =="
 cp "$CONFIG_DIR/lazy-lock.json" "$BUNDLE_ROOT/lazy-lock.json" 2>/dev/null || true
+echo "lazylock=$(md5sum "$BUNDLE_ROOT/lazy-lock.json" 2>/dev/null | cut -d' ' -f1 || true)" >> "$MANIFEST"
 DATE="$(date +%Y%m%d)"
 OUT="$OUT_DIR/nvim-bundle-linux-x86_64-$DATE.tar.gz"
 tar czf "$OUT" -C "$BUNDLE_ROOT" . 2>/dev/null
 rm -rf "$BUNDLE_ROOT"
 ls -lh "$OUT"
 ok "Packaging done: $OUT"
-echo "Usage: copy $OUT to an intranet machine and run scripts/install-offline.sh <bundle-path>"
+echo "Usage: copy $OUT to an intranet machine and run scripts/install-offline.sh <bundle-path> [--update]"

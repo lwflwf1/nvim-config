@@ -3,15 +3,23 @@
 # nvim-config offline installer (Linux only / intranet, no network needed)
 #
 # Usage:
-#   ./install-offline.sh <nvim-bundle-linux-x86_64-*.tar.gz> [--no-interactive]
+#   ./install-offline.sh <nvim-bundle-linux-x86_64-*.tar.gz> [--update]
 #
-# Behavior:
-#   - Extracts bundle (config / data / nvim / parser-sources / tools / lazy-lock)
-#   - Interactive confirmation for external tools: skip if installed, otherwise install from tools/ cache or system packages
-#   - Installs neovim (old-glibc build bundled in the archive, supports RHEL6/glibc2.17)
-#   - Restores config and data directories
-#   - Compiles treesitter parsers directly with gcc -> ~/.local/share/nvim/site/parser/ (no tree-sitter CLI needed)
-#   - Verifies
+#   default (full install): for a fresh machine, runs non-interactively
+#     - Extracts bundle (config / data / nvim / parser-sources / tools / lazy-lock)
+#     - Interactive confirmation for external tools: skip if installed, otherwise install from tools/ cache or system packages
+#     - Installs neovim (old-glibc build bundled in the archive, supports RHEL6/glibc2.17)
+#     - Restores config and data directories
+#     - Compiles treesitter parsers directly with gcc -> ~/.local/share/nvim/site/parser/ (no tree-sitter CLI needed)
+#     - Verifies
+#   --update: incremental update on an already-installed machine (uses state saved
+#     in ~/.nvim-offline-state by a previous run)
+#     - Replaces config (with automatic backup), merges data (keeps user data)
+#     - Recompiles only changed/new parsers (rev-compared against the last manifest)
+#     - Installs only missing tools from the bundle cache; refreshes npm tools
+#       only when their content changed
+#     - Replaces nvim only when the bundled version differs
+#     - Falls back to a full install when no previous state exists
 #
 # RHEL6 (kernel 2.6.32 / glibc 2.17) deployment notes:
 #   Tool matrix (all verified on RHEL6):
@@ -42,16 +50,30 @@
 #
 set -euo pipefail
 
-BUNDLE="${1:-}"
-NO_INTERACTIVE="${2:-}"
-[ -n "$BUNDLE" ] || { echo "Usage: $0 <bundle.tar.gz> [--no-interactive]"; exit 1; }
+BUNDLE=""
+UPDATE_MODE=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --update) UPDATE_MODE=1; shift;;
+        -*) echo "Unknown argument: $1"; exit 1;;
+        *) [ -z "$BUNDLE" ] && BUNDLE="$1" || { echo "Unexpected argument: $1"; exit 1; }; shift;;
+    esac
+done
+[ -n "$BUNDLE" ] || { echo "Usage: $0 <bundle.tar.gz> [--update]"; exit 1; }
 [ -f "$BUNDLE" ] || { echo "bundle not found: $BUNDLE"; exit 1; }
+# Non-interactive by default (O6 semantics: confirmations default to YES, so
+# backups happen before any overwrite and cached tools install automatically)
+NO_INTERACTIVE=1
 
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nvim"
 PARSER_DIR="$DATA_DIR/site/parser"
 # User-local install root for all tools (no admin rights needed)
 LOCAL_DIR="$HOME/.local"
+# Previous-install state: a full install writes it, --update consumes it
+STATE_DIR="$HOME/.nvim-offline-state"
+LAST_MANIFEST="$STATE_DIR/last-manifest.txt"
+LAST_LOCK="$STATE_DIR/lazy-lock.json"
 TMP="$(mktemp -d)"
 # O7 fix: report a clear non-zero exit instead of a silent rc=1
 trap 'rc=$?; if [ "$rc" -ne 0 ]; then printf "\033[1;31m[error]\033[0m script exited with rc=$rc\n" >&2; fi; rm -rf "$TMP"' EXIT
@@ -69,22 +91,20 @@ if [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null
 fi
 
 confirm() {
-    # O6 fix: non-interactive runs default to YES for safety — the config/data
-    # backup prompts then back up before overwriting (instead of silently
-    # destroying the old setup), and cached tools get installed automatically.
-    # Missing caches still fail safely: the install command returns 1 -> warn.
-    [ -n "$NO_INTERACTIVE" ] && return 0
-    local d="${2:-n}"
-    read -r -p "$1" ans
-    case "${ans:-$d}" in y|Y|yes|YES) return 0;; *) return 1;; esac
+    # Always YES: the installer runs non-interactively. Config/data backups
+    # happen before any overwrite (never silently destroying the old setup),
+    # cached tools install automatically, and missing caches still fail
+    # safely: the install command returns 1 -> warn.
+    return 0
 }
 
 need() { # need <name> [install-command] [description] [probe]
     local name="$1" inst="$2" desc="${3:-}" probe="${4:-}"
     # O2 fix: smoke-test the binary (--version) — "present on PATH" is not
     # enough (a non-executable binary would pass `command -v` and fail later).
+    # NB: $probe must be UNQUOTED so "git --version" splits into command+args.
     if command -v "$name" >/dev/null 2>&1 \
-       && { [ -z "$probe" ] || "$probe" >/dev/null 2>&1; }; then
+       && { [ -z "$probe" ] || $probe >/dev/null 2>&1; }; then
         ok "$name ($(command -v "$name"))"; return 0
     fi
     warn "$name not found${desc:+ ($desc)}"
@@ -95,21 +115,13 @@ need() { # need <name> [install-command] [description] [probe]
     if [ -n "$inst" ]; then
         echo "  Installing $name ..."
         eval "$inst" && command -v "$name" >/dev/null 2>&1 \
-            && { [ -z "$probe" ] || "$probe" >/dev/null 2>&1; } \
+            && { [ -z "$probe" ] || $probe >/dev/null 2>&1; } \
             && { ok "$name installed"; return 0; }
     fi
     warn "$name not installed (skipped)"
     return 0
 }
 
-# ---------------------------------------------------------------- Extract
-log "== Extracting bundle =="
-tar xzf "$BUNDLE" -C "$TMP"
-ls "$TMP" | tr '\n' ' '; echo
-[ -d "$TMP/data" ] || err "bundle is missing the data/ directory"
-
-# ---------------------------------------------------------------- External tools
-log "== External tool confirmation =="
 # Tool cache install helper
 install_from_cache() { # install_from_cache <tools/*.tar.gz|*.xz|*.zip> <binary name>
     local cache="$TMP/tools/$1" name="$2" found
@@ -150,140 +162,15 @@ install_node_from_cache() { # install_node_from_cache <tools/node.tar.xz>
     command -v node >/dev/null 2>&1
 }
 
-need git   "" "required for lazy plugin repositories" "git --version"
-need gcc   "" "required to compile treesitter parsers" "gcc --version"
-need make  "" "compile helper" "make --version"
-need node  "install_node_from_cache node.tar.xz || install_from_cache node.tar.gz node" "mason npm packages (bash/json/yaml-lsp, prettier)" "node --version"
-need python3 "" "optional: zip unpack fallback if unzip is missing" "python3 --version"
-
-# Required tools must be present and RUNNABLE or the install is aborted with a
-# clear message (declining a need() above only warns, so enforce it here).
-# python3 is NOT required anymore (pyrefly was replaced by ty, a standalone Rust
-# binary); it only serves as a zip fallback when unzip is missing.
-for t in git gcc make node; do
-    if ! command -v "$t" >/dev/null 2>&1 || ! "$t" --version >/dev/null 2>&1; then
-        err "Required tool '$t' is missing or not runnable; install it manually (e.g. into $LOCAL_DIR/bin) and re-run"
-        exit 1
-    fi
-done
-
-# gcc version check (parsers need C11, gcc >= 5 recommended, 7.x best)
-CC_BIN="${CC:-gcc}"
-GCC_VER="$("$CC_BIN" -dumpversion 2>/dev/null || echo 0)"
-if [ "$(printf '%s\n4.9' "$GCC_VER" | sort -V | head -1)" != "4.9" ]; then
-    # Try devtoolset (RHEL6 SCL provides gcc 7)
-    for ds in /opt/rh/devtoolset-*/root/usr/bin/gcc; do
-        [ -x "$ds" ] || continue
-        CC_BIN="$ds"; GCC_VER="$("$CC_BIN" -dumpversion)"; break
-    done
-fi
-GCC_VER="$("$CC_BIN" -dumpversion 2>/dev/null || echo 0)"
-log "Using C compiler: $CC_BIN ($GCC_VER)"
-if [ "$(printf '%s\n4.9' "$GCC_VER" | sort -V | head -1)" != "4.9" ]; then
-    warn "gcc too old ($GCC_VER < 4.9), modern parsers need C11, compilation may fail"
-    warn "RHEL6 suggestion: run 'scl enable devtoolset-7 bash' and retry, or set CC=/opt/rh/devtoolset-7/root/usr/bin/gcc"
-fi
-CXX_BIN="${CXX:-$(dirname "$CC_BIN")/g++}"
-
-# Bug U fix: a runnable gcc does not guarantee compilable headers — minimal
-# images / RHEL6 often ship gcc without glibc-devel + libstdc++-devel. Probe a
-# real link so the failure is a clear message instead of N identical compile
-# errors in the parser loop below.
-CC_PROBE_OK=0
-printf '#include <stdio.h>\nint main(void){return 0;}\n' | "$CC_BIN" -x c - -o /tmp/.cc-probe 2>/dev/null && CC_PROBE_OK=1 || CC_PROBE_OK=0
-rm -f /tmp/.cc-probe
-if [ "$CC_PROBE_OK" != 1 ]; then
-    warn "C compiler '$CC_BIN' cannot compile+link a program that includes <stdio.h> — the C headers are missing (libc6-dev / glibc-devel)"
-    warn "Ubuntu/Debian: sudo apt-get install -y build-essential"
-    warn "RHEL6: scl enable devtoolset-7 bash (provides glibc-devel/libstdc++-devel), or yum install -y glibc-devel libstdc++-devel"
-fi
-if [ -x "$CXX_BIN" ]; then
-    CXX_PROBE_OK=0
-    printf '#include <iostream>\nint main(){return 0;}\n' | "$CXX_BIN" -x c++ - -o /tmp/.cc-probe2 2>/dev/null && CXX_PROBE_OK=1 || CXX_PROBE_OK=0
-    rm -f /tmp/.cc-probe2
-    [ "$CXX_PROBE_OK" = 1 ] || warn "g++ ('$CXX_BIN') cannot compile+link a program that includes <iostream> — C++ scanners (scanner.cc) will fail; install libstdc++-devel"
-fi
-
-need fzf "install_from_cache fzf.tar.gz fzf" "fzf-lua search" "fzf --version"
-need rg  "install_from_cache rg.tar.gz rg" "fzf-lua search" "rg --version"
-need fd  "install_from_cache fd.tar.gz fd" "fzf-lua search" "fd --version"
-need rustup "" "requires an intranet mirror or manual install"
-need perl "" "requires an intranet mirror or manual install"
-need pandoc "install_from_cache pandoc.tar.gz pandoc" "orgmode export" "pandoc --version"
-
-# npm tools cache (bundled node_modules — offline fallback for the mason npm
-# packages: yaml-language-server, json-lsp, bash-language-server, prettier,
-# prettierd). The .bin scripts call `node` from PATH; on RHEL6 that must be the
-# patched glibc-2.34 node (see header notes).
-if [ -f "$TMP/tools/npm-tools.tar.gz" ]; then
-    NPM_BIN="$LOCAL_DIR/npm-tools/node_modules/.bin"
-    mkdir -p "$LOCAL_DIR/npm-tools"
-    if tar xzf "$TMP/tools/npm-tools.tar.gz" -C "$LOCAL_DIR/npm-tools" 2>/dev/null && [ -d "$NPM_BIN" ]; then
-        export PATH="$NPM_BIN:$PATH"
-        ok "npm tools extracted to $NPM_BIN"
-    else
-        warn "npm-tools cache present but extraction failed"
-    fi
-else
-    warn "No npm-tools cache in bundle — bash/json/yaml LSP + prettier need an online :MasonInstall (or use the bundle with npm tools)"
-fi
-
-# ---------------------------------------------------------------- Rust toolchain (optional)
-log "== Rust toolchain (optional) =="
-RUST_BIN="/home/yingfangong/rust-toolchain/stable-x86_64-unknown-linux-gnu/bin"
-if command -v rustc >/dev/null 2>&1 && rustc --version >/dev/null 2>&1; then
-    ok "rustc present: $(rustc --version)"
-elif [ -x "$RUST_BIN/rustc" ] && "$RUST_BIN/rustc" --version >/dev/null 2>&1; then
-    export PATH="$RUST_BIN:$PATH"
-    ok "rustc from $RUST_BIN: $("$RUST_BIN/rustc" --version)"
-else
-    warn "Rust toolchain not found — rustfmt/rust-analyzer unavailable"
-    warn "Offline: copy ~/rust-toolchain/ (rustup stable + component rustfmt, pinned 1.97.x) from an online machine, then re-run"
-fi
-if command -v rustc >/dev/null 2>&1; then
-    warn "RHEL6: build with RUSTFLAGS=\"-C linker-flavor=lld\" (binutils 2.20 lacks -plugin); keep the toolchain pinned (do NOT rustup update)"
-fi
-
-# ---------------------------------------------------------------- nvim
-log "== Installing Neovim =="
-if command -v nvim >/dev/null 2>&1; then
-    ok "nvim already present: $(nvim --version | head -1)"
-else
-    mkdir -p "$LOCAL_DIR"
-    tar xzf "$TMP/nvim/nvim-linux-x86_64.tar.gz" -C "$LOCAL_DIR"
-    mv "$LOCAL_DIR/nvim-linux-x86_64" "$LOCAL_DIR/nvim" 2>/dev/null || true
-    export PATH="$LOCAL_DIR/nvim/bin:$PATH"
-    command -v nvim >/dev/null 2>&1 || err "nvim install failed"
-    ok "nvim installed to $LOCAL_DIR/nvim ($(nvim --version | head -1))"
-fi
-case ":$PATH:" in *":$LOCAL_DIR/nvim/bin:"*) ;; *) export PATH="$LOCAL_DIR/nvim/bin:$PATH";; esac
-
-# ---------------------------------------------------------------- Config and data
-log "== Restoring config and data =="
-if [ -d "$CONFIG_DIR" ] && confirm "Config directory $CONFIG_DIR exists, back it up and overwrite? [y/N] " y; then
-    mv "$CONFIG_DIR" "$CONFIG_DIR.bak.$(date +%Y%m%d%H%M%S)"; ok "Old config backed up"
-fi
-if [ -d "$DATA_DIR" ] && confirm "Data directory $DATA_DIR exists, back it up and overwrite? [y/N] " y; then
-    mv "$DATA_DIR" "$DATA_DIR.bak.$(date +%Y%m%d%H%M%S)"; ok "Old data backed up"
-fi
-mkdir -p "$(dirname "$CONFIG_DIR")" "$(dirname "$DATA_DIR")"
-cp -a "$TMP/config" "$CONFIG_DIR"
-cp -a "$TMP/data" "$DATA_DIR"
-rm -rf "$DATA_DIR/backup" "$DATA_DIR/undo" "$DATA_DIR/swap" "$DATA_DIR/view" 2>/dev/null || true
-mkdir -p "$DATA_DIR/backup" "$DATA_DIR/undo" "$DATA_DIR/swap" "$DATA_DIR/view" "$PARSER_DIR"
-ok "Config -> $CONFIG_DIR  Data -> $DATA_DIR"
-
-# ---------------------------------------------------------------- Compile parsers
-log "== Compiling treesitter parsers (directly with gcc) =="
-# O5 fix: a stale .so from a previous run would mask compile failures below
-# (nvim loads whatever exists silently), so clear them first.
-rm -f "$PARSER_DIR"/*.so 2>/dev/null || true
-parse_ok=0; parse_fail=0
-for tgz in "$TMP/parser-sources/"*.tar.gz; do
-    [ -f "$tgz" ] || continue
+# Compile one treesitter parser directly with gcc -> $PARSER_DIR/<lang>.so.
+# The online-built .so in the bundle is NEVER used: it was compiled for the
+# packager's glibc and would not run on the target (e.g. RHEL6 glibc 2.17).
+compile_parser() { # compile_parser <parser-sources/<lang>.tar.gz> -> 0 on success
+    local tgz="$1" lang work dir src out d
+    [ -f "$tgz" ] || return 1
     lang="$(basename "$tgz" .tar.gz)"
     work="$TMP/pbuild"; rm -rf "$work"; mkdir -p "$work"
-    if ! tar xzf "$tgz" -C "$work" 2>/dev/null; then warn "  $lang extraction failed"; continue; fi
+    if ! tar xzf "$tgz" -C "$work" 2>/dev/null; then warn "  $lang extraction failed"; return 1; fi
     # Locate source dir: handle both tar layouts (with/without top-level dir)
     dir="$work"
     if [ ! -d "$dir/src" ]; then
@@ -291,7 +178,7 @@ for tgz in "$TMP/parser-sources/"*.tar.gz; do
         [ -n "$d" ] && dir="$(dirname "$d")"
     fi
     src="$dir/src"
-    if [ ! -f "$src/parser.c" ]; then warn "  $lang missing src/parser.c, skipping"; parse_fail=$((parse_fail+1)); continue; fi
+    if [ ! -f "$src/parser.c" ]; then warn "  $lang missing src/parser.c, skipping"; return 1; fi
     out="$PARSER_DIR/$lang.so"
     rm -f "$out"
     (
@@ -304,9 +191,300 @@ for tgz in "$TMP/parser-sources/"*.tar.gz; do
             "$CC_BIN" -Isrc -shared -fPIC -O2 src/parser.c -o "$out" >/dev/null 2>&1 || true
         fi
     ) || true
-    if [ -f "$out" ]; then ok "  $lang compiled"; parse_ok=$((parse_ok+1)); else warn "  $lang compilation failed"; parse_fail=$((parse_fail+1)); fi
-done
-log "Parser compilation done: ok=$parse_ok  failed=$parse_fail"
+    [ -f "$out" ]
+}
+
+# Shared by full install and --update: required tools, external tool cache,
+# npm tools cache and the Rust toolchain. Idempotent: already-present tools are
+# skipped, missing ones are offered for install from the bundle cache.
+apply_tools() {
+    # ---------------------------------------------------------------- External tools
+    log "== External tool confirmation =="
+    need git   "" "required for lazy plugin repositories" "git --version"
+    need gcc   "" "required to compile treesitter parsers" "gcc --version"
+    need make  "" "compile helper" "make --version"
+    need node  "install_node_from_cache node.tar.xz || install_from_cache node.tar.gz node" "mason npm packages (bash/json/yaml-lsp, prettier)" "node --version"
+    need python3 "" "optional: zip unpack fallback if unzip is missing" "python3 --version"
+
+    # Required tools must be present and RUNNABLE or the install is aborted with a
+    # clear message (declining a need() above only warns, so enforce it here).
+    # python3 is NOT required anymore (pyrefly was replaced by ty, a standalone Rust
+    # binary); it only serves as a zip fallback when unzip is missing.
+    for t in git gcc make node; do
+        if ! command -v "$t" >/dev/null 2>&1 || ! "$t" --version >/dev/null 2>&1; then
+            err "Required tool '$t' is missing or not runnable; install it manually (e.g. into $LOCAL_DIR/bin) and re-run"
+            exit 1
+        fi
+    done
+
+    # gcc version check (parsers need C11, gcc >= 5 recommended, 7.x best)
+    CC_BIN="${CC:-gcc}"
+    GCC_VER="$("$CC_BIN" -dumpversion 2>/dev/null || echo 0)"
+    if [ "$(printf '%s\n4.9' "$GCC_VER" | sort -V | head -1)" != "4.9" ]; then
+        # Try devtoolset (RHEL6 SCL provides gcc 7)
+        for ds in /opt/rh/devtoolset-*/root/usr/bin/gcc; do
+            [ -x "$ds" ] || continue
+            CC_BIN="$ds"; GCC_VER="$("$CC_BIN" -dumpversion)"; break
+        done
+    fi
+    GCC_VER="$("$CC_BIN" -dumpversion 2>/dev/null || echo 0)"
+    log "Using C compiler: $CC_BIN ($GCC_VER)"
+    if [ "$(printf '%s\n4.9' "$GCC_VER" | sort -V | head -1)" != "4.9" ]; then
+        warn "gcc too old ($GCC_VER < 4.9), modern parsers need C11, compilation may fail"
+        warn "RHEL6 suggestion: run 'scl enable devtoolset-7 bash' and retry, or set CC=/opt/rh/devtoolset-7/root/usr/bin/gcc"
+    fi
+    CXX_BIN="${CXX:-$(dirname "$CC_BIN")/g++}"
+
+    # Bug U fix: a runnable gcc does not guarantee compilable headers — minimal
+    # images / RHEL6 often ship gcc without glibc-devel + libstdc++-devel. Probe a
+    # real link so the failure is a clear message instead of N identical compile
+    # errors in the parser loop below.
+    CC_PROBE_OK=0
+    printf '#include <stdio.h>\nint main(void){return 0;}\n' | "$CC_BIN" -x c - -o /tmp/.cc-probe 2>/dev/null && CC_PROBE_OK=1 || CC_PROBE_OK=0
+    rm -f /tmp/.cc-probe
+    if [ "$CC_PROBE_OK" != 1 ]; then
+        warn "C compiler '$CC_BIN' cannot compile+link a program that includes <stdio.h> — the C headers are missing (libc6-dev / glibc-devel)"
+        warn "Ubuntu/Debian: sudo apt-get install -y build-essential"
+        warn "RHEL6: scl enable devtoolset-7 bash (provides glibc-devel/libstdc++-devel), or yum install -y glibc-devel libstdc++-devel"
+    fi
+    if [ -x "$CXX_BIN" ]; then
+        CXX_PROBE_OK=0
+        printf '#include <iostream>\nint main(){return 0;}\n' | "$CXX_BIN" -x c++ - -o /tmp/.cc-probe2 2>/dev/null && CXX_PROBE_OK=1 || CXX_PROBE_OK=0
+        rm -f /tmp/.cc-probe2
+        [ "$CXX_PROBE_OK" = 1 ] || warn "g++ ('$CXX_BIN') cannot compile+link a program that includes <iostream> — C++ scanners (scanner.cc) will fail; install libstdc++-devel"
+    fi
+
+    need fzf "install_from_cache fzf.tar.gz fzf" "fzf-lua search" "fzf --version"
+    need rg  "install_from_cache rg.tar.gz rg" "fzf-lua search" "rg --version"
+    need fd  "install_from_cache fd.tar.gz fd" "fzf-lua search" "fd --version"
+    need rustup "" "requires an intranet mirror or manual install"
+    need perl "" "requires an intranet mirror or manual install"
+    need pandoc "install_from_cache pandoc.tar.gz pandoc" "orgmode export" "pandoc --version"
+
+    # npm tools cache (bundled node_modules — offline fallback for the mason npm
+    # packages: yaml-language-server, json-lsp, bash-language-server, prettier,
+    # prettierd). The .bin scripts call `node` from PATH; on RHEL6 that must be the
+    # patched glibc-2.34 node (see header notes).
+    # On --update the cache is only re-extracted when its content md5 changed.
+    if [ -f "$TMP/tools/npm-tools.tar.gz" ]; then
+        NPM_BIN="$LOCAL_DIR/npm-tools/node_modules/.bin"
+        NPM_UPDATE=1
+        if [ "$MODE" = update ]; then
+            OLD_MD5="$(grep -oE '^npmtools=[0-9a-f]{32}' "$LAST_MANIFEST" 2>/dev/null | cut -d= -f2 || true)"
+            NEW_MD5="$(grep -oE '^npmtools=[0-9a-f]{32}' "$TMP/manifest.txt" 2>/dev/null | cut -d= -f2 || true)"
+            if [ -n "$OLD_MD5" ] && [ "$OLD_MD5" = "$NEW_MD5" ] && [ -d "$NPM_BIN" ]; then
+                NPM_UPDATE=0
+                ok "npm tools unchanged, keeping $NPM_BIN"
+            fi
+        fi
+        if [ "$NPM_UPDATE" = 1 ]; then
+            mkdir -p "$LOCAL_DIR/npm-tools"
+            if tar xzf "$TMP/tools/npm-tools.tar.gz" -C "$LOCAL_DIR/npm-tools" 2>/dev/null && [ -d "$NPM_BIN" ]; then
+                export PATH="$NPM_BIN:$PATH"
+                ok "npm tools extracted to $NPM_BIN"
+            else
+                warn "npm-tools cache present but extraction failed"
+            fi
+        fi
+    else
+        warn "No npm-tools cache in bundle — bash/json/yaml LSP + prettier need an online :MasonInstall (or use the bundle with npm tools)"
+    fi
+
+    # ---------------------------------------------------------------- Rust toolchain (optional)
+    log "== Rust toolchain (optional) =="
+    RUST_BIN="/home/yingfangong/rust-toolchain/stable-x86_64-unknown-linux-gnu/bin"
+    if command -v rustc >/dev/null 2>&1 && rustc --version >/dev/null 2>&1; then
+        ok "rustc present: $(rustc --version)"
+    elif [ -x "$RUST_BIN/rustc" ] && "$RUST_BIN/rustc" --version >/dev/null 2>&1; then
+        export PATH="$RUST_BIN:$PATH"
+        ok "rustc from $RUST_BIN: $("$RUST_BIN/rustc" --version)"
+    else
+        warn "Rust toolchain not found — rustfmt/rust-analyzer unavailable"
+        warn "Offline: copy ~/rust-toolchain/ (rustup stable + component rustfmt, pinned 1.97.x) from an online machine, then re-run"
+    fi
+    if command -v rustc >/dev/null 2>&1; then
+        warn "RHEL6: build with RUSTFLAGS=\"-C linker-flavor=lld\" (binutils 2.20 lacks -plugin); keep the toolchain pinned (do NOT rustup update)"
+    fi
+}
+
+# ---------------------------------------------------------------- Extract
+log "== Extracting bundle =="
+tar xzf "$BUNDLE" -C "$TMP"
+ls "$TMP" | tr '\n' ' '; echo
+[ -d "$TMP/data" ] || err "bundle is missing the data/ directory"
+
+# ---------------------------------------------------------------- Mode
+MODE=full
+if [ "$UPDATE_MODE" = 1 ]; then
+    if [ -f "$LAST_MANIFEST" ]; then
+        MODE=update
+        log "Update mode: previous install state found ($STATE_DIR)"
+    else
+        warn "--update requested but no previous install state at $STATE_DIR — falling back to a full install"
+    fi
+fi
+
+apply_tools
+
+# ---------------------------------------------------------------- nvim
+if [ "$MODE" = full ]; then
+    log "== Installing Neovim =="
+    if command -v nvim >/dev/null 2>&1; then
+        ok "nvim already present: $(nvim --version | head -1)"
+    else
+        [ -f "$TMP/nvim/nvim-linux-x86_64.tar.gz" ] || err "bundle carries no nvim binary (it was skipped at packaging) and nvim is not installed — install nvim manually or re-package with nvim"
+        mkdir -p "$LOCAL_DIR"
+        tar xzf "$TMP/nvim/nvim-linux-x86_64.tar.gz" -C "$LOCAL_DIR"
+        mv "$LOCAL_DIR/nvim-linux-x86_64" "$LOCAL_DIR/nvim" 2>/dev/null || true
+        export PATH="$LOCAL_DIR/nvim/bin:$PATH"
+        command -v nvim >/dev/null 2>&1 || err "nvim install failed"
+        ok "nvim installed to $LOCAL_DIR/nvim ($(nvim --version | head -1))"
+    fi
+    case ":$PATH:" in *":$LOCAL_DIR/nvim/bin:"*) ;; *) export PATH="$LOCAL_DIR/nvim/bin:$PATH";; esac
+else
+    log "== Updating Neovim =="
+    NEW_VER="$(grep -oE '^nvim=v[0-9]+\.[0-9]+\.[0-9]+' "$TMP/manifest.txt" 2>/dev/null | cut -d= -f2 || true)"
+    if [ -z "$NEW_VER" ]; then
+        warn "bundle carries no nvim binary (skipped at packaging) — keeping existing nvim"
+    elif command -v nvim >/dev/null 2>&1 && nvim --version >/dev/null 2>&1; then
+        CUR_VER="$(nvim --version | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+        if [ -n "$CUR_VER" ] && [ "$CUR_VER" = "$NEW_VER" ]; then
+            ok "nvim $CUR_VER unchanged, skipping"
+        else
+            if confirm "Replace nvim ${CUR_VER:-?} with bundled ${NEW_VER}? [y/N] "; then
+                rm -rf "$LOCAL_DIR/nvim"
+                tar xzf "$TMP/nvim/nvim-linux-x86_64.tar.gz" -C "$LOCAL_DIR"
+                mv "$LOCAL_DIR/nvim-linux-x86_64" "$LOCAL_DIR/nvim" 2>/dev/null || true
+                export PATH="$LOCAL_DIR/nvim/bin:$PATH"
+                ok "nvim updated to $NEW_VER"
+            else
+                warn "keeping existing nvim"
+            fi
+        fi
+    else
+        [ -f "$TMP/nvim/nvim-linux-x86_64.tar.gz" ] || err "bundle carries no nvim binary and nvim is not installed — install nvim manually or re-package with nvim"
+        mkdir -p "$LOCAL_DIR"
+        tar xzf "$TMP/nvim/nvim-linux-x86_64.tar.gz" -C "$LOCAL_DIR"
+        mv "$LOCAL_DIR/nvim-linux-x86_64" "$LOCAL_DIR/nvim" 2>/dev/null || true
+        export PATH="$LOCAL_DIR/nvim/bin:$PATH"
+        command -v nvim >/dev/null 2>&1 || err "nvim install failed"
+        ok "nvim installed to $LOCAL_DIR/nvim ($(nvim --version | head -1))"
+    fi
+    case ":$PATH:" in *":$LOCAL_DIR/nvim/bin:"*) ;; *) export PATH="$LOCAL_DIR/nvim/bin:$PATH";; esac
+fi
+
+# ---------------------------------------------------------------- Config and data
+if [ "$MODE" = full ]; then
+    log "== Restoring config and data =="
+    if [ -d "$CONFIG_DIR" ] && confirm "Config directory $CONFIG_DIR exists, back it up and overwrite? [y/N] " y; then
+        mv "$CONFIG_DIR" "$CONFIG_DIR.bak.$(date +%Y%m%d%H%M%S)"; ok "Old config backed up"
+    fi
+    if [ -d "$DATA_DIR" ] && confirm "Data directory $DATA_DIR exists, back it up and overwrite? [y/N] " y; then
+        mv "$DATA_DIR" "$DATA_DIR.bak.$(date +%Y%m%d%H%M%S)"; ok "Old data backed up"
+    fi
+    mkdir -p "$(dirname "$CONFIG_DIR")" "$(dirname "$DATA_DIR")"
+    cp -a "$TMP/config" "$CONFIG_DIR"
+    cp -a "$TMP/data" "$DATA_DIR"
+    rm -rf "$DATA_DIR/backup" "$DATA_DIR/undo" "$DATA_DIR/swap" "$DATA_DIR/view" 2>/dev/null || true
+    mkdir -p "$DATA_DIR/backup" "$DATA_DIR/undo" "$DATA_DIR/swap" "$DATA_DIR/view" "$PARSER_DIR"
+    ok "Config -> $CONFIG_DIR  Data -> $DATA_DIR"
+else
+    log "== Updating config and data =="
+    # config: full replace with automatic backup (files removed upstream go away too)
+    if [ -d "$CONFIG_DIR" ]; then
+        mv "$CONFIG_DIR" "$CONFIG_DIR.bak.$(date +%Y%m%d%H%M%S)"
+        ok "Old config backed up"
+    fi
+    mkdir -p "$(dirname "$CONFIG_DIR")"
+    cp -a "$TMP/config" "$CONFIG_DIR"
+    ok "Config updated -> $CONFIG_DIR"
+    # data: overlay-merge, preserving user data. cp -a copies the bundle's
+    # tree over the local one (packager version wins) WITHOUT deleting local
+    # extras — user state in backup/undo/swap/view is never touched, and
+    # plugin removal is handled separately via the lazy-lock diff below.
+    # (cp -au was avoided: BSD cp lacks -u and mtime comparisons across
+    # machines are unreliable since tar preserves source mtimes.)
+    mkdir -p "$DATA_DIR"
+    for sub in lazy mason; do
+        if [ -d "$TMP/data/$sub" ]; then
+            mkdir -p "$DATA_DIR/$sub"
+            cp -a "$TMP/data/$sub/." "$DATA_DIR/$sub/"
+            ok "data/$sub overlay-copied"
+        fi
+    done
+    # site: merge everything EXCEPT parser/ — the offline machine compiles its
+    # own .so for its glibc (the online-built ones would not run on RHEL6).
+    if [ -d "$TMP/data/site" ]; then
+        mkdir -p "$DATA_DIR/site"
+        for entry in "$TMP/data/site"/*; do
+            [ -e "$entry" ] || continue
+            [ "$(basename "$entry")" = "parser" ] && continue
+            cp -a "$entry" "$DATA_DIR/site/"
+        done
+        ok "data/site overlay-copied (parser/ excluded, recompiled below)"
+    fi
+    # Plugin removal: drop lazy plugins that are in the previous lock but not in
+    # the new one (plugins removed from the config). Anything else is kept.
+    if [ -f "$LAST_LOCK" ] && [ -f "$TMP/lazy-lock.json" ]; then
+        for plugin_dir in "$DATA_DIR/lazy"/*; do
+            [ -d "$plugin_dir" ] || continue
+            name="$(basename "$plugin_dir")"
+            if grep -q "^  \"$name\":" "$LAST_LOCK" 2>/dev/null \
+               && ! grep -q "^  \"$name\":" "$TMP/lazy-lock.json" 2>/dev/null; then
+                rm -rf "$plugin_dir"
+                warn "removed plugin no longer in lazy-lock: $name"
+            fi
+        done
+    fi
+    mkdir -p "$PARSER_DIR"
+    ok "Data updated -> $DATA_DIR"
+fi
+
+# ---------------------------------------------------------------- Compile parsers
+if [ "$MODE" = full ]; then
+    log "== Compiling treesitter parsers (directly with gcc) =="
+    # O5 fix: a stale .so from a previous run would mask compile failures below
+    # (nvim loads whatever exists silently), so clear them first.
+    rm -f "$PARSER_DIR"/*.so 2>/dev/null || true
+    parse_ok=0; parse_fail=0
+    for tgz in "$TMP/parser-sources/"*.tar.gz; do
+        [ -f "$tgz" ] || continue
+        if compile_parser "$tgz"; then
+            ok "  $(basename "$tgz" .tar.gz) compiled"; parse_ok=$((parse_ok+1))
+        else
+            warn "  $(basename "$tgz" .tar.gz) compilation failed"; parse_fail=$((parse_fail+1))
+        fi
+    done
+    log "Parser compilation done: ok=$parse_ok  failed=$parse_fail"
+else
+    log "== Compiling changed treesitter parsers (directly with gcc) =="
+    # Update mode: recompile only parsers whose pinned revision differs from the
+    # last applied manifest (or whose .so is missing). Existing .so are kept.
+    parse_ok=0; parse_fail=0; parse_skip=0
+    while read -r p lang url rev; do
+        [ "$p" = "parser" ] || continue
+        [ -n "$lang" ] || continue
+        tgz="$TMP/parser-sources/$lang.tar.gz"
+        prev_rev="$(awk -v l="$lang" '$1=="parser" && $2==l {print $4}' "$LAST_MANIFEST" 2>/dev/null | head -1)"
+        if [ -n "$prev_rev" ] && [ "$prev_rev" = "$rev" ] && [ -f "$PARSER_DIR/$lang.so" ]; then
+            parse_skip=$((parse_skip+1)); continue
+        fi
+        if compile_parser "$tgz"; then
+            ok "  $lang compiled"; parse_ok=$((parse_ok+1))
+        else
+            warn "  $lang compilation failed"; parse_fail=$((parse_fail+1))
+        fi
+    done < <(grep '^parser ' "$TMP/manifest.txt" 2>/dev/null || true)
+    # Drop stale .so for parsers removed from the config
+    while read -r _ lang _; do
+        [ -f "$PARSER_DIR/$lang.so" ] || continue
+        if ! grep -q "^parser $lang " "$TMP/manifest.txt" 2>/dev/null; then
+            rm -f "$PARSER_DIR/$lang.so"
+            warn "removed stale parser: $lang.so"
+        fi
+    done < <(grep '^parser ' "$LAST_MANIFEST" 2>/dev/null || true)
+    log "Parser compilation done: ok=$parse_ok  failed=$parse_fail  unchanged-skipped=$parse_skip"
+fi
 
 # ---------------------------------------------------------------- PATH
 log "== Configuring PATH =="
@@ -413,7 +591,15 @@ else
     warn "Startup verification reported errors, see $LOG"
     grep -aE 'E[0-9]+: |Error detected|Error in ' "$LOG" | head -3
 fi
+
+# ---------------------------------------------------------------- Save install state
+log "== Saving install state =="
+mkdir -p "$STATE_DIR"
+cp "$TMP/manifest.txt" "$LAST_MANIFEST" 2>/dev/null || true
+cp "$TMP/lazy-lock.json" "$LAST_LOCK" 2>/dev/null || true
+ok "state saved to $STATE_DIR (consumed by future --update runs)"
+
 echo
-log "Installation done: plugins=$plugins  parsers=$parsers  masonTools=$mason"
+log "Installation done: mode=$MODE  plugins=$plugins  parsers=$parsers  masonTools=$mason"
 log "Run: source ~/.bashrc; nvim"
 warn "If mason ty is unavailable, run once online: nvim --headless +MasonInstall ty +qa"
