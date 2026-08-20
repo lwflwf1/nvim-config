@@ -9,7 +9,7 @@ local root_markers = require("config.root_markers")
 ---   AppData\Local\Programs\verible (PATH); the current mason win64 build
 ---   v0.0-4084 crashes on startup (0xC0000005), so it is not managed by mason.
 M.tool_mapping = {
-    pyrefly = "pyrefly",
+    ty = "ty",
     ruff = "ruff",
     bashls = "bash-language-server",
     lua_ls = "lua-language-server",
@@ -183,17 +183,15 @@ function M.setup()
         vim.keymap.set("n", "grk", function() jump_diag(-1) end, bopts("Prev diagnostic"))
     end
 
-    vim.lsp.config.pyrefly = {
-        cmd = { "pyrefly", "lsp" },
+    vim.lsp.config.ty = {
+        cmd = { "ty", "server" },
         filetypes = { "python" },
         root_markers = { "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", ".git" },
         capabilities = capabilities,
         on_attach = on_attach,
         settings = {
-            python = {
-                pyrefly = {
-                    typeCheckingMode = "default",
-                },
+            ty = {
+                diagnosticMode = "workspace",
             },
         },
     }
@@ -205,7 +203,7 @@ function M.setup()
         capabilities = capabilities,
         on_attach = function(client, bufnr)
             -- Ruff only serves lint diagnostics + lint code actions;
-            -- hover/definition/completion are pyrefly's job.
+            -- hover/definition/completion are ty's job.
             client.server_capabilities.hoverProvider = false
             on_attach(client, bufnr)
         end,
@@ -297,7 +295,7 @@ function M.setup()
         on_attach = on_attach,
     }
 
-    local servers = { "pyrefly", "ruff", "perl-lsp", "bashls", "lua_ls", "jsonls", "yamlls", "verible", "clangd" }
+    local servers = { "ty", "ruff", "perl-lsp", "bashls", "lua_ls", "jsonls", "yamlls", "verible", "clangd" }
     vim.lsp.enable(servers)
     M.servers = servers
 

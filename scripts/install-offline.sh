@@ -13,6 +13,33 @@
 #   - Compiles treesitter parsers directly with gcc -> ~/.local/share/nvim/site/parser/ (no tree-sitter CLI needed)
 #   - Verifies
 #
+# RHEL6 (kernel 2.6.32 / glibc 2.17) deployment notes:
+#   Tool matrix (all verified on RHEL6):
+#     - nvim: old-glibc build bundled in the archive (glibc 2.17 baseline)
+#     - 27 treesitter parsers: compiled on-target with gcc (devtoolset-7 recommended)
+#     - standalone static binaries (musl / Go static), from upstream releases:
+#         ty       https://github.com/astral-sh/ty/releases        x86_64-unknown-linux-musl
+#         ruff     https://github.com/astral-sh/ruff/releases      x86_64-unknown-linux-musl
+#         stylua   https://github.com/JohnnyMorganz/StyLua/releases  linux-x86_64-musl.zip
+#         perl-lsp https://github.com/tree-sitter-perl/perl-lsp/releases  x86_64-unknown-linux-musl
+#         fd/rg    x86_64-unknown-linux-musl ; fzf linux_amd64 ; verible *-linux-static-x86_64
+#     - node 18.20.4 + glibc-2.34: PATCH the binary with patchelf
+#         patchelf --set-interpreter /home/yingfangong/.local/glibc-2.34/lib/ld-linux-x86-64.so.2 node
+#         patchelf --set-rpath /home/yingfangong/.local/glibc-2.34/lib:/tools/gcc/gcc11/lib64 node
+#       and wrap it as:  unset LD_LIBRARY_PATH; exec <node> "$@"
+#       (without patching, process.execPath resolves to the loader and fork breaks)
+#     - clangd (needs GLIBC_2.18) / lua-language-server (needs GLIBC_2.27):
+#       same patchelf recipe, applied below.
+#     - Rust toolchain: PIN 1.97.x, build with RUSTFLAGS="-C linker-flavor=lld"
+#       (RHEL6 binutils 2.20 lacks -plugin; plain '-C linker-flavor=lld' works only
+#       via the RUSTFLAGS env var). Official Rust baseline is kernel 3.2+ — do NOT
+#       rustup update on RHEL6 (future std may use syscalls absent on 2.6.32).
+#   Known issues on RHEL6:
+#     - std::fs::remove_dir_all can fail with ENOTEMPTY on kernel 2.6.32 (fd-based
+#       recursive delete quirk); prefer shell 'rm -rf' in Rust tooling there.
+#     - never export LD_LIBRARY_PATH in glibc wrappers — it poisons every child
+#       process; always strip it and rely on patchelf RUNPATH / explicit loader.
+#
 set -euo pipefail
 
 BUNDLE="${1:-}"
@@ -92,9 +119,10 @@ install_from_cache() { # install_from_cache <tools/*.tar.gz|*.xz|*.zip> <binary 
         *.gz) tar xzf "$cache" -C "$LOCAL_DIR" 2>/dev/null || gunzip -c "$cache" > "$LOCAL_DIR/bin/$name";;
         *.xz) tar xJf "$cache" -C "$LOCAL_DIR" 2>/dev/null || return 1;;
         *.zip)
-            # O8 fix: unzip may be absent on minimal machines; python3 (required) can unpack zip
+            # O8 fix: unzip may be absent on minimal machines; python3 can unpack zip
             if command -v unzip >/dev/null 2>&1; then unzip -oq "$cache" -d "$LOCAL_DIR/bin"
-            else python3 -m zipfile -e "$cache" "$LOCAL_DIR/bin" 2>/dev/null || return 1; fi;;
+            elif command -v python3 >/dev/null 2>&1; then python3 -m zipfile -e "$cache" "$LOCAL_DIR/bin" 2>/dev/null || return 1
+            else warn "unzip and python3 both missing, cannot unpack $1"; return 1; fi;;
     esac
     found="$(find "$LOCAL_DIR" -name "$name" -type f | head -1)"
     [ -n "$found" ] || return 1
@@ -126,11 +154,13 @@ need git   "" "required for lazy plugin repositories" "git --version"
 need gcc   "" "required to compile treesitter parsers" "gcc --version"
 need make  "" "compile helper" "make --version"
 need node  "install_node_from_cache node.tar.xz || install_from_cache node.tar.gz node" "mason npm packages (bash/json/yaml-lsp, prettier)" "node --version"
-need python3 "" "required by pyrefly" "python3 --version"
+need python3 "" "optional: zip unpack fallback if unzip is missing" "python3 --version"
 
 # Required tools must be present and RUNNABLE or the install is aborted with a
 # clear message (declining a need() above only warns, so enforce it here).
-for t in git gcc make node python3; do
+# python3 is NOT required anymore (pyrefly was replaced by ty, a standalone Rust
+# binary); it only serves as a zip fallback when unzip is missing.
+for t in git gcc make node; do
     if ! command -v "$t" >/dev/null 2>&1 || ! "$t" --version >/dev/null 2>&1; then
         err "Required tool '$t' is missing or not runnable; install it manually (e.g. into $LOCAL_DIR/bin) and re-run"
         exit 1
@@ -180,6 +210,39 @@ need fd  "install_from_cache fd.tar.gz fd" "fzf-lua search" "fd --version"
 need rustup "" "requires an intranet mirror or manual install"
 need perl "" "requires an intranet mirror or manual install"
 need pandoc "install_from_cache pandoc.tar.gz pandoc" "orgmode export" "pandoc --version"
+
+# npm tools cache (bundled node_modules — offline fallback for the mason npm
+# packages: yaml-language-server, json-lsp, bash-language-server, prettier,
+# prettierd). The .bin scripts call `node` from PATH; on RHEL6 that must be the
+# patched glibc-2.34 node (see header notes).
+if [ -f "$TMP/tools/npm-tools.tar.gz" ]; then
+    NPM_BIN="$LOCAL_DIR/npm-tools/node_modules/.bin"
+    mkdir -p "$LOCAL_DIR/npm-tools"
+    if tar xzf "$TMP/tools/npm-tools.tar.gz" -C "$LOCAL_DIR/npm-tools" 2>/dev/null && [ -d "$NPM_BIN" ]; then
+        export PATH="$NPM_BIN:$PATH"
+        ok "npm tools extracted to $NPM_BIN"
+    else
+        warn "npm-tools cache present but extraction failed"
+    fi
+else
+    warn "No npm-tools cache in bundle — bash/json/yaml LSP + prettier need an online :MasonInstall (or use the bundle with npm tools)"
+fi
+
+# ---------------------------------------------------------------- Rust toolchain (optional)
+log "== Rust toolchain (optional) =="
+RUST_BIN="/home/yingfangong/rust-toolchain/stable-x86_64-unknown-linux-gnu/bin"
+if command -v rustc >/dev/null 2>&1 && rustc --version >/dev/null 2>&1; then
+    ok "rustc present: $(rustc --version)"
+elif [ -x "$RUST_BIN/rustc" ] && "$RUST_BIN/rustc" --version >/dev/null 2>&1; then
+    export PATH="$RUST_BIN:$PATH"
+    ok "rustc from $RUST_BIN: $("$RUST_BIN/rustc" --version)"
+else
+    warn "Rust toolchain not found — rustfmt/rust-analyzer unavailable"
+    warn "Offline: copy ~/rust-toolchain/ (rustup stable + component rustfmt, pinned 1.97.x) from an online machine, then re-run"
+fi
+if command -v rustc >/dev/null 2>&1; then
+    warn "RHEL6: build with RUSTFLAGS=\"-C linker-flavor=lld\" (binutils 2.20 lacks -plugin); keep the toolchain pinned (do NOT rustup update)"
+fi
 
 # ---------------------------------------------------------------- nvim
 log "== Installing Neovim =="
@@ -252,9 +315,65 @@ export PATH="$LOCAL_DIR/nvim/bin:$LOCAL_DIR/bin:$PATH"
 export PATH="$DATA_DIR/mason/bin:$PATH"
 grep -q "$LOCAL_DIR" "$HOME/.bashrc" 2>/dev/null || cat >> "$HOME/.bashrc" <<EOF
 # nvim-config (offline install)
-export PATH="$LOCAL_DIR/nvim/bin:$LOCAL_DIR/bin:$DATA_DIR/mason/bin:\$PATH"
+export PATH="$LOCAL_DIR/nvim/bin:$LOCAL_DIR/bin:$LOCAL_DIR/npm-tools/node_modules/.bin:$DATA_DIR/mason/bin:\$PATH"
 EOF
 ok "PATH written to ~/.bashrc"
+
+# ---------------------------------------------------------------- glibc-2.34 re-linked binaries (RHEL6)
+# clangd (needs GLIBC_2.18) and lua-language-server (needs GLIBC_2.27) cannot run
+# on the system glibc 2.17. Patch them in place with patchelf so they carry the
+# glibc-2.34 loader + RUNPATH, then install a thin wrapper that strips
+# LD_LIBRARY_PATH (RUNPATH ranks BELOW it, so a polluted shell env would
+# otherwise override glibc). Same recipe as node — see header notes.
+GLIBC234="/home/yingfangong/.local/glibc-2.34"
+GLIBC_LIB="$GLIBC234/lib"
+GLIBC_LD="$GLIBC_LIB/ld-linux-x86-64.so.2"
+GCC11_LIB="/tools/gcc/gcc11/lib64"
+WRAPPER_BIN="/home/yingfangong/.local/bin"
+
+gen_glibc_wrapper() { # gen_glibc_wrapper <real-abs-path> <wrapper-name>
+    local real="$1" name="$2"
+    [ -x "$real" ] || { warn "  $real not found, skipping wrapper '$name'"; return 0; }
+    mkdir -p "$WRAPPER_BIN"
+    if [ -x "$GLIBC_LD" ]; then
+        if command -v patchelf >/dev/null 2>&1; then
+            if patchelf --set-interpreter "$GLIBC_LD" "$real" >/dev/null 2>&1 \
+               && patchelf --set-rpath "$GLIBC_LIB:$GCC11_LIB" "$real" >/dev/null 2>&1; then
+                ok "patched $name (PT_INTERP->glibc-2.34, RUNPATH)"
+            else
+                warn "patchelf failed on $name"
+            fi
+        else
+            warn "patchelf not found — cannot re-link $name to glibc-2.34 (install patchelf, e.g. copy a static build to $LOCAL_DIR/bin)"
+        fi
+    else
+        warn "glibc-2.34 loader not found: $GLIBC_LD — install it under /home/yingfangong/.local/glibc-2.34"
+    fi
+    cat > "$WRAPPER_BIN/$name" <<EOF
+#!/bin/bash
+unset LD_LIBRARY_PATH
+exec "$real" "\$@"
+EOF
+    chmod +x "$WRAPPER_BIN/$name"
+    ok "wrapper $WRAPPER_BIN/$name -> $real"
+}
+
+# Real binaries to re-link + their wrapper names. Adjust these absolute paths
+# if the binaries live elsewhere on the machine.
+while read -r real name; do
+    [ -n "$real" ] || continue
+    gen_glibc_wrapper "$real" "$name"
+done <<'BINS'
+/home/yingfangong/.local/glibc234/clangd clangd
+/home/yingfangong/.local/glibc234/lua-language-server lua-language-server
+BINS
+
+# node (v18.20.4) already follows the patchelf route on this box — its wrapper
+# is `unset LD_LIBRARY_PATH; exec <node> "$@"`, so fork / process.execPath work.
+# Nothing to patch here; just remind if the node wrapper is missing.
+if ! command -v node >/dev/null 2>&1 || [ ! -x "$WRAPPER_BIN/node" ]; then
+    warn "node wrapper not found at $WRAPPER_BIN/node — on RHEL6 node needs the patched-binary + wrapper recipe (see header notes)"
+fi
 
 # ---------------------------------------------------------------- Verification
 log "== Verification =="
@@ -297,4 +416,4 @@ fi
 echo
 log "Installation done: plugins=$plugins  parsers=$parsers  masonTools=$mason"
 log "Run: source ~/.bashrc; nvim"
-warn "If mason pyrefly (python venv) is unavailable, run once online: nvim --headless +MasonInstall pyrefly +qa"
+warn "If mason ty is unavailable, run once online: nvim --headless +MasonInstall ty +qa"

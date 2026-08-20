@@ -226,6 +226,25 @@ rg)
     done
 fi
 
+# ---------------------------------------------------------------- npm tools cache (offline mason fallback)
+log "== Packaging npm tools (offline fallback for mason npm packages) =="
+NPM_TOOLS="yaml-language-server json-lsp bash-language-server prettier prettierd"
+if command -v npm >/dev/null 2>&1 && npm --version >/dev/null 2>&1; then
+    NP="$BUNDLE_ROOT/npmtools"
+    mkdir -p "$NP"
+    if ( cd "$NP" && npm install --no-audit --no-fund --loglevel=error $NPM_TOOLS >/dev/null 2>&1 ) \
+       && [ -d "$NP/node_modules" ]; then
+        tar czf "$BUNDLE_ROOT/tools/npm-tools.tar.gz" -C "$NP" node_modules
+        echo "npmtools=$NPM_TOOLS" >> "$MANIFEST"
+        ok "npm tools cached: $NPM_TOOLS"
+    else
+        warn "npm install failed, npm-tools cache skipped (tools will need an online :MasonInstall)"
+    fi
+    rm -rf "$NP"
+else
+    warn "npm not found, npm-tools cache skipped"
+fi
+
 # ---------------------------------------------------------------- Packaging
 log "== Generating bundle =="
 cp "$CONFIG_DIR/lazy-lock.json" "$BUNDLE_ROOT/lazy-lock.json" 2>/dev/null || true
