@@ -219,19 +219,21 @@ function Process-Tool($e, [string]$Prompt = "", $resolved = $null) {
 }
 
 # ---------------------------------------------------------------- Preflight checks
-if (Get-Command nvim -ErrorAction SilentlyContinue) {
-    $nvimOut = nvim --version 2>&1 | Select-Object -First 1
-    if ($LASTEXITCODE -eq 0) { Log "local nvim: $nvimOut (bundle carries its own old-glibc build)" }
-    else { Err "nvim present but not runnable, run install.ps1 first" }
-} else {
-    Err "nvim not found, run install.ps1 first"
-}
-if (-not (Get-Command tree-sitter -ErrorAction SilentlyContinue)) {
-    Err "tree-sitter CLI missing (needed to pre-generate the perl parser), install it first"
-}
-$null = tree-sitter --version 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Err "tree-sitter present but not runnable, install it first"
+if (-not $ConfigOnly) {
+    if (Get-Command nvim -ErrorAction SilentlyContinue) {
+        $nvimOut = nvim --version 2>&1 | Select-Object -First 1
+        if ($LASTEXITCODE -eq 0) { Log "local nvim: $nvimOut (bundle carries its own old-glibc build)" }
+        else { Err "nvim present but not runnable, run install.ps1 first" }
+    } else {
+        Err "nvim not found, run install.ps1 first"
+    }
+    if (-not (Get-Command tree-sitter -ErrorAction SilentlyContinue)) {
+        Err "tree-sitter CLI missing (needed to pre-generate the perl parser), install it first"
+    }
+    $null = tree-sitter --version 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Err "tree-sitter present but not runnable, install it first"
+    }
 }
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     Err "git not found, needed to clone the config repository"
@@ -252,9 +254,11 @@ if (-not (Test-Path (Join-Path $cfgCopy ".git"))) {
     Err "config clone failed from $($script:ConfigRepo) (check proxy/network/auth)"
 }
 Remove-Item -Recurse -Force (Join-Path $cfgCopy ".git") -ErrorAction SilentlyContinue
-Remove-Item -Force (Join-Path $cfgCopy "lazy-lock.json") -ErrorAction SilentlyContinue
+# keep the clone's lazy-lock.json (pinned plugin revisions) — the bundle must
+# ship it for the installer's plugin-removal + state logic to work.
 # Point the rest of the script (parsers.lua, lazy-lock.json) at the CLONE, not
 # the local working tree, so the bundle is reproducible.
+$script:localConfigDir = $script:ConfigDir
 $script:ConfigDir = $cfgCopy
 Log "== Copying data (lazy plugins only) =="
 $dataCopy = Join-Path $BundleRoot "data"
@@ -511,7 +515,16 @@ Log "Config-only mode: tools.sh/tools.json skipped"
 
 # ---------------------------------------------------------------- Packaging
 Log "== Generating bundle =="
+if ($ConfigOnly) {
+    # drop the empty (unpopulated) dirs so the installer's config-only
+    # auto-detection sees a clearly light bundle
+    Remove-Item -Recurse -Force (Join-Path $BundleRoot "tools") -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force (Join-Path $BundleRoot "parser-sources") -ErrorAction SilentlyContinue
+}
 $lockSrc = Join-Path $script:ConfigDir "lazy-lock.json"
+if (-not (Test-Path $lockSrc)) {
+    $lockSrc = Join-Path $script:localConfigDir "lazy-lock.json"
+}
 $lockDst = Join-Path $BundleRoot "lazy-lock.json"
 if (Test-Path $lockSrc) {
     Copy-Item $lockSrc $lockDst -Force

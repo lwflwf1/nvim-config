@@ -405,7 +405,9 @@ fi
 # lazy-lock.json — no tools/nvim/parser-sources. Detect it and switch to
 # config-only mode automatically (explicit --config-only also works).
 if [ "$CONFIG_ONLY" != 1 ] \
-   && { [ ! -d "$TMP/tools" ] || [ ! -d "$TMP/nvim" ] || [ ! -d "$TMP/parser-sources" ]; }; then
+   && { [ ! -d "$TMP/tools" ] || [ -z "$(ls -A "$TMP/tools" 2>/dev/null)" ] \
+        || [ ! -d "$TMP/nvim" ] || [ -z "$(ls -A "$TMP/nvim" 2>/dev/null)" ] \
+        || [ ! -d "$TMP/parser-sources" ] || [ -z "$(ls -A "$TMP/parser-sources" 2>/dev/null)" ]; }; then
     log "bundle lacks tools/nvim/parser-sources — running in config-only mode"
     CONFIG_ONLY=1
 fi
