@@ -78,7 +78,8 @@ TMP="$(mktemp -d)"
 # O7 fix: report a clear non-zero exit instead of a silent rc=1
 trap 'rc=$?; if [ "$rc" -ne 0 ]; then printf "\033[1;31m[error]\033[0m script exited with rc=$rc\n" >&2; fi; rm -rf "$TMP"' EXIT
 
-log()  { printf '\033[1;34m[offline]\033[0m %s\n' "$*"; }
+ts()   { date +%H:%M:%S; }
+log()  { printf '\033[1;34m[offline %s]\033[0m %s\n' "$(ts)" "$*"; }
 ok()   { printf '\033[1;32m  [OK] %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m  [!] %s\033[0m\n' "$*"; }
 err()  { printf '\033[1;31m[error]\033[0m %s\n' "$*" >&2; exit 1; }
@@ -123,25 +124,28 @@ need() { # need <name> [install-command] [description] [probe]
 }
 
 # Tool cache install helper
+# Extract the tool archive into a private temp dir, then move only the binary into
+# ~/.local/bin (avoids scanning $LOCAL_DIR with find and avoids leaving the
+# extracted top-level dir behind).
 install_from_cache() { # install_from_cache <tools/*.tar.gz|*.xz|*.zip> <binary name>
-    local cache="$TMP/tools/$1" name="$2" found
+    local cache="$TMP/tools/$1" name="$2" found td
     [ -f "$cache" ] || return 1
     mkdir -p "$LOCAL_DIR/bin"
+    td="$(mktemp -d)"
     case "$cache" in
-        *.gz) tar xzf "$cache" -C "$LOCAL_DIR" 2>/dev/null || gunzip -c "$cache" > "$LOCAL_DIR/bin/$name";;
-        *.xz) tar xJf "$cache" -C "$LOCAL_DIR" 2>/dev/null || return 1;;
+        *.gz)  tar xzf "$cache" -C "$td" 2>/dev/null && found="$(find "$td" -name "$name" -type f | head -1)";;
+        *.xz)  tar xJf "$cache" -C "$td" 2>/dev/null && found="$(find "$td" -name "$name" -type f | head -1)";;
         *.zip)
-            # O8 fix: unzip may be absent on minimal machines; python3 can unpack zip
-            if command -v unzip >/dev/null 2>&1; then unzip -oq "$cache" -d "$LOCAL_DIR/bin"
-            elif command -v python3 >/dev/null 2>&1; then python3 -m zipfile -e "$cache" "$LOCAL_DIR/bin" 2>/dev/null || return 1
-            else warn "unzip and python3 both missing, cannot unpack $1"; return 1; fi;;
+            if command -v unzip >/dev/null 2>&1; then unzip -oq "$cache" -d "$td"
+            elif command -v python3 >/dev/null 2>&1; then python3 -m zipfile -e "$cache" "$td" 2>/dev/null || { rm -rf "$td"; return 1; }
+            else warn "unzip and python3 both missing, cannot unpack $1"; rm -rf "$td"; return 1; fi
+            found="$(find "$td" -name "$name" -type f | head -1)";;
+        *) rm -rf "$td"; return 1;;
     esac
-    found="$(find "$LOCAL_DIR" -name "$name" -type f | head -1)"
-    [ -n "$found" ] || return 1
-    [ "$found" != "$LOCAL_DIR/bin/$name" ] && mv -f "$found" "$LOCAL_DIR/bin/$name"
+    [ -n "$found" ] || { rm -rf "$td"; return 1; }
+    mv -f "$found" "$LOCAL_DIR/bin/$name"
     chmod +x "$LOCAL_DIR/bin/$name"
-    # O8 fix: ripgrep extracts to ripgrep-*, which the ${name}-* pattern missed
-    rm -rf "$LOCAL_DIR/${name}-"* "$LOCAL_DIR/ripgrep-"* 2>/dev/null || true
+    rm -rf "$td"
     export PATH="$LOCAL_DIR/bin:$PATH"
     command -v "$name" >/dev/null 2>&1
 }
@@ -223,23 +227,34 @@ apply_tools() {
         fi
     done
 
-    # gcc version check (parsers need C11, gcc >= 5 recommended, 7.x best)
+    # gcc version check (parsers need C11, gcc >= 5 recommended, 7.x best).
+    # RHEL6: prefer the devtoolset-7 toolchain (gcc 7, supports C11/C++11) so the 27
+    # treesitter parsers compile fast + correctly instead of hanging/failing under
+    # the system gcc 4.4.7. DEVTOOLSET_GCC is the path provisioned on the target box.
     CC_BIN="${CC:-gcc}"
-    GCC_VER="$("$CC_BIN" -dumpversion 2>/dev/null || echo 0)"
-    if [ "$(printf '%s\n4.9' "$GCC_VER" | sort -V | head -1)" != "4.9" ]; then
-        # Try devtoolset (RHEL6 SCL provides gcc 7)
+    CXX_BIN="${CXX:-}"
+    DEVTOOLSET_GCC="/home/yingfangong/.local/devtoolset-7/opt/rh/devtoolset-7/root/usr/bin/gcc"
+    DEVTOOLSET_GPP="/home/yingfangong/.local/devtoolset-7/opt/rh/devtoolset-7/root/usr/bin/g++"
+    if [ -x "$DEVTOOLSET_GCC" ]; then
+        CC_BIN="$DEVTOOLSET_GCC"; CXX_BIN="$DEVTOOLSET_GPP"
+    elif [ -x /opt/rh/devtoolset-7/root/usr/bin/gcc ]; then
+        CC_BIN=/opt/rh/devtoolset-7/root/usr/bin/gcc; CXX_BIN=/opt/rh/devtoolset-7/root/usr/bin/g++
+    elif [ -n "${CC:-}" ]; then
+        CXX_BIN="${CXX:-$(dirname "$CC_BIN")/g++}"
+    else
         for ds in /opt/rh/devtoolset-*/root/usr/bin/gcc; do
             [ -x "$ds" ] || continue
-            CC_BIN="$ds"; GCC_VER="$("$CC_BIN" -dumpversion)"; break
+            CC_BIN="$ds"; CXX_BIN="$(dirname "$ds")/g++"; break
         done
     fi
+    CXX_BIN="${CXX_BIN:-$(dirname "$CC_BIN")/g++}"
+    export CC="$CC_BIN" CXX="$CXX_BIN"
     GCC_VER="$("$CC_BIN" -dumpversion 2>/dev/null || echo 0)"
     log "Using C compiler: $CC_BIN ($GCC_VER)"
     if [ "$(printf '%s\n4.9' "$GCC_VER" | sort -V | head -1)" != "4.9" ]; then
         warn "gcc too old ($GCC_VER < 4.9), modern parsers need C11, compilation may fail"
-        warn "RHEL6 suggestion: run 'scl enable devtoolset-7 bash' and retry, or set CC=/opt/rh/devtoolset-7/root/usr/bin/gcc"
+        warn "RHEL6 suggestion: install devtoolset-7 under /home/yingfangong/.local/devtoolset-7"
     fi
-    CXX_BIN="${CXX:-$(dirname "$CC_BIN")/g++}"
 
     # Bug U fix: a runnable gcc does not guarantee compilable headers — minimal
     # images / RHEL6 often ship gcc without glibc-devel + libstdc++-devel. Probe a
@@ -352,52 +367,48 @@ fi
 
 apply_tools
 
-# ---------------------------------------------------------------- nvim
-if [ "$MODE" = full ]; then
-    log "== Installing Neovim =="
-    if command -v nvim >/dev/null 2>&1; then
-        ok "nvim already present: $(nvim --version | head -1)"
-    else
-        [ -f "$TMP/nvim/nvim-linux-x86_64.tar.gz" ] || err "bundle carries no nvim binary (it was skipped at packaging) and nvim is not installed — install nvim manually or re-package with nvim"
-        mkdir -p "$LOCAL_DIR"
+    # ---------------------------------------------------------------- nvim
+    # Neovim's runtime resolves ../lib and ../share relative to the binary, so the
+    # tree is extracted to ~/.local/nvim and a symlink is placed at ~/.local/bin/nvim
+    # (overwriting any existing file/link). ~/.local/bin is prepended to PATH so the
+    # bundled nvim shadows any system /usr/bin/nvim.
+    install_nvim() {
+        [ -f "$TMP/nvim/nvim-linux-x86_64.tar.gz" ] || { err "bundle carries no nvim binary (skipped at packaging) — install nvim manually or re-package with nvim"; return 1; }
+        mkdir -p "$LOCAL_DIR" "$LOCAL_DIR/bin"
+        rm -rf "$LOCAL_DIR/nvim"
         tar xzf "$TMP/nvim/nvim-linux-x86_64.tar.gz" -C "$LOCAL_DIR"
         mv "$LOCAL_DIR/nvim-linux-x86_64" "$LOCAL_DIR/nvim" 2>/dev/null || true
-        export PATH="$LOCAL_DIR/nvim/bin:$PATH"
-        command -v nvim >/dev/null 2>&1 || err "nvim install failed"
-        ok "nvim installed to $LOCAL_DIR/nvim ($(nvim --version | head -1))"
-    fi
-    case ":$PATH:" in *":$LOCAL_DIR/nvim/bin:"*) ;; *) export PATH="$LOCAL_DIR/nvim/bin:$PATH";; esac
-else
-    log "== Updating Neovim =="
-    NEW_VER="$(grep -oE '^nvim=v[0-9]+\.[0-9]+\.[0-9]+' "$TMP/manifest.txt" 2>/dev/null | cut -d= -f2 || true)"
-    if [ -z "$NEW_VER" ]; then
-        warn "bundle carries no nvim binary (skipped at packaging) — keeping existing nvim"
-    elif command -v nvim >/dev/null 2>&1 && nvim --version >/dev/null 2>&1; then
-        CUR_VER="$(nvim --version | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-        if [ -n "$CUR_VER" ] && [ "$CUR_VER" = "$NEW_VER" ]; then
-            ok "nvim $CUR_VER unchanged, skipping"
-        else
-            if confirm "Replace nvim ${CUR_VER:-?} with bundled ${NEW_VER}? [y/N] "; then
-                rm -rf "$LOCAL_DIR/nvim"
-                tar xzf "$TMP/nvim/nvim-linux-x86_64.tar.gz" -C "$LOCAL_DIR"
-                mv "$LOCAL_DIR/nvim-linux-x86_64" "$LOCAL_DIR/nvim" 2>/dev/null || true
-                export PATH="$LOCAL_DIR/nvim/bin:$PATH"
-                ok "nvim updated to $NEW_VER"
+        ln -sf "$LOCAL_DIR/nvim/bin/nvim" "$LOCAL_DIR/bin/nvim"
+        command -v nvim >/dev/null 2>&1 || { err "nvim install failed"; return 1; }
+        ok "nvim installed -> $LOCAL_DIR/bin/nvim ($(nvim --version | head -1))"
+    }
+    if [ "$MODE" = full ]; then
+        log "== Installing Neovim =="
+        install_nvim
+    else
+        log "== Updating Neovim =="
+        NEW_VER="$(grep -oE '^nvim=v[0-9]+\.[0-9]+\.[0-9]+' "$TMP/manifest.txt" 2>/dev/null | cut -d= -f2 || true)"
+        NEW_VER="${NEW_VER:-}"
+        if [ -z "$NEW_VER" ] && [ ! -f "$TMP/nvim/nvim-linux-x86_64.tar.gz" ]; then
+            warn "bundle carries no nvim binary (skipped at packaging) — keeping existing nvim"
+        elif command -v nvim >/dev/null 2>&1 && nvim --version >/dev/null 2>&1; then
+            CUR_VER="$(nvim --version | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+            if [ -n "$CUR_VER" ] && [ -n "$NEW_VER" ] && [ "$CUR_VER" = "$NEW_VER" ]; then
+                mkdir -p "$LOCAL_DIR/bin"
+                ln -sf "$LOCAL_DIR/nvim/bin/nvim" "$LOCAL_DIR/bin/nvim"
+                ok "nvim $CUR_VER unchanged, symlink ensured"
             else
-                warn "keeping existing nvim"
+                if confirm "Replace nvim ${CUR_VER:-?} with bundled ${NEW_VER:-?}? [y/N] "; then
+                    install_nvim
+                else
+                    warn "keeping existing nvim"
+                fi
             fi
+        else
+            install_nvim
         fi
-    else
-        [ -f "$TMP/nvim/nvim-linux-x86_64.tar.gz" ] || err "bundle carries no nvim binary and nvim is not installed — install nvim manually or re-package with nvim"
-        mkdir -p "$LOCAL_DIR"
-        tar xzf "$TMP/nvim/nvim-linux-x86_64.tar.gz" -C "$LOCAL_DIR"
-        mv "$LOCAL_DIR/nvim-linux-x86_64" "$LOCAL_DIR/nvim" 2>/dev/null || true
-        export PATH="$LOCAL_DIR/nvim/bin:$PATH"
-        command -v nvim >/dev/null 2>&1 || err "nvim install failed"
-        ok "nvim installed to $LOCAL_DIR/nvim ($(nvim --version | head -1))"
     fi
-    case ":$PATH:" in *":$LOCAL_DIR/nvim/bin:"*) ;; *) export PATH="$LOCAL_DIR/nvim/bin:$PATH";; esac
-fi
+    export PATH="$LOCAL_DIR/bin:$LOCAL_DIR/nvim/bin:$PATH"
 
 # ---------------------------------------------------------------- Config and data
 if [ "$MODE" = full ]; then
@@ -409,7 +420,9 @@ if [ "$MODE" = full ]; then
         mv "$DATA_DIR" "$DATA_DIR.bak.$(date +%Y%m%d%H%M%S)"; ok "Old data backed up"
     fi
     mkdir -p "$(dirname "$CONFIG_DIR")" "$(dirname "$DATA_DIR")"
+    log "copying config -> $CONFIG_DIR"
     cp -a "$TMP/config" "$CONFIG_DIR"
+    log "copying data (lazy plugins) -> $DATA_DIR"
     cp -a "$TMP/data" "$DATA_DIR"
     rm -rf "$DATA_DIR/backup" "$DATA_DIR/undo" "$DATA_DIR/swap" "$DATA_DIR/view" 2>/dev/null || true
     mkdir -p "$DATA_DIR/backup" "$DATA_DIR/undo" "$DATA_DIR/swap" "$DATA_DIR/view" "$PARSER_DIR"
