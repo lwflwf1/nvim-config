@@ -156,7 +156,6 @@ return {
             { "<leader>fh", function() require("fzf-lua").command_history() end, desc = "Command history" },
             { "<leader>fq", function() require("fzf-lua").quickfix() end, desc = "Quickfix" },
             { "<leader>fz", function() require("fzf-lua").live_grep() end, desc = "Live grep" },
-            { "<leader>fe", function() require("fzf-lua").file_browser() end, desc = "File browser" },
             { "<leader>ft", function() require("fzf-lua").tags() end, desc = "Project tags" },
             { "<leader>fT", function() require("fzf-lua").btags() end, desc = "Buffer tags" },
             { "<leader>fp", switch_project_file, desc = "Open same file in another project" },
@@ -179,12 +178,16 @@ return {
                     ["ctrl-c"] = "abort",
                 },
             },
+            -- Follow symbolic links in all file-system searches (rg --follow /
+            -- fd -L); the box's tree is full of symlinked dirs. grep.rg_opts must
+            -- keep the full fzf-lua default string with -e last.
+            grep = {
+                rg_opts = "--column --line-number --no-heading --color=always --smart-case --max-columns=4096 --follow -e",
+            },
             files = {
+                follow = true,
                 rg_opts = "--color=never --files " .. rg_glob_exclude(),
                 fd_opts = "--color=never --type f --type l " .. fd_glob_exclude(),
-            },
-            file_browser = {
-                hidden = true,
             },
         },
     },
