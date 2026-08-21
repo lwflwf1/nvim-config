@@ -10,6 +10,10 @@ return {
             "onsails/lspkind.nvim",
         },
         opts = {
+            -- On RHEL6 (glibc < 2.18) the prebuilt Rust fuzzy lib cannot run and
+            -- blink would retry a github download every start; use the pure Lua
+            -- implementation there only.
+            fuzzy = vim.g.is_rhel6 and { implementation = "lua" } or nil,
             appearance = {
                 use_nvim_cmp_as_default = true,
             },

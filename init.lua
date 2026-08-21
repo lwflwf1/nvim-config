@@ -1,6 +1,7 @@
 vim.loader.enable()
 
-local os_name = vim.uv.os_uname().sysname
+local uname = vim.uv.os_uname()
+local os_name = uname.sysname
 if os_name == "Windows_NT" then
     vim.g.os = "windows"
     if not os.getenv("HOME") then
@@ -10,6 +11,18 @@ elseif os_name == "Darwin" then
     vim.g.os = "macos"
 else
     vim.g.os = "linux"
+end
+
+-- RHEL6 detection: kernel 2.6.32 or glibc < 2.18. Some settings only apply on
+-- the RHEL6 box (e.g. blink.cmp fuzzy must use the Lua implementation because
+-- the prebuilt Rust lib requires glibc >= 2.18).
+vim.g.is_rhel6 = false
+vim.g.glibc_version = ""
+if vim.g.os == "linux" then
+    local release = (uname.release or ""):lower()
+    vim.g.glibc_version = vim.fn.system("ldd --version 2>/dev/null | head -1"):match("(%d+%.%d+)") or ""
+    local gv = tonumber(vim.g.glibc_version) or 99
+    vim.g.is_rhel6 = release:match("^2%.6%.32") ~= nil or (vim.g.glibc_version ~= "" and gv < 2.18)
 end
 
 vim.g.data_dir = vim.fn.stdpath("data") .. "/"

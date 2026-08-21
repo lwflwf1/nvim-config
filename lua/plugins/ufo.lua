@@ -52,7 +52,8 @@ return {
                     -- so only use treesitter as the fallback when a real parser
                     -- exists, otherwise keep the safe indent fallback.
                     local ok, parser = pcall(vim.treesitter.get_parser, bufnr)
-                    if ok and parser and pcall(vim.treesitter.query.get, filetype, "folds") then
+                    local okq, foldq = pcall(vim.treesitter.query.get, filetype, "folds")
+                    if ok and parser and okq and foldq then
                         return { "lsp", "treesitter" }
                     end
                     return { "lsp", "indent" }

@@ -3,7 +3,7 @@
 # nvim-config offline installer (Linux only / intranet, no network needed)
 #
 # Usage:
-#   ./install-offline.sh <nvim-bundle-linux-x86_64-*.tar.gz> [--update]
+#   ./install-offline.sh <nvim-bundle-linux-x86_64-*.zip> [--update]
 #
 #   default (full install): for a fresh machine, runs non-interactively
 #     - Extracts bundle (config / data / nvim / parser-sources / tools / lazy-lock)
@@ -59,7 +59,7 @@ while [ $# -gt 0 ]; do
         *) [ -z "$BUNDLE" ] && BUNDLE="$1" || { echo "Unexpected argument: $1"; exit 1; }; shift;;
     esac
 done
-[ -n "$BUNDLE" ] || { echo "Usage: $0 <bundle.tar.gz> [--update]"; exit 1; }
+[ -n "$BUNDLE" ] || { echo "Usage: $0 <bundle.zip> [--update]"; exit 1; }
 [ -f "$BUNDLE" ] || { echo "bundle not found: $BUNDLE"; exit 1; }
 # Non-interactive by default (O6 semantics: confirmations default to YES, so
 # backups happen before any overwrite and cached tools install automatically)
@@ -104,9 +104,16 @@ need() { # need <name> [install-command] [description] [probe]
     # O2 fix: smoke-test the binary (--version) — "present on PATH" is not
     # enough (a non-executable binary would pass `command -v` and fail later).
     # NB: $probe must be UNQUOTED so "git --version" splits into command+args.
+    # RHEL6 freeze fix: a broken/hanging binary (e.g. glibc-mismatched pandoc on
+    # PATH) must not freeze the installer — every probe runs under `timeout 20`,
+    # and a present-but-not-runnable tool is skipped instead of reinstalled.
     if command -v "$name" >/dev/null 2>&1 \
-       && { [ -z "$probe" ] || $probe >/dev/null 2>&1; }; then
+       && { [ -z "$probe" ] || timeout 20 $probe >/dev/null 2>&1; }; then
         ok "$name ($(command -v "$name"))"; return 0
+    fi
+    if command -v "$name" >/dev/null 2>&1; then
+        warn "$name present but not runnable ($(command -v "$name")) — skipped"
+        return 0
     fi
     warn "$name not found${desc:+ ($desc)}"
     if ! confirm "  Install $name${desc:+ ($desc)}? [y/N] "; then
@@ -116,7 +123,7 @@ need() { # need <name> [install-command] [description] [probe]
     if [ -n "$inst" ]; then
         echo "  Installing $name ..."
         eval "$inst" && command -v "$name" >/dev/null 2>&1 \
-            && { [ -z "$probe" ] || $probe >/dev/null 2>&1; } \
+            && { [ -z "$probe" ] || timeout 20 $probe >/dev/null 2>&1; } \
             && { ok "$name installed"; return 0; }
     fi
     warn "$name not installed (skipped)"
@@ -133,8 +140,8 @@ install_from_cache() { # install_from_cache <tools/*.tar.gz|*.xz|*.zip> <binary 
     mkdir -p "$LOCAL_DIR/bin"
     td="$(mktemp -d)"
     case "$cache" in
-        *.gz)  tar xzf "$cache" -C "$td" 2>/dev/null && found="$(find "$td" -name "$name" -type f | head -1)";;
-        *.xz)  tar xJf "$cache" -C "$td" 2>/dev/null && found="$(find "$td" -name "$name" -type f | head -1)";;
+        *.gz)  timeout 180 tar xzf "$cache" -C "$td" 2>/dev/null && found="$(find "$td" -name "$name" -type f | head -1)";;
+        *.xz)  timeout 180 tar xJf "$cache" -C "$td" 2>/dev/null && found="$(find "$td" -name "$name" -type f | head -1)";;
         *.zip)
             if command -v unzip >/dev/null 2>&1; then unzip -oq "$cache" -d "$td"
             elif command -v python3 >/dev/null 2>&1; then python3 -m zipfile -e "$cache" "$td" 2>/dev/null || { rm -rf "$td"; return 1; }
@@ -193,6 +200,7 @@ compile_parser() { # compile_parser <lang.tar.gz> [location] -> 0 on success
     rm -f "$out"
     (
         cd "$dir" || exit 1
+        export LD_LIBRARY_PATH="$DEVTOOLSET_LD${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
         if [ -f src/scanner.cc ]; then
             "$CXX_BIN" -Isrc -shared -fPIC -O2 src/parser.c src/scanner.cc -o "$out" >/dev/null 2>&1 || true
         elif [ -f src/scanner.c ]; then
@@ -201,6 +209,15 @@ compile_parser() { # compile_parser <lang.tar.gz> [location] -> 0 on success
             "$CC_BIN" -Isrc -shared -fPIC -O2 src/parser.c -o "$out" >/dev/null 2>&1 || true
         fi
     ) || true
+    # O7 fix: nvim-treesitter normally copies the parser repo's queries/
+    # (highlights/folds/indents/...) into <data>/site/queries/<lang> at install
+    # time. The offline installer only compiles the .so, so replicate that here —
+    # otherwise treesitter folding/highlighting silently finds no query files
+    # (e.g. systemverilog folds + python highlights broken on RHEL6).
+    if [ -d "$dir/queries" ]; then
+        mkdir -p "$DATA_DIR/site/queries/$lang"
+        cp -a "$dir/queries/." "$DATA_DIR/site/queries/$lang/" 2>/dev/null || true
+    fi
     [ -f "$out" ]
 }
 
@@ -221,7 +238,7 @@ apply_tools() {
     # python3 is NOT required anymore (pyrefly was replaced by ty, a standalone Rust
     # binary); it only serves as a zip fallback when unzip is missing.
     for t in git gcc make node; do
-        if ! command -v "$t" >/dev/null 2>&1 || ! "$t" --version >/dev/null 2>&1; then
+        if ! command -v "$t" >/dev/null 2>&1 || ! timeout 10 "$t" --version >/dev/null 2>&1; then
             err "Required tool '$t' is missing or not runnable; install it manually (e.g. into $LOCAL_DIR/bin) and re-run"
             exit 1
         fi
@@ -237,6 +254,8 @@ apply_tools() {
     DEVTOOLSET_GPP="/home/yingfangong/.local/devtoolset-7/opt/rh/devtoolset-7/root/usr/bin/g++"
     if [ -x "$DEVTOOLSET_GCC" ]; then
         CC_BIN="$DEVTOOLSET_GCC"; CXX_BIN="$DEVTOOLSET_GPP"
+        DEVTOOLSET_ROOT="/home/yingfangong/.local/devtoolset-7/opt/rh/devtoolset-7"
+        [ -f "$DEVTOOLSET_ROOT/enable" ] && . "$DEVTOOLSET_ROOT/enable"
     elif [ -x /opt/rh/devtoolset-7/root/usr/bin/gcc ]; then
         CC_BIN=/opt/rh/devtoolset-7/root/usr/bin/gcc; CXX_BIN=/opt/rh/devtoolset-7/root/usr/bin/g++
     elif [ -n "${CC:-}" ]; then
@@ -249,6 +268,13 @@ apply_tools() {
     fi
     CXX_BIN="${CXX_BIN:-$(dirname "$CC_BIN")/g++}"
     export CC="$CC_BIN" CXX="$CXX_BIN"
+    # devtoolset gcc's cc1 needs libmpc.so.3 / libgmp / libmpfr, which live only in
+    # the toolchain's own lib64 — not on the default loader path (and the devtoolset
+    # 'enable' script that would set LD_LIBRARY_PATH is absent in this custom prefix).
+    # Capture that dir so gcc invocations (probe + parser compile) can prepend it to
+    # LD_LIBRARY_PATH *locally* — never globally (see header note L48: a global
+    # LD_LIBRARY_PATH poisons the glibc-2.34-patched node/pandoc/clangd binaries).
+    DEVTOOLSET_LD="$(dirname "$CC_BIN")/../lib64:$(dirname "$CC_BIN")/../lib"
     GCC_VER="$("$CC_BIN" -dumpversion 2>/dev/null || echo 0)"
     log "Using C compiler: $CC_BIN ($GCC_VER)"
     if [ "$(printf '%s\n4.9' "$GCC_VER" | sort -V | head -1)" != "4.9" ]; then
@@ -260,17 +286,28 @@ apply_tools() {
     # images / RHEL6 often ship gcc without glibc-devel + libstdc++-devel. Probe a
     # real link so the failure is a clear message instead of N identical compile
     # errors in the parser loop below.
+    cc_compiles() { # cc_compiles <cc> — 0 if it can compile+link a trivial program
+        ( export LD_LIBRARY_PATH="$DEVTOOLSET_LD${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          printf '#include <stdio.h>\nint main(void){return 0;}\n' | "$1" -x c - -o /tmp/.cc-probe 2>/dev/null )
+    }
     CC_PROBE_OK=0
-    printf '#include <stdio.h>\nint main(void){return 0;}\n' | "$CC_BIN" -x c - -o /tmp/.cc-probe 2>/dev/null && CC_PROBE_OK=1 || CC_PROBE_OK=0
+    cc_compiles "$CC_BIN" && CC_PROBE_OK=1 || CC_PROBE_OK=0
     rm -f /tmp/.cc-probe
     if [ "$CC_PROBE_OK" != 1 ]; then
-        warn "C compiler '$CC_BIN' cannot compile+link a program that includes <stdio.h> — the C headers are missing (libc6-dev / glibc-devel)"
-        warn "Ubuntu/Debian: sudo apt-get install -y build-essential"
-        warn "RHEL6: scl enable devtoolset-7 bash (provides glibc-devel/libstdc++-devel), or yum install -y glibc-devel libstdc++-devel"
+        # devtoolset invoked from a non-standard prefix may not find /usr/include
+        # on its own; retry with an explicit system include path before failing.
+        export C_INCLUDE_PATH="/usr/include${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}"
+        export CPLUS_INCLUDE_PATH="/usr/include${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
+        cc_compiles "$CC_BIN" && CC_PROBE_OK=1 || CC_PROBE_OK=0
+        rm -f /tmp/.cc-probe
+    fi
+    if [ "$CC_PROBE_OK" != 1 ]; then
+        err "C compiler '$CC_BIN' cannot compile+link a program that includes <stdio.h> — glibc-devel/libstdc++-devel missing. RHEL6: yum install -y glibc-devel glibc-headers libstdc++-devel"
     fi
     if [ -x "$CXX_BIN" ]; then
         CXX_PROBE_OK=0
-        printf '#include <iostream>\nint main(){return 0;}\n' | "$CXX_BIN" -x c++ - -o /tmp/.cc-probe2 2>/dev/null && CXX_PROBE_OK=1 || CXX_PROBE_OK=0
+        ( export LD_LIBRARY_PATH="$DEVTOOLSET_LD${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          printf '#include <iostream>\nint main(){return 0;}\n' | "$CXX_BIN" -x c++ - -o /tmp/.cc-probe2 2>/dev/null ) && CXX_PROBE_OK=1 || CXX_PROBE_OK=0
         rm -f /tmp/.cc-probe2
         [ "$CXX_PROBE_OK" = 1 ] || warn "g++ ('$CXX_BIN') cannot compile+link a program that includes <iostream> — C++ scanners (scanner.cc) will fail; install libstdc++-devel"
     fi
@@ -278,9 +315,13 @@ apply_tools() {
     # Table-driven external tool install (tools.sh from the bundle)
     for name in $TOOLS_DOWNLOAD; do
         [ "$name" = nvim ] && continue
+        # pandoc is optional and its glibc-2.18+ binary cannot run on RHEL6
+        # (glibc 2.17) — skip it entirely instead of probing/installing.
+        [ "$name" = pandoc ] && { warn "pandoc: optional, skipped (not needed on this box)"; continue; }
         safe="${name//-/_}"
         inst_var="${safe}_install"; bin_var="${safe}_binary"; out_var="${safe}_outfile"
         tinst="${!inst_var:-}"; tbin="${!bin_var:-}"; tout="${!out_var:-}"
+        log "tool: $name (install=$tinst binary=$tbin)"
         case "$tinst" in
             node) need "$tbin" "install_node_from_cache $tout" "mason npm packages (bash/json/yaml-lsp, prettier)" "$tbin --version";;
             bin)  need "$tbin" "install_from_cache $tout $tbin" "offline tool" "$tbin --version";;
@@ -339,7 +380,11 @@ apply_tools() {
 
 # ---------------------------------------------------------------- Extract
 log "== Extracting bundle =="
-tar xzf "$BUNDLE" -C "$TMP"
+if command -v unzip >/dev/null 2>&1; then
+    unzip -oq "$BUNDLE" -d "$TMP"
+else
+    err "unzip is required to extract the .zip bundle but is not installed (RHEL6: yum install -y unzip)"
+fi
 ls "$TMP" | tr '\n' ' '; echo
 [ -d "$TMP/data" ] || err "bundle is missing the data/ directory"
 
@@ -530,16 +575,31 @@ else
     log "Parser compilation done: ok=$parse_ok  failed=$parse_fail  unchanged-skipped=$parse_skip"
 fi
 
+# O7 fix (part 2): also copy nvim-treesitter's own bundled queries (its runtime/
+# dir is not on the runtimepath by default) so every language gets highlights/
+# folds/indents etc. matching the machine the bundle was packaged on.
+if [ -d "$DATA_DIR/lazy/nvim-treesitter/runtime/queries" ]; then
+    mkdir -p "$DATA_DIR/site/queries"
+    cp -a "$DATA_DIR/lazy/nvim-treesitter/runtime/queries/." "$DATA_DIR/site/queries/" 2>/dev/null || true
+    ok "treesitter queries copied -> $DATA_DIR/site/queries"
+fi
+
 # ---------------------------------------------------------------- PATH
 log "== Configuring PATH =="
 export PATH="$LOCAL_DIR/nvim/bin:$LOCAL_DIR/bin:$PATH"
 # Add mason binaries (lsp/formatter) to PATH
 export PATH="$DATA_DIR/mason/bin:$PATH"
-grep -q "$LOCAL_DIR" "$HOME/.bashrc" 2>/dev/null || cat >> "$HOME/.bashrc" <<EOF
-# nvim-config (offline install)
-export PATH="$LOCAL_DIR/nvim/bin:$LOCAL_DIR/bin:$LOCAL_DIR/npm-tools/node_modules/.bin:$DATA_DIR/mason/bin:\$PATH"
-EOF
-ok "PATH written to ~/.bashrc"
+# Do NOT modify any rc file: the login shell differs per machine (tcsh on RHEL6,
+# bash elsewhere) and the user asked for a reminder instead. Print the exact line
+# to add manually so nvim/tools are on PATH in new terminals.
+PATH_LINE="$LOCAL_DIR/nvim/bin:$LOCAL_DIR/bin:$LOCAL_DIR/npm-tools/node_modules/.bin:$DATA_DIR/mason/bin"
+case "${SHELL:-}" in
+    *tcsh|*csh) RC="$HOME/.cshrc"; RC_SYNTAX="setenv PATH \"$PATH_LINE:\$PATH\"";;
+    *)          RC="$HOME/.bashrc"; RC_SYNTAX="export PATH=\"$PATH_LINE:\$PATH\"";;
+esac
+warn "PATH is NOT written to any rc file automatically."
+warn "To have nvim/tools on PATH in new terminals, add this line to $RC:"
+warn "  $RC_SYNTAX"
 
 # ---------------------------------------------------------------- glibc-2.34 re-linked binaries (RHEL6)
 # clangd (needs GLIBC_2.18) and lua-language-server (needs GLIBC_2.27) cannot run
@@ -644,5 +704,5 @@ ok "state saved to $STATE_DIR (consumed by future --update runs)"
 
 echo
 log "Installation done: mode=$MODE  plugins=$plugins  parsers=$parsers  masonTools=$mason"
-log "Run: source ~/.bashrc; nvim"
+log "Run: source $RC; nvim"
 warn "If mason ty is unavailable, run once online: nvim --headless +MasonInstall ty +qa"

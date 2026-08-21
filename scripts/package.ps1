@@ -497,8 +497,8 @@ if (Test-Path $lockSrc) {
 } else { $lockMd5 = "" }
 Manifest "lazylock=$lockMd5"
 $date = Get-Date -Format "yyyyMMdd"
-$outFile = Join-Path $Out "nvim-bundle-linux-x86_64-$date.tar.gz"
-& tar.exe czf $outFile -C $BundleRoot .
+$outFile = Join-Path $Out "nvim-bundle-linux-x86_64-$date.zip"
+& tar.exe -a -cf $outFile -C $BundleRoot .
 if ($LASTEXITCODE -ne 0) { Err "tar failed while creating the bundle" }
 Remove-Item -Recurse -Force $BundleRoot
 Write-Host "  $((Get-Item $outFile).Length / 1KB) KB -> $outFile" -ForegroundColor Cyan

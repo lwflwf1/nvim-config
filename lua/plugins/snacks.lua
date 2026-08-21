@@ -17,7 +17,7 @@ return {
             picker       = { enabled = true                 },
             quickfile    = { enabled = true                 },
             scope        = { enabled = true                 },
-            scroll       = { enabled = true                 },
+            scroll       = { enabled = not vim.g.is_rhel6      },
             statuscolumn = { enabled = true                 },
             terminal     = { enabled = true                 },
             toggle       = { enabled = true                 },
