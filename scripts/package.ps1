@@ -2,19 +2,22 @@
 .nvim-config packaging script (PowerShell port of package.sh)
 Usage:
   powershell -ExecutionPolicy Bypass -File package.ps1 [-Out DIR] [-NvimVersion v0.12.4] [-Proxy http://host:port]
+                                              [-ConfigRepo URL] [-ConfigRev REF]
 
 Every download group is confirmed interactively (default answer: download).
 Piped answers are honored; a closed stdin (CI/background) auto-accepts.
 
 NOTE: the produced bundle targets LINUX x86_64 offline machines (the nvim
-old-glibc build and all tool caches are the linux assets). data/ (lazy plugins,
-mason tools, site) is copied as-is from the LOCAL nvim install, so for a fully
-consistent Linux bundle run this on the Linux/WSL online machine; on Windows
-the mason/site contents reflect the local platform.
+old-glibc build and all tool caches are the linux assets). The config/ directory
+is CLONED from a git remote (default https://github.com/lwflwf1/nvim-config.git,
+override with -ConfigRepo/-ConfigRev) so the bundle is reproducible and free of
+local working-tree junk. data/ carries only the local plugin cache (lazy/); the
+Windows-specific mason/ and site/ trees are NOT bundled - the offline installer
+supplies the Linux tool binaries from tools/ + npm-tools + glibc-2.34 wrappers.
 
 Output: <out>/nvim-bundle-linux-x86_64-<date>.tar.gz
-  config/            config directory
-  data/              nvim data directory (lazy plugins / mason tools / site)
+  config/            config directory (git clone of the remote)
+  data/              nvim data directory (lazy plugins only)
   nvim/              neovim binary (old-glibc build from neovim-releases, supports RHEL6/glibc2.17)
   parser-sources/    treesitter parser sources (incl. perl with pre-generated parser.c, systemverilog fork)
   tools/             optional external tool binary cache (selected interactively)
@@ -26,7 +29,9 @@ param(
     [string]$Out = "",
     [string]$NvimVersion = "",
     [string]$Proxy = "",
-    [string]$ToolsFile = ""
+    [string]$ToolsFile = "",
+    [string]$ConfigRepo = "https://github.com/lwflwf1/nvim-config.git",
+    [string]$ConfigRev = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -117,7 +122,7 @@ function Get-FileSizeMB($path) {
 
 $script:ManifestPath = ""
 function Manifest([string]$line) {
-    Add-Content -Path $script:ManifestPath -Value $line -Encoding ascii
+    [System.IO.File]::AppendAllText($script:ManifestPath, $line + "`n", [System.Text.Encoding]::ASCII)
 }
 
 # ---------------------------------------------------------------- Bundle root
@@ -128,7 +133,7 @@ $ToolsDir = Join-Path $BundleRoot "tools"
 $ParserSrcDir = Join-Path $BundleRoot "parser-sources"
 New-Item -ItemType Directory -Force -Path $ToolsDir, $ParserSrcDir | Out-Null
 $script:ManifestPath = Join-Path $BundleRoot "manifest.txt"
-Set-Content -Path $script:ManifestPath -Value "format=2" -Encoding ascii
+[System.IO.File]::WriteAllText($script:ManifestPath, "format=2`n", [System.Text.Encoding]::ASCII)
 
 # ---------------------------------------------------------------- tools.json (single asset table)
 if (-not (Test-Path $ToolsFile)) { Err "tools.json not found: $ToolsFile" }
@@ -227,36 +232,42 @@ $null = tree-sitter --version 2>&1
 if ($LASTEXITCODE -ne 0) {
     Err "tree-sitter present but not runnable, install it first"
 }
-if (-not (Test-Path (Join-Path $script:ConfigDir "init.lua"))) {
-    Err "Config directory not found: $script:ConfigDir"
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Err "git not found, needed to clone the config repository"
 }
 if (-not (Test-Path (Join-Path $script:DataDir "lazy"))) {
     Err "Plugins not installed, run install.ps1 first"
 }
-Log "Packaging sources: config=$script:ConfigDir  data=$script:DataDir"
+Log "Packaging sources: config=$script:ConfigRepo (rev=$($script:ConfigRev))  data=$script:DataDir"
 
-# ---------------------------------------------------------------- config + data
-Log "== Copying config and data =="
+# ---------------------------------------------------------------- config (clone) + data (lazy only)
+Log "== Cloning config from $($script:ConfigRepo) =="
 $cfgCopy = Join-Path $BundleRoot "config"
-Copy-Item -Recurse -Force $script:ConfigDir $cfgCopy
+$cloneArgs = @("clone", "--depth", "1")
+if ($script:ConfigRev) { $cloneArgs += @("--branch", $script:ConfigRev) }
+$cloneArgs += @($script:ConfigRepo, $cfgCopy)
+try { & git.exe @cloneArgs *> $null } catch { Warn "git stderr captured: $_" }
+if (-not (Test-Path (Join-Path $cfgCopy ".git"))) {
+    Err "config clone failed from $($script:ConfigRepo) (check proxy/network/auth)"
+}
 Remove-Item -Recurse -Force (Join-Path $cfgCopy ".git") -ErrorAction SilentlyContinue
 Remove-Item -Force (Join-Path $cfgCopy "lazy-lock.json") -ErrorAction SilentlyContinue
+# Point the rest of the script (parsers.lua, lazy-lock.json) at the CLONE, not
+# the local working tree, so the bundle is reproducible.
+$script:ConfigDir = $cfgCopy
+Log "== Copying data (lazy plugins only) =="
 $dataCopy = Join-Path $BundleRoot "data"
-Copy-Item -Recurse -Force $script:DataDir $dataCopy
-foreach ($sub in @("backup","undo","swap","view","shada")) {
-    Remove-Item -Recurse -Force (Join-Path $dataCopy $sub) -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $dataCopy | Out-Null
+Copy-Item -Recurse -Force (Join-Path $script:DataDir "lazy") (Join-Path $dataCopy "lazy")
+# Belt-and-suspenders: drop any Windows binaries that may have slipped into
+# plugin trees (plugins are Lua, but be safe). mason/ and site/ are intentionally
+# NOT bundled - the offline installer provides the Linux tool binaries.
+foreach ($ext in @("*.exe","*.dll","*.cmd","*.bat")) {
+    Get-ChildItem -Path (Join-Path $dataCopy "lazy") -Recurse -Force -Include $ext -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 }
-# Strip Windows-specific mason binaries: on the target machine the Linux/glibc
-# tool binaries (clangd, lua-language-server, ...) are provided separately (see
-# install-offline.sh glibc-2.34 section). Only the portable package metadata in
-# mason/packages belongs in the Linux bundle, so drop the actual Windows .exe
-# install trees and bin symlinks.
-Remove-Item -Recurse -Force (Join-Path $dataCopy "mason\bin") -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force (Join-Path $dataCopy "mason\install") -ErrorAction SilentlyContinue
 Ok "config + data copied"
-# Record the tool counts for the offline installer's verification thresholds
-$masonCount = (Get-ChildItem (Join-Path $script:DataDir "mason\packages") -Force -ErrorAction SilentlyContinue).Count
-Manifest "mason=$masonCount"
+# No mason/ packages are bundled (Linux tools come from tools/ + npm-tools).
+Manifest "mason=0"
 
 # ---------------------------------------------------------------- nvim binary (driven by tools.json)
 Log "== Neovim binary (old-glibc build, from tools.json) =="
@@ -457,11 +468,12 @@ if (Confirm-Download "Bundle npm tools ($NpmTools)? [Y/n] ") {
 foreach ($e in $script:ToolsDef.tools) {
     $glibc = if ($e.glibc234) { "1" } else { "0" }
     $realpath = if ($e.realpath) { $e.realpath } else { "" }
-    $script:ToolsSh.Add("$($e.name)_install=`"$($e.install)`"")
-    $script:ToolsSh.Add("$($e.name)_binary=`"$($e.binary)`"")
-    $script:ToolsSh.Add("$($e.name)_outfile=`"$($e.out_file)`"")
-    $script:ToolsSh.Add("$($e.name)_glibc234=`"$glibc`"")
-    $script:ToolsSh.Add("$($e.name)_realpath=`"$realpath`"")
+    $safeName = $e.name -replace '-', '_'
+    $script:ToolsSh.Add("$($safeName)_install=`"$($e.install)`"")
+    $script:ToolsSh.Add("$($safeName)_binary=`"$($e.binary)`"")
+    $script:ToolsSh.Add("$($safeName)_outfile=`"$($e.out_file)`"")
+    $script:ToolsSh.Add("$($safeName)_glibc234=`"$glibc`"")
+    $script:ToolsSh.Add("$($safeName)_realpath=`"$realpath`"")
     if ($e.source -ne "external") { $script:DlList.Add($e.name) }
     if ($e.glibc234) { $script:GlList.Add($e.name) }
 }
@@ -471,7 +483,7 @@ $header = @("# GENERATED from tools.json - do not edit",
              "TOOLS_GLIBC=`"$($script:GlList -join ' ')`"",
              "NPM_PACKAGES=`"$npmJoined`"")
 $all = $header + $script:ToolsSh
-Set-Content -Path (Join-Path $BundleRoot "tools.sh") -Value $all -Encoding ascii
+[System.IO.File]::WriteAllText((Join-Path $BundleRoot "tools.sh"), ($all -join "`n") + "`n", [System.Text.Encoding]::ASCII)
 Copy-Item $ToolsFile (Join-Path $BundleRoot "tools.json") -Force
 Log "tools.sh + tools.json emitted for the installer"
 

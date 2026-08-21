@@ -263,7 +263,8 @@ apply_tools() {
     # Table-driven external tool install (tools.sh from the bundle)
     for name in $TOOLS_DOWNLOAD; do
         [ "$name" = nvim ] && continue
-        inst_var="${name}_install"; bin_var="${name}_binary"; out_var="${name}_outfile"
+        safe="${name//-/_}"
+        inst_var="${safe}_install"; bin_var="${safe}_binary"; out_var="${safe}_outfile"
         tinst="${!inst_var:-}"; tbin="${!bin_var:-}"; tout="${!out_var:-}"
         case "$tinst" in
             node) need "$tbin" "install_node_from_cache $tout" "mason npm packages (bash/json/yaml-lsp, prettier)" "$tbin --version";;
@@ -570,7 +571,8 @@ EOF
 # realpath is the pre-installed binary; for `node`/`bin` tools it is the binary
 # the installer just placed under $LOCAL_DIR.
 for name in $TOOLS_GLIBC; do
-    inst_var="${name}_install"; rp_var="${name}_realpath"; bin_var="${name}_binary"
+    safe="${name//-/_}"
+    inst_var="${safe}_install"; rp_var="${safe}_realpath"; bin_var="${safe}_binary"
     tinst="${!inst_var:-}"; trp="${!rp_var:-}"; tbin="${!bin_var:-}"
     case "$tinst" in
         external) target="$trp";;

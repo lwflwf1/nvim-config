@@ -4,12 +4,14 @@
 #
 # Usage:
 #   ./package.sh [--out DIR] [--nvim-version v0.12.4]
+#               [--config-repo URL] [--config-rev REF]
 #   Every download group is confirmed interactively (default answer: download).
 #   Piped answers are honored; a closed stdin (CI/background) auto-accepts.
 #
 # Output: <out>/nvim-bundle-linux-x86_64-<date>.tar.gz
-#   config/            config directory
-#   data/              nvim data directory (lazy plugins / mason tools / site)
+#   config/            config directory (git clone of the remote, default
+#                      https://github.com/lwflwf1/nvim-config.git)
+#   data/              nvim data directory (lazy plugins only)
 #   nvim/              neovim binary (old-glibc build from neovim-releases, supports RHEL6/glibc2.17)
 #   parser-sources/    treesitter parser sources (incl. perl with pre-generated parser.c, systemverilog fork)
 #   tools/             optional external tool binary cache (selected interactively)
@@ -20,6 +22,8 @@ set -euo pipefail
 
 OUT_DIR="$(pwd)"
 NVIM_VER=""
+CONFIG_REPO="https://github.com/lwflwf1/nvim-config.git"
+CONFIG_REV=""
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nvim"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,6 +34,8 @@ while [ $# -gt 0 ]; do
         --out) OUT_DIR="$2"; shift 2;;
         --nvim-version) NVIM_VER="$2"; shift 2;;
         --tools-file) TOOLS_JSON="$2"; shift 2;;
+        --config-repo) CONFIG_REPO="$2"; shift 2;;
+        --config-rev) CONFIG_REV="$2"; shift 2;;
         --proxy) export http_proxy="$2" https_proxy="$2"; shift 2;;
         *) echo "Unknown argument: $1"; exit 1;;
     esac
@@ -176,20 +182,25 @@ command -v nvim >/dev/null 2>&1 && nvim --version >/dev/null 2>&1 \
     || err "nvim not found or not runnable, run install.sh first"
 command -v tree-sitter >/dev/null 2>&1 && tree-sitter --version >/dev/null 2>&1 \
     || err "tree-sitter CLI missing or not runnable (needed to pre-generate the perl parser), install it first"
-[ -f "$CONFIG_DIR/init.lua" ] || err "Config directory not found: $CONFIG_DIR"
+command -v git >/dev/null 2>&1 || err "git not found, needed to clone the config repository"
 [ -d "$DATA_DIR/lazy" ] || err "Plugins not installed, run install.sh first"
-log "Packaging sources: config=$CONFIG_DIR  data=$DATA_DIR"
+log "Packaging sources: config=$CONFIG_REPO (rev=$CONFIG_REV)  data=$DATA_DIR"
 
-# ---------------------------------------------------------------- config + data
-log "== Copying config and data =="
-cp -a "$CONFIG_DIR" "$BUNDLE_ROOT/config"
+# ---------------------------------------------------------------- config (clone) + data (lazy only)
+log "== Cloning config from $CONFIG_REPO =="
+git clone --depth 1 ${CONFIG_REV:+--branch "$CONFIG_REV"} "$CONFIG_REPO" "$BUNDLE_ROOT/config" \
+    || err "config clone failed from $CONFIG_REPO (check proxy/network/auth)"
 rm -rf "$BUNDLE_ROOT/config/.git" "$BUNDLE_ROOT/config/lazy-lock.json"
-cp -a "$DATA_DIR" "$BUNDLE_ROOT/data"
-rm -rf "$BUNDLE_ROOT/data/backup" "$BUNDLE_ROOT/data/undo" "$BUNDLE_ROOT/data/swap" \
-       "$BUNDLE_ROOT/data/view" "$BUNDLE_ROOT/data/shada" 2>/dev/null || true
+# Point downstream reads (parsers.lua, lazy-lock.json) at the CLONE.
+CONFIG_DIR="$BUNDLE_ROOT/config"
+log "== Copying data (lazy plugins only) =="
+mkdir -p "$BUNDLE_ROOT/data"
+cp -a "$DATA_DIR/lazy" "$BUNDLE_ROOT/data/lazy"
+# Belt-and-suspenders: drop Windows binaries that may have slipped into plugins.
+find "$BUNDLE_ROOT/data" -type f \( -iname '*.exe' -o -iname '*.dll' -o -iname '*.cmd' -o -iname '*.bat' \) -delete 2>/dev/null || true
 ok "config + data copied"
-# Record the tool counts for the offline installer's verification thresholds
-echo "mason=$(ls "$DATA_DIR/mason/packages" 2>/dev/null | wc -l | tr -d ' ')" >> "$MANIFEST"
+# No mason/ packages are bundled (Linux tools come from tools/ + npm-tools).
+echo "mason=0" >> "$MANIFEST"
 
 # ---------------------------------------------------------------- nvim binary (driven by tools.json)
 log "== Neovim binary (old-glibc build, from tools.json) =="
