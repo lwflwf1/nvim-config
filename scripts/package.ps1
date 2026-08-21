@@ -270,6 +270,10 @@ Copy-Item -Recurse -Force (Join-Path $script:DataDir "lazy") (Join-Path $dataCop
 foreach ($ext in @("*.exe","*.dll","*.cmd","*.bat")) {
     Get-ChildItem -Path (Join-Path $dataCopy "lazy") -Recurse -Force -Include $ext -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 }
+# Strip plugin .git dirs: they bloat the bundle and their read-only pack files
+# break the overlay copy (cp -a -> EACCES) on update/config-only installs.
+Get-ChildItem -Path (Join-Path $dataCopy "lazy") -Recurse -Force -Directory -Filter ".git" -ErrorAction SilentlyContinue |
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 Ok "config + data copied"
 # No mason/ packages are bundled (Linux tools come from tools/ + npm-tools).
 Manifest "mason=0"

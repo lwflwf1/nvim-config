@@ -509,7 +509,16 @@ else
     for sub in lazy mason; do
         if [ -d "$TMP/data/$sub" ]; then
             mkdir -p "$DATA_DIR/$sub"
+            # Drop plugin .git dirs before AND after the overlay: git marks its
+            # pack files read-only (0444), so cp -a would fail with EACCES when
+            # overwriting an existing install (update/config-only paths).
+            if [ "$sub" = lazy ]; then
+                find "$DATA_DIR/$sub" -type d -name .git -prune -exec rm -rf {} + 2>/dev/null || true
+            fi
             cp -a "$TMP/data/$sub/." "$DATA_DIR/$sub/"
+            if [ "$sub" = lazy ]; then
+                find "$DATA_DIR/$sub" -type d -name .git -prune -exec rm -rf {} + 2>/dev/null || true
+            fi
             ok "data/$sub overlay-copied"
         fi
     done
