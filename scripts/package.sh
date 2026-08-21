@@ -22,23 +22,111 @@ OUT_DIR="$(pwd)"
 NVIM_VER=""
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nvim"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOOLS_JSON="$SCRIPT_DIR/tools.json"
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --out) OUT_DIR="$2"; shift 2;;
         --nvim-version) NVIM_VER="$2"; shift 2;;
+        --tools-file) TOOLS_JSON="$2"; shift 2;;
         --proxy) export http_proxy="$2" https_proxy="$2"; shift 2;;
         *) echo "Unknown argument: $1"; exit 1;;
     esac
 done
 
-# Resolve the latest release from neovim/neovim-releases (its old-glibc builds
-# track the main neovim repo). --nvim-version overrides for pinning.
-if [ -z "$NVIM_VER" ]; then
-    NVIM_VER="$(curl -fsSL --max-time 30 https://api.github.com/repos/neovim/neovim-releases/releases/latest \
-        | grep -oE '"tag_name": *"v[^"]+"' | head -1 | grep -oE 'v[0-9.]+' || true)"
-    [ -n "$NVIM_VER" ] || NVIM_VER="v0.12.4"
-fi
+# tools.json is the single source of truth for every downloadable asset. The
+# packaging machine has python3 (needed for npm install anyway), so we use it to
+# resolve versions/URLs, read/write the version cache, and emit the installer's
+# tools.sh companion. The offline installer itself never parses JSON.
+run_py() { python3 - "$@" <<'PYEOF'
+import json, sys, os, fnmatch, urllib.request
+
+def get_json(u):
+    try:
+        with urllib.request.urlopen(u, timeout=30) as r:
+            return json.load(r)
+    except Exception:
+        return None
+
+def resolve_entry(e):
+    src = e.get("source")
+    if src == "nodejs":
+        ver = e.get("version") or (get_json(e["latest_url"]) or [{}])[0].get("version")
+        if not ver:
+            return None, None
+        return ver, e["url_template"].replace("{version}", ver)
+    owner, repo, glob = e["owner"], e["repo"], e["asset_glob"]
+    tag = e.get("version")
+    rel = get_json("https://api.github.com/repos/%s/%s/releases/tags/%s" % (owner, repo, tag)) if tag \
+          else get_json("https://api.github.com/repos/%s/%s/releases/latest" % (owner, repo))
+    if not rel:
+        return None, None
+    if not tag:
+        tag = rel.get("tag_name")
+    for a in rel.get("assets", []):
+        if fnmatch.fnmatch(a["name"], glob):
+            return tag, a["browser_download_url"]
+    return None, None
+
+cmd, jp = sys.argv[1], sys.argv[2]
+data = json.load(open(jp))
+tools = {t["name"]: t for t in data["tools"]}
+
+if cmd == "resolve":
+    name = sys.argv[3]
+    e = dict(tools[name])
+    if len(sys.argv) > 4 and sys.argv[4]:
+        e["version"] = sys.argv[4]   # pin override (e.g. --nvim-version)
+    ver, url = resolve_entry(e)
+    out = e.get("out_file", "")
+    ext = out.split(".", 1)[1] if "." in out else ""
+    cache_dir = sys.argv[5] if len(sys.argv) > 5 else ""
+    cache_name = "%s-%s.%s" % (name, ver, ext) if ver else ""
+    hit = 0
+    if cache_dir and ver and os.path.exists(os.path.join(cache_dir, "versions.json")):
+        try:
+            vj = json.load(open(os.path.join(cache_dir, "versions.json")))
+            if vj.get(name) == ver and os.path.exists(os.path.join(cache_dir, cache_name)):
+                hit = 1
+        except Exception:
+            pass
+    print("\t".join([str(ver or ""), str(url or ""), cache_name, str(hit),
+                     out, e.get("binary", ""), e.get("install", "bin"),
+                     "1" if e.get("glibc234") else "0", e.get("realpath", "")]))
+elif cmd == "cache_set":
+    name, ver, cache_dir = sys.argv[3], sys.argv[4], sys.argv[5]
+    vf = os.path.join(cache_dir, "versions.json")
+    vj = {}
+    if os.path.exists(vf):
+        try:
+            vj = json.load(open(vf))
+        except Exception:
+            vj = {}
+    vj[name] = ver
+    json.dump(vj, open(vf, "w"))
+elif cmd == "emit_sh":
+    dl = [t["name"] for t in data["tools"] if t.get("source") != "external"]
+    gl = [t["name"] for t in data["tools"] if t.get("glibc234")]
+    lines = ["# GENERATED from tools.json - do not edit",
+             'TOOLS_DOWNLOAD="%s"' % " ".join(dl),
+             'TOOLS_GLIBC="%s"' % " ".join(gl)]
+    for t in data["tools"]:
+        nm = t["name"]
+        lines.append('%s_install="%s"' % (nm, t.get("install", "bin")))
+        lines.append('%s_binary="%s"' % (nm, t.get("binary", "")))
+        lines.append('%s_outfile="%s"' % (nm, t.get("out_file", "")))
+        lines.append('%s_glibc234="%s"' % (nm, "1" if t.get("glibc234") else "0"))
+        lines.append('%s_realpath="%s"' % (nm, t.get("realpath", "")))
+    sys.stdout.write("\n".join(lines) + "\n")
+elif cmd == "npm_list":
+    print(" ".join(data.get("npm", [])))
+PYEOF
+}
+
+# --nvim-version overrides the pinned version for nvim; empty = follow latest
+# (resolved later from tools.json). Kept separate from the old pre-resolution so
+# we don't burn an extra API call before the download prompt.
 
 log()  { printf '\033[1;34m[package]\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m  [OK] %s\033[0m\n' "$*"; }
@@ -103,18 +191,27 @@ ok "config + data copied"
 # Record the tool counts for the offline installer's verification thresholds
 echo "mason=$(ls "$DATA_DIR/mason/packages" 2>/dev/null | wc -l | tr -d ' ')" >> "$MANIFEST"
 
-# ---------------------------------------------------------------- nvim binary
-log "== Neovim binary (old-glibc build) =="
+# ---------------------------------------------------------------- nvim binary (driven by tools.json)
+log "== Neovim binary (old-glibc build, from tools.json) =="
+NVIM_CACHE="$OUT_DIR/.nvim-tool-cache"; mkdir -p "$NVIM_CACHE"
+IFS=$'\t' read -r NVIM_VER NVIM_URL NVIM_CACHE_NAME NVIM_HIT NVIM_OUTFILE NVIM_BIN NVIM_INST NVIM_GL NVIM_RP \
+    < <(run_py resolve nvim "$TOOLS_JSON" "$NVIM_VER" "$NVIM_CACHE")
+[ -n "$NVIM_URL" ] || err "Failed to resolve nvim version from tools.json"
 if command -v nvim >/dev/null 2>&1 && nvim --version >/dev/null 2>&1; then
     warn "local nvim: $(nvim --version | head -1) (bundle carries its own old-glibc build)"
 fi
 if confirm_download "Download and bundle neovim ${NVIM_VER} (old-glibc build for offline machines)? [Y/n] "; then
     mkdir -p "$BUNDLE_ROOT/nvim"
-    # neovim/neovim-releases provides prebuilt binaries that run on old glibc (2.17)
-    NVIM_URL="https://github.com/neovim/neovim-releases/releases/download/${NVIM_VER}/nvim-linux-x86_64.tar.gz"
-    # Bug L fix: bounded timeouts so a slow/unreachable host fails instead of hanging
-    curl -fL --retry 3 --connect-timeout 20 --max-time 600 "$NVIM_URL" -o "$BUNDLE_ROOT/nvim/nvim-linux-x86_64.tar.gz"
-    ok "nvim ${NVIM_VER} downloaded ($(du -h "$BUNDLE_ROOT/nvim/nvim-linux-x86_64.tar.gz" | cut -f1))"
+    if [ "$NVIM_HIT" = "1" ]; then
+        cp "$NVIM_CACHE/$NVIM_CACHE_NAME" "$BUNDLE_ROOT/nvim/nvim-linux-x86_64.tar.gz"
+        ok "nvim ${NVIM_VER} (cached)"
+    else
+        # Bug L fix: bounded timeouts so a slow/unreachable host fails instead of hanging
+        curl -fL --retry 3 --connect-timeout 20 --max-time 600 "$NVIM_URL" -o "$BUNDLE_ROOT/nvim/nvim-linux-x86_64.tar.gz"
+        cp "$BUNDLE_ROOT/nvim/nvim-linux-x86_64.tar.gz" "$NVIM_CACHE/$NVIM_CACHE_NAME"
+        run_py cache_set nvim "$NVIM_VER" "$NVIM_CACHE"
+        ok "nvim ${NVIM_VER} downloaded ($(du -h "$BUNDLE_ROOT/nvim/nvim-linux-x86_64.tar.gz" | cut -f1))"
+    fi
     echo "nvim=${NVIM_VER} url=${NVIM_URL}" >> "$MANIFEST"
 else
     warn "nvim binary skipped — offline machines keep their existing nvim"
@@ -211,60 +308,53 @@ else
 fi
 echo "parsers=${PSRC_COUNT}" >> "$MANIFEST"
 
-# ---------------------------------------------------------------- Optional tool cache
-TOOLS="rg fd fzf tree-sitter-cli node pandoc"
-log "== External tool cache (options: $TOOLS) =="
+# ---------------------------------------------------------------- Optional tool cache (driven by tools.json)
+TOOLS_JSON_PATH="$TOOLS_JSON"
+CACHE_DIR="$OUT_DIR/.nvim-tool-cache"; mkdir -p "$CACHE_DIR"
+# Emit tools.sh companion for install-offline.sh + copy tools.json into the bundle
+run_py emit_sh "$TOOLS_JSON" > "$BUNDLE_ROOT/tools.sh"
+cp "$TOOLS_JSON" "$BUNDLE_ROOT/tools.json"
+source "$BUNDLE_ROOT/tools.sh"
+# Downloadable tools = everything in TOOLS_DOWNLOAD except nvim (handled above)
+DL_TOOLS=""
+for t in $TOOLS_DOWNLOAD; do
+    [ "$t" = nvim ] && continue
+    DL_TOOLS="$DL_TOOLS $t"
+done
+DL_TOOLS="${DL_TOOLS# }"
+log "== External tool cache (from tools.json:${DL_TOOLS}) =="
 if confirm_download "Process external tool cache for offline install? [Y/n] "; then
-    for t in $TOOLS; do
+    for t in $DL_TOOLS; do
+        IFS=$'\t' read -r TVER TURL TCACHE THIT TOUT TBIN TINST TGL TRP \
+            < <(run_py resolve "$t" "$TOOLS_JSON" "" "$CACHE_DIR")
+        [ -n "$TURL" ] || { warn "$t resolution failed"; continue; }
         local_hint=""
-        if command -v "$t" >/dev/null 2>&1 && "$t" --version >/dev/null 2>&1; then
-            local_hint="  (local: $("$t" --version 2>/dev/null | head -1))"
+        if command -v "$TBIN" >/dev/null 2>&1 && "$TBIN" --version >/dev/null 2>&1; then
+            local_hint="  (local: $("$TBIN" --version 2>/dev/null | head -1))"
         fi
-        if ! confirm_download "  Download and bundle $t?$local_hint [Y/n] "; then
+        if ! confirm_download "  Download and bundle $t $TVER?$local_hint [Y/n] "; then
             warn "  $t skipped"
             continue
         fi
-        case "$t" in
-rg)
-                url="$(curl -s --max-time 30 https://api.github.com/repos/BurntSushi/ripgrep/releases/latest \
-                       | grep -oE 'https://[^"]*x86_64-unknown-linux-musl\.tar\.gz' | head -1)"
-                [ -n "$url" ] && { curl -fL --connect-timeout 20 --max-time 300 "$url" -o "$BUNDLE_ROOT/tools/rg.tar.gz"; echo "tool rg $url" >> "$MANIFEST"; ok "rg cached"; } || warn "rg download failed";;
-            fd)
-                url="$(curl -s --max-time 30 https://api.github.com/repos/sharkdp/fd/releases/latest \
-                       | grep -oE 'https://[^"]*x86_64-unknown-linux-musl\.tar\.gz' | head -1)"
-                [ -n "$url" ] && { curl -fL --connect-timeout 20 --max-time 300 "$url" -o "$BUNDLE_ROOT/tools/fd.tar.gz"; echo "tool fd $url" >> "$MANIFEST"; ok "fd cached"; } || warn "fd download failed";;
-            fzf)
-                url="$(curl -s --max-time 30 https://api.github.com/repos/junegunn/fzf/releases/latest \
-                       | grep -oE 'https://[^"]*linux_amd64\.tar\.gz' | head -1)"
-                [ -n "$url" ] && { curl -fL --connect-timeout 20 --max-time 300 "$url" -o "$BUNDLE_ROOT/tools/fzf.tar.gz"; echo "tool fzf $url" >> "$MANIFEST"; ok "fzf cached"; } || warn "fzf download failed";;
-            tree-sitter-cli)
-                url="$(curl -fsSL --max-time 30 https://api.github.com/repos/tree-sitter/tree-sitter/releases/latest \
-                       | grep -oE '"browser_download_url": *"[^"]*tree-sitter-cli-linux-x64\.(zip|gz)"' \
-                       | grep -oE 'https://[^"]*' | head -1)"
-                case "$url" in
-                    *.gz) ts_cache="tree-sitter-cli.gz";;
-                    *)    ts_cache="tree-sitter-cli.zip";;
-                esac
-                [ -n "$url" ] && { curl -fL --connect-timeout 20 --max-time 300 "$url" -o "$BUNDLE_ROOT/tools/$ts_cache"; echo "tool tree-sitter-cli $url" >> "$MANIFEST"; ok "tree-sitter-cli cached"; } || warn "tree-sitter-cli download failed";;
-            node)
-                # P4 fix: node.tar.xz so offline machines can install npm tools
-                # without their own copy (consumed by install-offline.sh)
-                file="$(curl -fsSL --max-time 30 https://nodejs.org/dist/latest-v24.x/ \
-                       | grep -oE 'node-v[0-9]+\.[0-9]+\.[0-9]+-linux-x64\.tar\.xz' | head -1 || true)"
-                [ -n "$file" ] && { curl -fL --connect-timeout 20 --max-time 600 "https://nodejs.org/dist/latest-v24.x/$file" -o "$BUNDLE_ROOT/tools/node.tar.xz"; echo "tool node $file" >> "$MANIFEST"; ok "node cached"; } || warn "node download failed";;
-            pandoc)
-                # P4 fix: pandoc.tar.gz consumed by install-offline.sh
-                ver="$(curl -fsSL --max-time 30 https://api.github.com/repos/jgm/pandoc/releases/latest \
-                       | grep -oE '"tag_name": *"[^"]+"' | head -1 | grep -oE '[0-9.]+' || true)"
-                [ -n "$ver" ] && { curl -fL --connect-timeout 20 --max-time 600 "https://github.com/jgm/pandoc/releases/download/${ver}/pandoc-${ver}-linux-amd64.tar.gz" -o "$BUNDLE_ROOT/tools/pandoc.tar.gz"; echo "tool pandoc ${ver}" >> "$MANIFEST"; ok "pandoc cached"; } || warn "pandoc download failed";;
-            *) warn "Unknown tool: $t";;
-        esac
+        if [ "$THIT" = "1" ]; then
+            cp "$CACHE_DIR/$TCACHE" "$BUNDLE_ROOT/tools/$TOUT"
+            ok "$t $TVER (cached, skipped download)"
+        else
+            curl -fL --retry 3 --connect-timeout 20 --max-time 600 "$TURL" -o "$BUNDLE_ROOT/tools/$TOUT"
+            cp "$BUNDLE_ROOT/tools/$TOUT" "$CACHE_DIR/$TCACHE"
+            run_py cache_set "$t" "$TVER" "$CACHE_DIR"
+            ok "$t $TVER cached"
+        fi
+        echo "tool $t $TVER $TURL" >> "$MANIFEST"
+        [ "$TGL" = "1" ] && echo "glibc234 $t" >> "$MANIFEST"
     done
+else
+    warn "External tool cache skipped"
 fi
 
 # ---------------------------------------------------------------- npm tools cache (offline mason fallback)
 log "== npm tools cache (offline fallback for mason npm packages) =="
-NPM_TOOLS="yaml-language-server json-lsp bash-language-server prettier prettierd"
+NPM_TOOLS="$(run_py npm_list "$TOOLS_JSON")"
 if confirm_download "Bundle npm tools ($NPM_TOOLS)? [Y/n] "; then
     if command -v npm >/dev/null 2>&1 && npm --version >/dev/null 2>&1; then
         NP="$BUNDLE_ROOT/npmtools"

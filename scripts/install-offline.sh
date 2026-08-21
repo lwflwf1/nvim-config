@@ -165,20 +165,26 @@ install_node_from_cache() { # install_node_from_cache <tools/node.tar.xz>
 # Compile one treesitter parser directly with gcc -> $PARSER_DIR/<lang>.so.
 # The online-built .so in the bundle is NEVER used: it was compiled for the
 # packager's glibc and would not run on the target (e.g. RHEL6 glibc 2.17).
-compile_parser() { # compile_parser <parser-sources/<lang>.tar.gz> -> 0 on success
-    local tgz="$1" lang work dir src out d
+compile_parser() { # compile_parser <lang.tar.gz> [location] -> 0 on success
+    local tgz="$1" loc="${2:-}" lang work top dir src out d
     [ -f "$tgz" ] || return 1
     lang="$(basename "$tgz" .tar.gz)"
     work="$TMP/pbuild"; rm -rf "$work"; mkdir -p "$work"
     if ! tar xzf "$tgz" -C "$work" 2>/dev/null; then warn "  $lang extraction failed"; return 1; fi
-    # Locate source dir: handle both tar layouts (with/without top-level dir)
-    dir="$work"
-    if [ ! -d "$dir/src" ]; then
+    # Locate source dir. When parsers.lua sets a `location` (e.g. markdown_inline
+    # -> tree-sitter-markdown-inline inside the same repo tarball) the real
+    # sources live there; otherwise fall back to a recursive src/ search.
+    top="$(find "$work" -maxdepth 1 -mindepth 1 -type d | head -1)"
+    if [ -n "$loc" ] && [ -d "$top/$loc" ]; then
+        dir="$top/$loc"
+    elif [ ! -d "$work/src" ]; then
         d="$(find "$work" -mindepth 2 -maxdepth 3 -name src -type d | head -1)"
-        [ -n "$d" ] && dir="$(dirname "$d")"
+        [ -n "$d" ] && dir="$(dirname "$d")" || dir="$top"
+    else
+        dir="$work"
     fi
     src="$dir/src"
-    if [ ! -f "$src/parser.c" ]; then warn "  $lang missing src/parser.c, skipping"; return 1; fi
+    if [ ! -f "$src/parser.c" ]; then warn "  $lang missing src/parser.c (location=$loc), skipping"; return 1; fi
     out="$PARSER_DIR/$lang.so"
     rm -f "$out"
     (
@@ -203,7 +209,7 @@ apply_tools() {
     need git   "" "required for lazy plugin repositories" "git --version"
     need gcc   "" "required to compile treesitter parsers" "gcc --version"
     need make  "" "compile helper" "make --version"
-    need node  "install_node_from_cache node.tar.xz || install_from_cache node.tar.gz node" "mason npm packages (bash/json/yaml-lsp, prettier)" "node --version"
+    need node  "install_node_from_cache node.tar.xz" "mason npm packages (bash/json/yaml-lsp, prettier)" "node --version"
     need python3 "" "optional: zip unpack fallback if unzip is missing" "python3 --version"
 
     # Required tools must be present and RUNNABLE or the install is aborted with a
@@ -254,17 +260,25 @@ apply_tools() {
         [ "$CXX_PROBE_OK" = 1 ] || warn "g++ ('$CXX_BIN') cannot compile+link a program that includes <iostream> — C++ scanners (scanner.cc) will fail; install libstdc++-devel"
     fi
 
-    need fzf "install_from_cache fzf.tar.gz fzf" "fzf-lua search" "fzf --version"
-    need rg  "install_from_cache rg.tar.gz rg" "fzf-lua search" "rg --version"
-    need fd  "install_from_cache fd.tar.gz fd" "fzf-lua search" "fd --version"
+    # Table-driven external tool install (tools.sh from the bundle)
+    for name in $TOOLS_DOWNLOAD; do
+        [ "$name" = nvim ] && continue
+        inst_var="${name}_install"; bin_var="${name}_binary"; out_var="${name}_outfile"
+        tinst="${!inst_var:-}"; tbin="${!bin_var:-}"; tout="${!out_var:-}"
+        case "$tinst" in
+            node) need "$tbin" "install_node_from_cache $tout" "mason npm packages (bash/json/yaml-lsp, prettier)" "$tbin --version";;
+            bin)  need "$tbin" "install_from_cache $tout $tbin" "offline tool" "$tbin --version";;
+            *)    warn "unknown install mode '$tinst' for $name";;
+        esac
+    done
     need rustup "" "requires an intranet mirror or manual install"
     need perl "" "requires an intranet mirror or manual install"
-    need pandoc "install_from_cache pandoc.tar.gz pandoc" "orgmode export" "pandoc --version"
 
     # npm tools cache (bundled node_modules — offline fallback for the mason npm
-    # packages: yaml-language-server, json-lsp, bash-language-server, prettier,
-    # prettierd). The .bin scripts call `node` from PATH; on RHEL6 that must be the
-    # patched glibc-2.34 node (see header notes).
+    # packages: yaml-language-server, vscode-json-languageserver,
+    # bash-language-server, prettier, @fsouza/prettierd). The .bin scripts call
+    # `node` from PATH; on RHEL6 that must be the patched glibc-2.34 node
+    # (see header notes).
     # On --update the cache is only re-extracted when its content md5 changed.
     if [ -f "$TMP/tools/npm-tools.tar.gz" ]; then
         NPM_BIN="$LOCAL_DIR/npm-tools/node_modules/.bin"
@@ -312,6 +326,17 @@ log "== Extracting bundle =="
 tar xzf "$BUNDLE" -C "$TMP"
 ls "$TMP" | tr '\n' ' '; echo
 [ -d "$TMP/data" ] || err "bundle is missing the data/ directory"
+
+# Load the tool table emitted by the packager (no JSON parsing on the offline
+# box — tools.sh is a plain shell companion derived from tools.json).
+if [ -f "$TMP/tools.sh" ]; then
+    # shellcheck disable=SC1091
+    . "$TMP/tools.sh"
+else
+    warn "tools.sh missing in bundle — falling back to built-in tool list"
+    TOOLS_DOWNLOAD="rg fd fzf pandoc ty ruff stylua"
+    TOOLS_GLIBC="node pandoc clangd lua-language-server"
+fi
 
 # ---------------------------------------------------------------- Mode
 MODE=full
@@ -447,12 +472,17 @@ if [ "$MODE" = full ]; then
     # (nvim loads whatever exists silently), so clear them first.
     rm -f "$PARSER_DIR"/*.so 2>/dev/null || true
     parse_ok=0; parse_fail=0
+    # lookup the optional subdir `location` recorded by package.ps1 so inline
+    # parsers (e.g. markdown_inline) build from the correct source dir.
+    parser_location() { grep -E "^parser $1 " "$TMP/manifest.txt" 2>/dev/null | awk '{print $5}'; }
     for tgz in "$TMP/parser-sources/"*.tar.gz; do
         [ -f "$tgz" ] || continue
-        if compile_parser "$tgz"; then
-            ok "  $(basename "$tgz" .tar.gz) compiled"; parse_ok=$((parse_ok+1))
+        lang="$(basename "$tgz" .tar.gz)"
+        loc="$(parser_location "$lang")"
+        if compile_parser "$tgz" "$loc"; then
+            ok "  $lang compiled"; parse_ok=$((parse_ok+1))
         else
-            warn "  $(basename "$tgz" .tar.gz) compilation failed"; parse_fail=$((parse_fail+1))
+            warn "  $lang compilation failed"; parse_fail=$((parse_fail+1))
         fi
     done
     log "Parser compilation done: ok=$parse_ok  failed=$parse_fail"
@@ -461,7 +491,7 @@ else
     # Update mode: recompile only parsers whose pinned revision differs from the
     # last applied manifest (or whose .so is missing). Existing .so are kept.
     parse_ok=0; parse_fail=0; parse_skip=0
-    while read -r p lang url rev; do
+    while read -r p lang url rev loc; do
         [ "$p" = "parser" ] || continue
         [ -n "$lang" ] || continue
         tgz="$TMP/parser-sources/$lang.tar.gz"
@@ -469,7 +499,7 @@ else
         if [ -n "$prev_rev" ] && [ "$prev_rev" = "$rev" ] && [ -f "$PARSER_DIR/$lang.so" ]; then
             parse_skip=$((parse_skip+1)); continue
         fi
-        if compile_parser "$tgz"; then
+        if compile_parser "$tgz" "$loc"; then
             ok "  $lang compiled"; parse_ok=$((parse_ok+1))
         else
             warn "  $lang compilation failed"; parse_fail=$((parse_fail+1))
@@ -522,7 +552,7 @@ gen_glibc_wrapper() { # gen_glibc_wrapper <real-abs-path> <wrapper-name>
                 warn "patchelf failed on $name"
             fi
         else
-            warn "patchelf not found — cannot re-link $name to glibc-2.34 (install patchelf, e.g. copy a static build to $LOCAL_DIR/bin)"
+            warn "patchelf not found — cannot re-link $name to glibc-2.34 (install patchelf, e.g. copy a static build to $LOCAL_DIR/bin...)"
         fi
     else
         warn "glibc-2.34 loader not found: $GLIBC_LD — install it under /home/yingfangong/.local/glibc-2.34"
@@ -536,22 +566,20 @@ EOF
     ok "wrapper $WRAPPER_BIN/$name -> $real"
 }
 
-# Real binaries to re-link + their wrapper names. Adjust these absolute paths
-# if the binaries live elsewhere on the machine.
-while read -r real name; do
-    [ -n "$real" ] || continue
-    gen_glibc_wrapper "$real" "$name"
-done <<'BINS'
-/home/yingfangong/.local/glibc234/clangd clangd
-/home/yingfangong/.local/glibc234/lua-language-server lua-language-server
-BINS
-
-# node (v18.20.4) already follows the patchelf route on this box — its wrapper
-# is `unset LD_LIBRARY_PATH; exec <node> "$@"`, so fork / process.execPath work.
-# Nothing to patch here; just remind if the node wrapper is missing.
-if ! command -v node >/dev/null 2>&1 || [ ! -x "$WRAPPER_BIN/node" ]; then
-    warn "node wrapper not found at $WRAPPER_BIN/node — on RHEL6 node needs the patched-binary + wrapper recipe (see header notes)"
-fi
+# Re-link every glibc234 tool (driven by tools.sh). For `external` tools the
+# realpath is the pre-installed binary; for `node`/`bin` tools it is the binary
+# the installer just placed under $LOCAL_DIR.
+for name in $TOOLS_GLIBC; do
+    inst_var="${name}_install"; rp_var="${name}_realpath"; bin_var="${name}_binary"
+    tinst="${!inst_var:-}"; trp="${!rp_var:-}"; tbin="${!bin_var:-}"
+    case "$tinst" in
+        external) target="$trp";;
+        node)     target="$LOCAL_DIR/node/bin/node";;
+        bin)      target="$LOCAL_DIR/bin/$tbin";;
+        *)        warn "unknown glibc install mode for $name"; continue;;
+    esac
+    gen_glibc_wrapper "$target" "$name"
+done
 
 # ---------------------------------------------------------------- Verification
 log "== Verification =="

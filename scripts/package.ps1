@@ -25,7 +25,8 @@ Output: <out>/nvim-bundle-linux-x86_64-<date>.tar.gz
 param(
     [string]$Out = "",
     [string]$NvimVersion = "",
-    [string]$Proxy = ""
+    [string]$Proxy = "",
+    [string]$ToolsFile = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,7 +34,17 @@ $script:ConfigDir = if ($env:XDG_CONFIG_HOME) { Join-Path $env:XDG_CONFIG_HOME "
 $script:DataDir   = if ($env:XDG_DATA_HOME)   { Join-Path $env:XDG_DATA_HOME "nvim" }   else { Join-Path $env:LOCALAPPDATA "nvim-data" }
 if (-not $Out) { $Out = (Get-Location).Path }
 
-if ($Proxy) { $env:http_proxy = $Proxy; $env:https_proxy = $Proxy }
+if ($Proxy) {
+    $env:http_proxy = $Proxy; $env:https_proxy = $Proxy
+    $env:HTTP_PROXY = $Proxy; $env:HTTPS_PROXY = $Proxy
+    # git/libcurl can ignore lower/upper-case proxy env quirks; set it explicitly
+    # so the systemverilog fork clone and codeload git fallback work behind a proxy.
+    try { & git.exe config --global http.proxy $Proxy; & git.exe config --global https.proxy $Proxy } catch {}
+}
+
+# Default tools.json lives next to this script (it is the single source of truth
+# for every downloadable asset: source, owner/repo, asset glob, pin, glibc mark).
+if (-not $ToolsFile) { $ToolsFile = Join-Path $PSScriptRoot "tools.json" }
 
 function Log  { Write-Host "[package] $args" -ForegroundColor Cyan }
 function Ok   { Write-Host "  [OK] $args" -ForegroundColor Green }
@@ -99,26 +110,9 @@ function Download($url, $out) {
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $out)) { Err "Download failed: $url" }
 }
 
-function Resolve-LatestReleaseUrl($owner, $repo, $assetPattern) {
-    $release = Get-Json "https://api.github.com/repos/$owner/$repo/releases/latest"
-    if (-not $release) { return $null }
-    $asset = $release.assets | Where-Object { $_.name -like $assetPattern } | Select-Object -First 1
-    if (-not $asset) { return $null }
-    return $asset.browser_download_url
-}
-
 function Get-FileSizeMB($path) {
     $len = (Get-Item $path).Length
     return ("{0:N1}MB" -f ($len / 1MB))
-}
-
-# Resolve the latest release from neovim/neovim-releases (its old-glibc builds
-# track the main neovim repo). -NvimVersion overrides for pinning.
-function Get-NvimVersion {
-    if ($NvimVersion) { return $NvimVersion }
-    $rel = Get-Json "https://api.github.com/repos/neovim/neovim-releases/releases/latest"
-    if ($rel -and $rel.tag_name -match '^v') { return $rel.tag_name }
-    return "v0.12.4"
 }
 
 $script:ManifestPath = ""
@@ -135,6 +129,88 @@ $ParserSrcDir = Join-Path $BundleRoot "parser-sources"
 New-Item -ItemType Directory -Force -Path $ToolsDir, $ParserSrcDir | Out-Null
 $script:ManifestPath = Join-Path $BundleRoot "manifest.txt"
 Set-Content -Path $script:ManifestPath -Value "format=2" -Encoding ascii
+
+# ---------------------------------------------------------------- tools.json (single asset table)
+if (-not (Test-Path $ToolsFile)) { Err "tools.json not found: $ToolsFile" }
+try { $script:ToolsDef = Get-Content $ToolsFile -Raw | ConvertFrom-Json }
+catch { Err "Failed to parse tools.json: $_" }
+
+# Persistent download cache, keyed by resolved version (so a pinned-bump or a
+# latest bump never reuses a stale tarball). versions.json records name -> version.
+$script:CacheDir = Join-Path $Out ".nvim-tool-cache"
+$script:VersionsFile = Join-Path $script:CacheDir "versions.json"
+if (-not (Test-Path $script:CacheDir)) { New-Item -ItemType Directory -Force -Path $script:CacheDir | Out-Null }
+$script:Versions = $null
+if (Test-Path $script:VersionsFile) {
+    try { $script:Versions = Get-Content $script:VersionsFile -Raw | ConvertFrom-Json } catch { $script:Versions = $null }
+}
+if (-not $script:Versions) { $script:Versions = New-Object PSObject }
+
+$script:DlList   = [System.Collections.Generic.List[string]]::new()
+$script:GlList   = [System.Collections.Generic.List[string]]::new()
+$script:ToolsSh  = [System.Collections.Generic.List[string]]::new()
+
+function Get-VersionCache([string]$name) {
+    if ($script:Versions -and ($script:Versions.PSObject.Properties.Name -contains $name)) { return $script:Versions.$name }
+    return ""
+}
+function Set-VersionCache([string]$name, [string]$ver) {
+    if ($script:Versions.PSObject.Properties.Name -contains $name) { $script:Versions.$name = $ver }
+    else { $script:Versions | Add-Member -NotePropertyName $name -NotePropertyValue $ver }
+}
+
+# Resolve a tool entry to @{ version; url }. Empty version = follow latest.
+function Resolve-ToolUrl($e) {
+    if ($e.version) {
+        if ($e.source -eq "nodejs") {
+            return @{ version = $e.version; url = ($e.url_template -replace "\{version\}", $e.version) }
+        }
+        $rel = Get-Json "https://api.github.com/repos/$($e.owner)/$($e.repo)/releases/tags/$($e.version)"
+        if (-not $rel) { return $null }
+        $asset = $rel.assets | Where-Object { $_.name -like $e.asset_glob } | Select-Object -First 1
+        if (-not $asset) { return $null }
+        return @{ version = $e.version; url = $asset.browser_download_url }
+    }
+    if ($e.source -eq "nodejs") {
+        $idx = Get-Json $e.latest_url
+        if (-not $idx) { return $null }
+        $ver = $idx[0].version
+        return @{ version = $ver; url = ($e.url_template -replace "\{version\}", $ver) }
+    }
+    $rel = Get-Json "https://api.github.com/repos/$($e.owner)/$($e.repo)/releases/latest"
+    if (-not $rel) { return $null }
+    $ver = $rel.tag_name
+    $asset = $rel.assets | Where-Object { $_.name -like $e.asset_glob } | Select-Object -First 1
+    if (-not $asset) { return $null }
+    return @{ version = $ver; url = $asset.browser_download_url }
+}
+
+# Download (or reuse cached) a tool's asset into the bundle. Records manifest lines.
+function Process-Tool($e, [string]$Prompt = "", $resolved = $null) {
+    if (-not $resolved) { $resolved = Resolve-ToolUrl $e }
+    if (-not $resolved) { Warn "$($e.name) resolution failed"; return }
+    $ver = $resolved.version; $url = $resolved.url
+    if (-not $Prompt) { $Prompt = "  Download and bundle $($e.name) $ver? [Y/n] " }
+    $ext = ($e.out_file -split '\.', 2)[1]
+    $cacheName = "$($e.name)-$ver.$ext"
+    $cachePath = Join-Path $script:CacheDir $cacheName
+    $dest = if ($e.install -eq "nvim-dir") { Join-Path $BundleRoot "nvim\nvim-linux-x86_64.tar.gz" }
+            else { Join-Path $ToolsDir $e.out_file }
+    $cached = Get-VersionCache $e.name
+    if (($cached -eq $ver) -and (Test-Path (Join-Path $script:CacheDir $cacheName))) {
+        Copy-Item $cachePath $dest -Force
+        Ok "$($e.name) $ver (cached, skipped download)"
+    } else {
+        if (-not (Confirm-Download $Prompt)) { Warn "$($e.name) skipped"; return }
+        Download $url $cachePath
+        Set-VersionCache $e.name $ver
+        ConvertTo-Json $script:Versions -Compress | Set-Content $script:VersionsFile -Encoding ascii
+        Copy-Item $cachePath $dest -Force
+        Ok "$($e.name) $ver cached"
+    }
+    Manifest "tool $($e.name) $ver $url"
+    if ($e.glibc234) { Manifest "glibc234 $($e.name)" }
+}
 
 # ---------------------------------------------------------------- Preflight checks
 if (Get-Command nvim -ErrorAction SilentlyContinue) {
@@ -170,26 +246,27 @@ Copy-Item -Recurse -Force $script:DataDir $dataCopy
 foreach ($sub in @("backup","undo","swap","view","shada")) {
     Remove-Item -Recurse -Force (Join-Path $dataCopy $sub) -ErrorAction SilentlyContinue
 }
+# Strip Windows-specific mason binaries: on the target machine the Linux/glibc
+# tool binaries (clangd, lua-language-server, ...) are provided separately (see
+# install-offline.sh glibc-2.34 section). Only the portable package metadata in
+# mason/packages belongs in the Linux bundle, so drop the actual Windows .exe
+# install trees and bin symlinks.
+Remove-Item -Recurse -Force (Join-Path $dataCopy "mason\bin") -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force (Join-Path $dataCopy "mason\install") -ErrorAction SilentlyContinue
 Ok "config + data copied"
 # Record the tool counts for the offline installer's verification thresholds
 $masonCount = (Get-ChildItem (Join-Path $script:DataDir "mason\packages") -Force -ErrorAction SilentlyContinue).Count
 Manifest "mason=$masonCount"
 
-# ---------------------------------------------------------------- nvim binary
-Log "== Neovim binary (old-glibc build) =="
-$nvimVer = Get-NvimVersion
-if (Confirm-Download "Download and bundle neovim $nvimVer (old-glibc build for offline machines)? [Y/n] ") {
-    $nvimDir = Join-Path $BundleRoot "nvim"
-    New-Item -ItemType Directory -Force -Path $nvimDir | Out-Null
-    # neovim/neovim-releases provides prebuilt binaries that run on old glibc (2.17)
-    $nvimUrl = "https://github.com/neovim/neovim-releases/releases/download/$nvimVer/nvim-linux-x86_64.tar.gz"
-    $nvimTgz = Join-Path $nvimDir "nvim-linux-x86_64.tar.gz"
-    Download $nvimUrl $nvimTgz
-    Ok "nvim $nvimVer downloaded ($(Get-FileSizeMB $nvimTgz))"
-    Manifest "nvim=$nvimVer url=$nvimUrl"
-} else {
-    Warn "nvim binary skipped - offline machines keep their existing nvim"
-}
+# ---------------------------------------------------------------- nvim binary (driven by tools.json)
+Log "== Neovim binary (old-glibc build, from tools.json) =="
+$nvimEntry = $script:ToolsDef.tools | Where-Object { $_.name -eq "nvim" } | Select-Object -First 1
+if (-not $nvimEntry) { Err "tools.json is missing the 'nvim' entry" }
+if ($NvimVersion) { $nvimEntry.version = $NvimVersion }
+$nv = Resolve-ToolUrl $nvimEntry
+if (-not $nv) { Err "Failed to resolve nvim version from tools.json" }
+New-Item -ItemType Directory -Force -Path (Join-Path $BundleRoot "nvim") | Out-Null
+Process-Tool $nvimEntry ("Download and bundle neovim $($nv.version) (old-glibc build for offline machines)? [Y/n] ") $nv
 
 # ---------------------------------------------------------------- Parser sources
 Log "== Treesitter parser sources (pinned revisions) =="
@@ -231,12 +308,13 @@ function Fetch-Source($out, $owner, $repo, $rev) {
     $ok = $false
     Push-Location $gdir
     try {
-        & git.exe init -q
-        & git.exe remote add origin "https://github.com/$owner/$repo.git"
-        & git.exe fetch -q --depth 1 origin $rev
-        if ($LASTEXITCODE -eq 0) { & git.exe checkout -q FETCH_HEAD }
+        & git.exe init -q 2>$null
+        & git.exe remote add origin "https://github.com/$owner/$repo.git" 2>$null
+        & git.exe fetch -q --depth 1 origin $rev 2>$null
+        if ($LASTEXITCODE -eq 0) { & git.exe checkout -q FETCH_HEAD 2>$null }
         $ok = ($LASTEXITCODE -eq 0)
-    } finally { Pop-Location }
+    } catch { $ok = $false }
+    finally { Pop-Location }
     if (-not $ok) {
         Remove-Item -Recurse -Force $gdir -ErrorAction SilentlyContinue
         return $false
@@ -255,8 +333,13 @@ if (Confirm-Download "Download sources for $($langs.Count) treesitter parsers (n
             Log "  $lang -> fork $url (master HEAD)"
             $svDir = Join-Path $BundleRoot "_sv"
             if (Test-Path $svDir) { Remove-Item -Recurse -Force $svDir }
-            & git.exe clone --depth 1 $url $svDir *> $null
-            if ($LASTEXITCODE -ne 0) { Warn "  $lang clone failed, skipping"; continue }
+            # git prints "Cloning into ..." to stderr; under ErrorActionPreference=Stop
+            # that would be treated as a terminating error, so wrap it.
+            try { & git.exe clone --depth 1 $url $svDir *> $null }
+            catch { Warn "  git stderr captured: $_" }
+            if (-not (Test-Path (Join-Path $svDir ".git"))) {
+                Warn "  $lang clone failed, skipping"; continue
+            }
             $rev = (git.exe -C $svDir rev-parse HEAD).Trim()
             # Move-Item with an absolute target (Rename-Item's -NewName is
             # relative to the CWD; bsdtar's --transform is absent on old
@@ -293,7 +376,7 @@ if (Confirm-Download "Download sources for $($langs.Count) treesitter parsers (n
                 $dir = Get-ChildItem $work -Directory | Select-Object -First 1
                 if ($dir) {
                     Push-Location $dir.FullName
-                    try { & tree-sitter.exe generate *> $null; $genOk = ($LASTEXITCODE -eq 0) }
+                    try { & tree-sitter generate *> $null; $genOk = ($LASTEXITCODE -eq 0) }
                     finally { Pop-Location }
                     if ($genOk) { Ok "  $lang parser.c generated" }
                     else { $genFailed += $lang; Warn "  generate failed for $lang (bundle will lack parser.c)" }
@@ -304,7 +387,11 @@ if (Confirm-Download "Download sources for $($langs.Count) treesitter parsers (n
                 Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
             }
         }
-        Manifest "parser $lang $url $rev"
+        # Record the optional `location` subdir (e.g. markdown_inline lives in
+        # tree-sitter-markdown-inline inside the same repo) so install-offline.sh
+        # compiles the parser from the correct source dir.
+        $loc = Get-ParserField $lang "location"
+        Manifest "parser $lang $url $rev $loc"
     }
     if ($genFailed.Count -gt 0) {
         Err "tree-sitter generate failed for: $($genFailed -join ' ') - fix the parser sources before packaging"
@@ -318,61 +405,17 @@ if (Confirm-Download "Download sources for $($langs.Count) treesitter parsers (n
 }
 Manifest "parsers=$psrcCount"
 
-# ---------------------------------------------------------------- Optional tool cache
-$Tools = @("rg","fd","fzf","tree-sitter-cli","node","pandoc")
-Log "== External tool cache (options: $($Tools -join ' ')) =="
+# ---------------------------------------------------------------- Optional tool cache (driven by tools.json)
+# tree-sitter-cli is intentionally NOT cached: offline machines compile parsers
+# directly with gcc (see install-offline.sh header), so shipping its binary is
+# dead weight. It is only needed on the online packaging machine.
+$DownloadTools = $script:ToolsDef.tools | Where-Object { $_.source -ne "external" -and $_.name -ne "nvim" }
+Log "== External tool cache (from tools.json: $($DownloadTools.name -join ' ')) =="
 if (Confirm-Download "Process external tool cache for offline install? [Y/n] ") {
-    foreach ($t in $Tools) {
+    foreach ($e in $DownloadTools) {
         $hint = ""
-        if (Get-Command $t -ErrorAction SilentlyContinue) { $hint = "  (local: present)" }
-        if (-not (Confirm-Download "  Download and bundle $t?$hint [Y/n] ")) {
-            Warn "  $t skipped"; continue
-        }
-        $url = $null; $outFile = ""
-        switch ($t) {
-            "rg" {
-                $url = Resolve-LatestReleaseUrl "BurntSushi" "ripgrep" "*x86_64-unknown-linux-musl.tar.gz"
-                $outFile = "rg.tar.gz"
-            }
-            "fd" {
-                $url = Resolve-LatestReleaseUrl "sharkdp" "fd" "*x86_64-unknown-linux-musl.tar.gz"
-                $outFile = "fd.tar.gz"
-            }
-            "fzf" {
-                $url = Resolve-LatestReleaseUrl "junegunn" "fzf" "fzf-*-linux_amd64.tar.gz"
-                $outFile = "fzf.tar.gz"
-            }
-            "tree-sitter-cli" {
-                $url = Resolve-LatestReleaseUrl "tree-sitter" "tree-sitter" "tree-sitter-cli-linux-x64.*"
-                $outFile = if ($url -like "*.gz") { "tree-sitter-cli.gz" } else { "tree-sitter-cli.zip" }
-            }
-            "node" {
-                # node.tar.xz so offline machines can install npm tools without
-                # their own copy (consumed by install-offline.sh)
-                $listing = Get-Page "https://nodejs.org/dist/latest-v24.x/"
-                $m = [regex]::Match($listing, 'node-v[0-9]+\.[0-9]+\.[0-9]+-linux-x64\.tar\.xz')
-                if ($m.Success) {
-                    $url = "https://nodejs.org/dist/latest-v24.x/$($m.Value)"
-                    $outFile = "node.tar.xz"
-                }
-            }
-            "pandoc" {
-                # pandoc.tar.gz consumed by install-offline.sh
-                $release = Get-Json "https://api.github.com/repos/jgm/pandoc/releases/latest"
-                if ($release -and $release.tag_name) {
-                    $ver = ($release.tag_name -replace '^v','')
-                    $url = "https://github.com/jgm/pandoc/releases/download/$ver/pandoc-$ver-linux-amd64.tar.gz"
-                    $outFile = "pandoc.tar.gz"
-                }
-            }
-        }
-        if ($url -and $outFile) {
-            Download $url (Join-Path $ToolsDir $outFile)
-            Manifest "tool $t $url"
-            Ok "$t cached"
-        } else {
-            Warn "$t download failed"
-        }
+        if (Get-Command $e.binary -ErrorAction SilentlyContinue) { $hint = "  (local: present)" }
+        Process-Tool $e ("  Download and bundle $($e.name)?$hint [Y/n] ")
     }
 } else {
     Warn "External tool cache skipped"
@@ -380,7 +423,7 @@ if (Confirm-Download "Process external tool cache for offline install? [Y/n] ") 
 
 # ---------------------------------------------------------------- npm tools cache (offline mason fallback)
 Log "== npm tools cache (offline fallback for mason npm packages) =="
-$NpmTools = @("yaml-language-server","json-lsp","bash-language-server","prettier","prettierd")
+$NpmTools = $script:ToolsDef.npm
 if (Confirm-Download "Bundle npm tools ($NpmTools)? [Y/n] ") {
     if (Get-Command npm -ErrorAction SilentlyContinue) {
         $np = Join-Path $BundleRoot "npmtools"
@@ -389,7 +432,8 @@ if (Confirm-Download "Bundle npm tools ($NpmTools)? [Y/n] ") {
         try {
             & npm.cmd install --no-audit --no-fund --loglevel=error $NpmTools *> $null
             $npmOk = ($LASTEXITCODE -eq 0) -and (Test-Path (Join-Path $np "node_modules"))
-        } finally { Pop-Location }
+        } catch { $npmOk = $false }
+        finally { Pop-Location }
         if ($npmOk) {
             $npmTgz = Join-Path $ToolsDir "npm-tools.tar.gz"
             & tar.exe czf $npmTgz -C $np node_modules
@@ -406,6 +450,30 @@ if (Confirm-Download "Bundle npm tools ($NpmTools)? [Y/n] ") {
 } else {
     Warn "npm tools cache skipped"
 }
+
+# ---------------------------------------------------------------- Emit tools.sh companion + copy tools.json
+# install-offline.sh sources tools.sh (derived from tools.json) to drive install
+# and glibc-2.34 wrapper generation — no JSON parsing needed on the offline box.
+foreach ($e in $script:ToolsDef.tools) {
+    $glibc = if ($e.glibc234) { "1" } else { "0" }
+    $realpath = if ($e.realpath) { $e.realpath } else { "" }
+    $script:ToolsSh.Add("$($e.name)_install=`"$($e.install)`"")
+    $script:ToolsSh.Add("$($e.name)_binary=`"$($e.binary)`"")
+    $script:ToolsSh.Add("$($e.name)_outfile=`"$($e.out_file)`"")
+    $script:ToolsSh.Add("$($e.name)_glibc234=`"$glibc`"")
+    $script:ToolsSh.Add("$($e.name)_realpath=`"$realpath`"")
+    if ($e.source -ne "external") { $script:DlList.Add($e.name) }
+    if ($e.glibc234) { $script:GlList.Add($e.name) }
+}
+$npmJoined = if ($script:ToolsDef.npm) { $script:ToolsDef.npm -join ' ' } else { "" }
+$header = @("# GENERATED from tools.json - do not edit",
+             "TOOLS_DOWNLOAD=`"$($script:DlList -join ' ')`"",
+             "TOOLS_GLIBC=`"$($script:GlList -join ' ')`"",
+             "NPM_PACKAGES=`"$npmJoined`"")
+$all = $header + $script:ToolsSh
+Set-Content -Path (Join-Path $BundleRoot "tools.sh") -Value $all -Encoding ascii
+Copy-Item $ToolsFile (Join-Path $BundleRoot "tools.json") -Force
+Log "tools.sh + tools.json emitted for the installer"
 
 # ---------------------------------------------------------------- Packaging
 Log "== Generating bundle =="

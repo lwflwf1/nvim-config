@@ -1,0 +1,136 @@
+{
+  "tools": [
+    {
+      "name": "nvim",
+      "version": "",
+      "glibc234": false,
+      "source": "github-release",
+      "owner": "neovim",
+      "repo": "neovim-releases",
+      "asset_glob": "nvim-linux-x86_64.tar.gz",
+      "out_file": "nvim.tar.gz",
+      "binary": "nvim",
+      "install": "nvim-dir"
+    },
+    {
+      "name": "node",
+      "version": "v18.20.4",
+      "glibc234": true,
+      "source": "nodejs",
+      "url_template": "https://nodejs.org/dist/{version}/node-{version}-linux-x64.tar.xz",
+      "latest_url": "https://nodejs.org/dist/index.json",
+      "out_file": "node.tar.xz",
+      "binary": "node",
+      "install": "node"
+    },
+    {
+      "name": "rg",
+      "version": "",
+      "glibc234": false,
+      "source": "github-release",
+      "owner": "BurntSushi",
+      "repo": "ripgrep",
+      "asset_glob": "*x86_64-unknown-linux-musl.tar.gz",
+      "out_file": "rg.tar.gz",
+      "binary": "rg",
+      "install": "bin"
+    },
+    {
+      "name": "fd",
+      "version": "",
+      "glibc234": false,
+      "source": "github-release",
+      "owner": "sharkdp",
+      "repo": "fd",
+      "asset_glob": "*x86_64-unknown-linux-musl.tar.gz",
+      "out_file": "fd.tar.gz",
+      "binary": "fd",
+      "install": "bin"
+    },
+    {
+      "name": "fzf",
+      "version": "",
+      "glibc234": false,
+      "source": "github-release",
+      "owner": "junegunn",
+      "repo": "fzf",
+      "asset_glob": "fzf-*-linux_amd64.tar.gz",
+      "out_file": "fzf.tar.gz",
+      "binary": "fzf",
+      "install": "bin"
+    },
+    {
+      "name": "pandoc",
+      "version": "",
+      "glibc234": true,
+      "source": "github-release",
+      "owner": "jgm",
+      "repo": "pandoc",
+      "asset_glob": "pandoc-*-linux-amd64.tar.gz",
+      "out_file": "pandoc.tar.gz",
+      "binary": "pandoc",
+      "install": "bin"
+    },
+    {
+      "name": "ty",
+      "version": "",
+      "glibc234": false,
+      "source": "github-release",
+      "owner": "astral-sh",
+      "repo": "ty",
+      "asset_glob": "*x86_64-unknown-linux-musl.tar.gz",
+      "out_file": "ty.tar.gz",
+      "binary": "ty",
+      "install": "bin"
+    },
+    {
+      "name": "ruff",
+      "version": "",
+      "glibc234": false,
+      "source": "github-release",
+      "owner": "astral-sh",
+      "repo": "ruff",
+      "asset_glob": "*x86_64-unknown-linux-musl.tar.gz",
+      "out_file": "ruff.tar.gz",
+      "binary": "ruff",
+      "install": "bin"
+    },
+    {
+      "name": "stylua",
+      "version": "",
+      "glibc234": false,
+      "source": "github-release",
+      "owner": "JohnnyMorganz",
+      "repo": "StyLua",
+      "asset_glob": "stylua-linux-x86_64-musl.zip",
+      "out_file": "stylua.zip",
+      "binary": "stylua",
+      "install": "bin"
+    },
+    {
+      "name": "clangd",
+      "version": "",
+      "glibc234": true,
+      "source": "external",
+      "install": "external",
+      "binary": "clangd",
+      "realpath": "/home/yingfangong/.local/glibc234/clangd"
+    },
+    {
+      "name": "lua-language-server",
+      "version": "",
+      "glibc234": true,
+      "source": "external",
+      "install": "external",
+      "binary": "lua-language-server",
+      "realpath": "/home/yingfangong/.local/glibc234/lua-language-server"
+    }
+  ],
+  "npm": [
+    "yaml-language-server",
+    "vscode-json-languageserver",
+    "bash-language-server",
+    "prettier",
+    "@fsouza/prettierd"
+  ]
+}

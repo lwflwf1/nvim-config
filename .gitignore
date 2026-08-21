@@ -3,3 +3,6 @@ Session.vim
 .netrwhist
 tags.temp
 words
+
+# opencode session memory (local only)
+.opencode-memory/
