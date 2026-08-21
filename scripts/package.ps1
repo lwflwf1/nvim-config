@@ -31,7 +31,8 @@ param(
     [string]$Proxy = "",
     [string]$ToolsFile = "",
     [string]$ConfigRepo = "https://github.com/lwflwf1/nvim-config.git",
-    [string]$ConfigRev = ""
+    [string]$ConfigRev = "",
+    [switch]$ConfigOnly = $false
 )
 
 $ErrorActionPreference = "Stop"
@@ -270,6 +271,7 @@ Ok "config + data copied"
 Manifest "mason=0"
 
 # ---------------------------------------------------------------- nvim binary (driven by tools.json)
+if (-not $ConfigOnly) {
 Log "== Neovim binary (old-glibc build, from tools.json) =="
 $nvimEntry = $script:ToolsDef.tools | Where-Object { $_.name -eq "nvim" } | Select-Object -First 1
 if (-not $nvimEntry) { Err "tools.json is missing the 'nvim' entry" }
@@ -278,8 +280,12 @@ $nv = Resolve-ToolUrl $nvimEntry
 if (-not $nv) { Err "Failed to resolve nvim version from tools.json" }
 New-Item -ItemType Directory -Force -Path (Join-Path $BundleRoot "nvim") | Out-Null
 Process-Tool $nvimEntry ("Download and bundle neovim $($nv.version) (old-glibc build for offline machines)? [Y/n] ") $nv
+} else {
+Log "Config-only mode: nvim binary skipped"
+}
 
 # ---------------------------------------------------------------- Parser sources
+if (-not $ConfigOnly) {
 Log "== Treesitter parser sources (pinned revisions) =="
 $parsersLuaPath = Join-Path $script:DataDir "lazy\nvim-treesitter\lua\nvim-treesitter\parsers.lua"
 if (-not (Test-Path $parsersLuaPath)) { Err "nvim-treesitter not found: $parsersLuaPath" }
@@ -415,12 +421,17 @@ if (Confirm-Download "Download sources for $($langs.Count) treesitter parsers (n
     $psrcCount = 0
 }
 Manifest "parsers=$psrcCount"
+} else {
+    Manifest "parsers=0"
+    Log "Config-only mode: parser sources skipped"
+}
 
 # ---------------------------------------------------------------- Optional tool cache (driven by tools.json)
 # tree-sitter-cli is intentionally NOT cached: offline machines compile parsers
 # directly with gcc (see install-offline.sh header), so shipping its binary is
 # dead weight. It is only needed on the online packaging machine.
 $DownloadTools = $script:ToolsDef.tools | Where-Object { $_.source -ne "external" -and $_.name -ne "nvim" }
+if (-not $ConfigOnly) {
 Log "== External tool cache (from tools.json: $($DownloadTools.name -join ' ')) =="
 if (Confirm-Download "Process external tool cache for offline install? [Y/n] ") {
     foreach ($e in $DownloadTools) {
@@ -431,8 +442,12 @@ if (Confirm-Download "Process external tool cache for offline install? [Y/n] ") 
 } else {
     Warn "External tool cache skipped"
 }
+} else {
+Log "Config-only mode: tool cache skipped"
+}
 
 # ---------------------------------------------------------------- npm tools cache (offline mason fallback)
+if (-not $ConfigOnly) {
 Log "== npm tools cache (offline fallback for mason npm packages) =="
 $NpmTools = $script:ToolsDef.npm
 if (Confirm-Download "Bundle npm tools ($NpmTools)? [Y/n] ") {
@@ -461,10 +476,14 @@ if (Confirm-Download "Bundle npm tools ($NpmTools)? [Y/n] ") {
 } else {
     Warn "npm tools cache skipped"
 }
+} else {
+Log "Config-only mode: npm tools skipped"
+}
 
 # ---------------------------------------------------------------- Emit tools.sh companion + copy tools.json
 # install-offline.sh sources tools.sh (derived from tools.json) to drive install
 # and glibc-2.34 wrapper generation — no JSON parsing needed on the offline box.
+if (-not $ConfigOnly) {
 foreach ($e in $script:ToolsDef.tools) {
     $glibc = if ($e.glibc234) { "1" } else { "0" }
     $realpath = if ($e.realpath) { $e.realpath } else { "" }
@@ -486,6 +505,9 @@ $all = $header + $script:ToolsSh
 [System.IO.File]::WriteAllText((Join-Path $BundleRoot "tools.sh"), ($all -join "`n") + "`n", [System.Text.Encoding]::ASCII)
 Copy-Item $ToolsFile (Join-Path $BundleRoot "tools.json") -Force
 Log "tools.sh + tools.json emitted for the installer"
+} else {
+Log "Config-only mode: tools.sh/tools.json skipped"
+}
 
 # ---------------------------------------------------------------- Packaging
 Log "== Generating bundle =="
@@ -497,7 +519,8 @@ if (Test-Path $lockSrc) {
 } else { $lockMd5 = "" }
 Manifest "lazylock=$lockMd5"
 $date = Get-Date -Format "yyyyMMdd"
-$outFile = Join-Path $Out "nvim-bundle-linux-x86_64-$date.zip"
+$suffix = if ($ConfigOnly) { "-config" } else { "" }
+$outFile = Join-Path $Out "nvim-bundle-linux-x86_64-$date$suffix.zip"
 & tar.exe -a -cf $outFile -C $BundleRoot .
 if ($LASTEXITCODE -ne 0) { Err "tar failed while creating the bundle" }
 Remove-Item -Recurse -Force $BundleRoot

@@ -52,9 +52,11 @@ set -euo pipefail
 
 BUNDLE=""
 UPDATE_MODE=0
+CONFIG_ONLY=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --update) UPDATE_MODE=1; shift;;
+        --config-only) CONFIG_ONLY=1; shift;;
         -*) echo "Unknown argument: $1"; exit 1;;
         *) [ -z "$BUNDLE" ] && BUNDLE="$1" || { echo "Unexpected argument: $1"; exit 1; }; shift;;
     esac
@@ -399,6 +401,15 @@ else
     TOOLS_GLIBC="node pandoc clangd lua-language-server"
 fi
 
+# A config-only bundle (package.ps1 -ConfigOnly) carries only config/ + data/ +
+# lazy-lock.json — no tools/nvim/parser-sources. Detect it and switch to
+# config-only mode automatically (explicit --config-only also works).
+if [ "$CONFIG_ONLY" != 1 ] \
+   && { [ ! -d "$TMP/tools" ] || [ ! -d "$TMP/nvim" ] || [ ! -d "$TMP/parser-sources" ]; }; then
+    log "bundle lacks tools/nvim/parser-sources — running in config-only mode"
+    CONFIG_ONLY=1
+fi
+
 # ---------------------------------------------------------------- Mode
 MODE=full
 if [ "$UPDATE_MODE" = 1 ]; then
@@ -410,8 +421,11 @@ if [ "$UPDATE_MODE" = 1 ]; then
     fi
 fi
 
-apply_tools
+if [ "$CONFIG_ONLY" != 1 ]; then
+    apply_tools
+fi
 
+if [ "$CONFIG_ONLY" != 1 ]; then
     # ---------------------------------------------------------------- nvim
     # Neovim's runtime resolves ../lib and ../share relative to the binary, so the
     # tree is extracted to ~/.local/nvim and a symlink is placed at ~/.local/bin/nvim
@@ -454,9 +468,10 @@ apply_tools
         fi
     fi
     export PATH="$LOCAL_DIR/bin:$LOCAL_DIR/nvim/bin:$PATH"
+fi
 
 # ---------------------------------------------------------------- Config and data
-if [ "$MODE" = full ]; then
+if [ "$MODE" = full ] && [ "$CONFIG_ONLY" != 1 ]; then
     log "== Restoring config and data =="
     if [ -d "$CONFIG_DIR" ] && confirm "Config directory $CONFIG_DIR exists, back it up and overwrite? [y/N] " y; then
         mv "$CONFIG_DIR" "$CONFIG_DIR.bak.$(date +%Y%m%d%H%M%S)"; ok "Old config backed up"
@@ -524,6 +539,7 @@ else
     ok "Data updated -> $DATA_DIR"
 fi
 
+if [ "$CONFIG_ONLY" != 1 ]; then
 # ---------------------------------------------------------------- Compile parsers
 if [ "$MODE" = full ]; then
     log "== Compiling treesitter parsers (directly with gcc) =="
@@ -583,7 +599,9 @@ if [ -d "$DATA_DIR/lazy/nvim-treesitter/runtime/queries" ]; then
     cp -a "$DATA_DIR/lazy/nvim-treesitter/runtime/queries/." "$DATA_DIR/site/queries/" 2>/dev/null || true
     ok "treesitter queries copied -> $DATA_DIR/site/queries"
 fi
+fi
 
+if [ "$CONFIG_ONLY" != 1 ]; then
 # ---------------------------------------------------------------- PATH
 log "== Configuring PATH =="
 export PATH="$LOCAL_DIR/nvim/bin:$LOCAL_DIR/bin:$PATH"
@@ -600,7 +618,9 @@ esac
 warn "PATH is NOT written to any rc file automatically."
 warn "To have nvim/tools on PATH in new terminals, add this line to $RC:"
 warn "  $RC_SYNTAX"
+fi
 
+if [ "$CONFIG_ONLY" != 1 ]; then
 # ---------------------------------------------------------------- glibc-2.34 re-linked binaries (RHEL6)
 # clangd (needs GLIBC_2.18) and lua-language-server (needs GLIBC_2.27) cannot run
 # on the system glibc 2.17. Patch them in place with patchelf so they carry the
@@ -655,7 +675,9 @@ for name in $TOOLS_GLIBC; do
     esac
     gen_glibc_wrapper "$target" "$name"
 done
+fi
 
+if [ "$CONFIG_ONLY" != 1 ]; then
 # ---------------------------------------------------------------- Verification
 log "== Verification =="
 # Bug U fix: en_US.UTF-8 is often not generated on fresh/minimal images;
@@ -694,15 +716,23 @@ else
     warn "Startup verification reported errors, see $LOG"
     grep -aE 'E[0-9]+: |Error detected|Error in ' "$LOG" | head -3
 fi
+fi
 
+if [ "$CONFIG_ONLY" != 1 ]; then
 # ---------------------------------------------------------------- Save install state
 log "== Saving install state =="
 mkdir -p "$STATE_DIR"
 cp "$TMP/manifest.txt" "$LAST_MANIFEST" 2>/dev/null || true
 cp "$TMP/lazy-lock.json" "$LAST_LOCK" 2>/dev/null || true
 ok "state saved to $STATE_DIR (consumed by future --update runs)"
+fi
 
 echo
-log "Installation done: mode=$MODE  plugins=$plugins  parsers=$parsers  masonTools=$mason"
-log "Run: source $RC; nvim"
-warn "If mason ty is unavailable, run once online: nvim --headless +MasonInstall ty +qa"
+if [ "$CONFIG_ONLY" = 1 ]; then
+    log "Config-only update done: config + lazy plugins refreshed"
+    log "Restart nvim to load the new config"
+else
+    log "Installation done: mode=$MODE  plugins=$plugins  parsers=$parsers  masonTools=$mason"
+    log "Run: source $RC; nvim"
+    warn "If mason ty is unavailable, run once online: nvim --headless +MasonInstall ty +qa"
+fi
