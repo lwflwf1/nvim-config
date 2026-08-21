@@ -1,4 +1,4 @@
-local root_markers = require("config.root_markers")
+local project_root = require("config.project_root")
 
 local exclude_patterns = {
     ".git", "node_modules", "build", "dist",
@@ -47,7 +47,7 @@ vim.keymap.set('n', '<leader>fo', function()
 end, { noremap = true, silent = true, desc = "Grep text object" })
 
 local function get_project_root()
-    return vim.fs.root(0, root_markers) or vim.fn.getcwd()
+    return project_root(0) or vim.fn.getcwd()
 end
 
 local function proj_base_path()
