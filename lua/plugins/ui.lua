@@ -48,8 +48,22 @@ return {
                 lualine_b = {
                     { "branch", icon = "" },
                     { "diff", colored = true, symbols = { added = " ", modified = " ", removed = " " } },
+                    {
+                        function()
+                            return vim.fn.pathshorten(vim.fn.fnamemodify(vim.fn.getcwd(), ":~"))
+                        end,
+                        padding = { left = 1, right = 1 },
+                    },
                 },
-                lualine_c = { { "filename", path = 1 }, "diagnostics" },
+                lualine_c = {
+                    { "filename", path = 1, symbols = {
+                        modified = "",
+                        readonly = "",
+                        unnamed  = "[No Name]",
+                        newfile  = "[New]",
+                    } },
+                    "diagnostics",
+                },
                 lualine_x = {
                     { "filetype", padding = { left = 1, right = 1 } },
                     {
@@ -169,12 +183,12 @@ return {
                 diagnostics = "nvim_lsp",
                 offsets = { { filetype = "oil", text = "File Explorer", highlight = "Directory" } },
                 indicator = { style = "icon", icon = "▎" },
-                buffer_close_icon = "x",
-                modified_icon = "*",
-                close_icon = "x",
+                buffer_close_icon = "",
+                modified_icon = "",
+                close_icon = "",
                 left_trunc_marker = "...",
                 right_trunc_marker = "...",
-                max_name_length = 18,
+                max_name_length = 40,
                 max_prefix_length = 15,
                 tab_size = 18,
                 show_buffer_close_icons = true,
