@@ -165,13 +165,6 @@ return {
             winopts = {
                 height = 0.85,
                 width = 0.85,
-                -- With ambiwidth=double the border must be a native string border
-                -- (fzf-lua auto-forces "rounded"); the default border-drawn
-                -- scrollbar stops working then, so use a float scrollbar (per
-                -- fzf-lua issue #874).
-                preview = {
-                    scrollbar = "float",
-                },
             },
             fzf_opts = {
                 ["--pointer"] = ">",

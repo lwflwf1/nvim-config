@@ -33,11 +33,7 @@ opt.shiftwidth = 4
 opt.softtabstop = 4
 opt.shiftround = true
 opt.list = true
--- ASCII-only listchars: the terminal renders Nerd Font PUA glyphs at 2 cells,
--- so ambiwidth=double (below) is required to keep nvim's width math aligned;
--- ambiguous-width chars in listchars would then fail with E834.
-opt.listchars = "tab:> ,trail:-,extends:>,precedes:<"
-opt.ambiwidth = "double"
+opt.listchars = "tab:» ,trail:·,extends:→,precedes:←"
 
 opt.foldenable = true
 opt.foldlevelstart = 99

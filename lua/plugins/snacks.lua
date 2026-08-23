@@ -23,19 +23,6 @@ return {
             toggle       = { enabled = true                 },
             words        = { enabled = true                 },
             zen          = { enabled = true                 },
-            -- ambiwidth=double makes ambiguous-width glyphs count 2 cells;
-            -- snacks' built-in "minimal" style uses such glyphs in fillchars/
-            -- listchars (e.g. lastline:⋯), which then fails with E1512 when
-            -- notifier/picker/input windows open. Override with single-width
-            -- ASCII so snacks stays compatible.
-            styles = {
-                minimal = {
-                    wo = {
-                        fillchars = "eob: ,lastline: ",
-                        listchars = "extends:>,tab:  ",
-                    },
-                },
-            },
         },
         keys = {
             { "<leader>gz", function() Snacks.lazygit() end,                 desc = "Lazygit" },
