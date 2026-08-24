@@ -26,23 +26,27 @@ return {
             },
 
             sources = {
-                default = { "lazydev", "lsp", "snippets", "buffer", "path", "minuet", "orgmode" },
-                providers = {
+                default = vim.tbl_filter(
+                    function(p) return p ~= "minuet" or not vim.g.is_rhel6 end,
+                    { "lazydev", "lsp", "snippets", "buffer", "path", "minuet", "orgmode" }
+                ),
+                providers = vim.tbl_extend("force", {
                     lazydev = {
                         name = "LazyDev",
                         module = "lazydev.integrations.blink",
                         score_offset = 100,
-                    },
-                    minuet = {
-                        name = "minuet",
-                        module = "minuet.blink",
                     },
                     orgmode = {
                         name = "orgmode",
                         module = "blink.compat.source",
                         score_offset = 0,
                     },
-                },
+                }, not vim.g.is_rhel6 and {
+                    minuet = {
+                        name = "minuet",
+                        module = "minuet.blink",
+                    },
+                } or {}),
             },
 
             snippets = { preset = "luasnip" },
