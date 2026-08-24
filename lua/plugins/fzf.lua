@@ -166,6 +166,7 @@ return {
             { "<leader>fP", find_files_in_project, desc = "Find files in custom project root" },
         },
         opts = {
+            file_icon_padding = " ",
             winopts = {
                 height = 0.85,
                 width = 0.85,

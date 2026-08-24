@@ -153,14 +153,14 @@ vim.api.nvim_create_user_command("Sci", function()
   local args = { "/tools/SOS/gold/bin/soscmd", "ci" }
   vim.list_extend(args, ci_attrs(summary))
   table.insert(args, sos_file())
-  sos_notify("ci", args)
+  sos_notify("ci", args, true)
 end, {})
 
 vim.api.nvim_create_user_command("Scim", function(opts)
   local args = { "/tools/SOS/gold/bin/soscmd", "ci" }
   vim.list_extend(args, ci_attrs(opts.args))
   table.insert(args, sos_file())
-  sos_notify("ci", args)
+  sos_notify("ci", args, true)
 end, { nargs = 1 })
 
 vim.api.nvim_create_user_command("Sd", function()
