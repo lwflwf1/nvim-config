@@ -107,7 +107,7 @@ local function sos_file()
   return vim.fn.expand("%")
 end
 
-local function sos_notify(op, args)
+local function sos_notify(op, args, reload)
   vim.system(args, { text = true }, function(result)
     local out = vim.trim((result.stdout or "") .. "\n" .. (result.stderr or ""))
     out = out:gsub("\n+$", "")
@@ -117,6 +117,14 @@ local function sos_notify(op, args)
         msg = msg .. ":\n" .. out
       end
       vim.notify(msg, vim.log.levels.INFO, { title = "SOS " .. op })
+      if reload then
+        -- co/discard/update change the file on disk (e.g. read-only -> writable
+        -- after co, or content reverted after discard/update), so re-read the
+        -- current buffer to pick up the new permission/content.
+        vim.schedule(function()
+          vim.cmd("edit!")
+        end)
+      end
     else
       local msg = (out ~= "" and out or op .. " failed") .. " (exit " .. result.code .. ")"
       vim.notify(msg, vim.log.levels.ERROR, { title = "SOS " .. op })
@@ -125,11 +133,11 @@ local function sos_notify(op, args)
 end
 
 vim.api.nvim_create_user_command("Sco", function()
-  sos_notify("co", { "/tools/SOS/gold/bin/soscmd", "co", sos_file() })
+  sos_notify("co", { "/tools/SOS/gold/bin/soscmd", "co", sos_file() }, true)
 end, {})
 
 vim.api.nvim_create_user_command("Scon", function()
-  sos_notify("co -Nlock", { "/tools/SOS/gold/bin/soscmd", "co", "-Nlock", sos_file() })
+  sos_notify("co -Nlock", { "/tools/SOS/gold/bin/soscmd", "co", "-Nlock", sos_file() }, true)
 end, {})
 
 vim.api.nvim_create_user_command("Sci", function()
@@ -145,15 +153,15 @@ vim.api.nvim_create_user_command("Scim", function(opts)
 end, { nargs = 1 })
 
 vim.api.nvim_create_user_command("Sd", function()
-  sos_notify("discard", { "/tools/SOS/gold/bin/soscmd", "discard", sos_file() })
+  sos_notify("discard", { "/tools/SOS/gold/bin/soscmd", "discard", sos_file() }, true)
 end, {})
 
 vim.api.nvim_create_user_command("Sdf", function()
-  sos_notify("discard -F", { "/tools/SOS/gold/bin/soscmd", "discard", "-F", sos_file() })
+  sos_notify("discard -F", { "/tools/SOS/gold/bin/soscmd", "discard", "-F", sos_file() }, true)
 end, {})
 
 vim.api.nvim_create_user_command("Sup", function()
-  sos_notify("update", { "/tools/SOS/gold/bin/soscmd", "update" })
+  sos_notify("update", { "/tools/SOS/gold/bin/soscmd", "update" }, true)
 end, {})
 
 vim.api.nvim_create_user_command("Scr", function()
