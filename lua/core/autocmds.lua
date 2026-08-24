@@ -140,16 +140,27 @@ vim.api.nvim_create_user_command("Scon", function()
   sos_notify("co -Nlock", { "/tools/SOS/gold/bin/soscmd", "co", "-Nlock", sos_file() }, true)
 end, {})
 
+local function ci_attrs(summary)
+  local v = summary:gsub('"', '\\"')
+  return { "-achange_summary=\"" .. v .. "\"", "-aLog=\"" .. v .. "\"" }
+end
+
 vim.api.nvim_create_user_command("Sci", function()
   local summary = vim.fn.input("Change summary: ")
   if summary == "" then
     return
   end
-  sos_notify("ci", { "/tools/SOS/gold/bin/soscmd", "ci", "-achange_summary=" .. summary, sos_file() })
+  local args = { "/tools/SOS/gold/bin/soscmd", "ci" }
+  vim.list_extend(args, ci_attrs(summary))
+  table.insert(args, sos_file())
+  sos_notify("ci", args)
 end, {})
 
 vim.api.nvim_create_user_command("Scim", function(opts)
-  sos_notify("ci", { "/tools/SOS/gold/bin/soscmd", "ci", "-achange_summary=" .. opts.args, sos_file() })
+  local args = { "/tools/SOS/gold/bin/soscmd", "ci" }
+  vim.list_extend(args, ci_attrs(opts.args))
+  table.insert(args, sos_file())
+  sos_notify("ci", args)
 end, { nargs = 1 })
 
 vim.api.nvim_create_user_command("Sd", function()

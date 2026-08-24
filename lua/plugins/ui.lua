@@ -223,6 +223,9 @@ return {
             },
             cmdline = {
                 view = "cmdline",
+                opts = {
+                    zindex = 200,
+                },
             },
             lsp = {
                 override = {

@@ -5,7 +5,7 @@ return {
         lazy = false,
         opts = {
             animate      = { enabled = true                 },
-            bigfile      = { enabled = true                 },
+            bigfile      = { enabled = true, notify = false     },
             dashboard    = { enabled = true                 },
             dim          = { enabled = true                 },
             gh           = { enabled = true                 },
@@ -25,6 +25,7 @@ return {
             zen          = { enabled = true                 },
             styles       = {
                 notification = { wo = { wrap = true } },
+                input        = { row = 0.5 },
             },
         },
         keys = {
