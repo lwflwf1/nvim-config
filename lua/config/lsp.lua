@@ -287,15 +287,7 @@ function M.setup()
         on_attach = on_attach,
     }
 
-    vim.lsp.config.verible = {
-        cmd = { "verible-verilog-ls", "--rules_config_search" },
-        filetypes = { "verilog", "systemverilog" },
-        root_markers = { ".git" },
-        capabilities = capabilities,
-        on_attach = on_attach,
-    }
-
-    local servers = { "ty", "ruff", "perl-lsp", "bashls", "lua_ls", "jsonls", "yamlls", "verible", "clangd" }
+    local servers = { "ty", "ruff", "perl-lsp", "bashls", "lua_ls", "jsonls", "yamlls", "clangd" }
     vim.lsp.enable(servers)
     M.servers = servers
 
