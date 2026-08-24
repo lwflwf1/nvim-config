@@ -101,7 +101,8 @@ autocmd("BufEnter", {
 })
 
 -- SOS source control commands.
--- Run soscmd6 asynchronously and report success/failure through the notifier.
+-- Run the SOS CLI (/tools/SOS/gold/bin/sos) asynchronously and report
+-- success/failure through the notifier.
 local function sos_file()
   return vim.fn.expand("%")
 end
@@ -124,35 +125,35 @@ local function sos_notify(op, args)
 end
 
 vim.api.nvim_create_user_command("Sco", function()
-  sos_notify("co", { "soscmd6", "co", sos_file() })
+  sos_notify("co", { "/tools/SOS/gold/bin/sos", "co", sos_file() })
 end, {})
 
 vim.api.nvim_create_user_command("Scon", function()
-  sos_notify("co -Nlock", { "soscmd6", "co", "-Nlock", sos_file() })
+  sos_notify("co -Nlock", { "/tools/SOS/gold/bin/sos", "co", "-Nlock", sos_file() })
 end, {})
 
 vim.api.nvim_create_user_command("Sci", function()
-  sos_notify("ci", { "soscmd6", "ci", sos_file() })
+  sos_notify("ci", { "/tools/SOS/gold/bin/sos", "ci", sos_file() })
 end, {})
 
 vim.api.nvim_create_user_command("Scim", function(opts)
-  sos_notify("ci", { "soscmd6", "ci", "-achange_summary=" .. opts.args, sos_file() })
+  sos_notify("ci", { "/tools/SOS/gold/bin/sos", "ci", "-achange_summary=" .. opts.args, sos_file() })
 end, { nargs = 1 })
 
 vim.api.nvim_create_user_command("Sd", function()
-  sos_notify("discard", { "soscmd6", "discard", sos_file() })
+  sos_notify("discard", { "/tools/SOS/gold/bin/sos", "discard", sos_file() })
 end, {})
 
 vim.api.nvim_create_user_command("Sdf", function()
-  sos_notify("discard -F", { "soscmd6", "discard", "-F", sos_file() })
+  sos_notify("discard -F", { "/tools/SOS/gold/bin/sos", "discard", "-F", sos_file() })
 end, {})
 
 vim.api.nvim_create_user_command("Sup", function()
-  sos_notify("update", { "soscmd6", "update" })
+  sos_notify("update", { "/tools/SOS/gold/bin/sos", "update" })
 end, {})
 
 vim.api.nvim_create_user_command("Scr", function()
-  sos_notify("create", { "soscmd6", "create", sos_file() })
+  sos_notify("create", { "/tools/SOS/gold/bin/sos", "create", sos_file() })
 end, {})
 
 -- Other commands
