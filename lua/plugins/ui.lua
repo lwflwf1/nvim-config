@@ -236,6 +236,11 @@ return {
                 long_message_to_split = true,
                 inc_rename = false,
                 lsp_doc_border = false,
+                -- Route `:!`/command output (msg_show with cmdline "^:") to a
+                -- persistent split instead of the transient notify view, which
+                -- noice auto-dismisses via the "press enter" prompt (bug #1132).
+                -- Fixes `:!` output being invisible on affected terminals.
+                cmdline_output_to_split = true,
             },
         },
     },

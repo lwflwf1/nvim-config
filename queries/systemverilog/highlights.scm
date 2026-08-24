@@ -476,12 +476,21 @@ port_name: (simple_identifier) @variable
 (generate_block
   name: (simple_identifier) @label)
 
-; function.call
+; function.call — only when actually invoked with an argument list.
+; A bare member access (no list_of_arguments) is a variable, not a call.
 (method_call_body
-  name: (simple_identifier) @function.call)
+  (simple_identifier) @variable.member)
+
+(method_call_body
+  name: (simple_identifier) @function.call
+  (list_of_arguments))
 
 (static_method_call_body
-  name: (simple_identifier) @function.call)
+  (simple_identifier) @variable.member)
+
+(static_method_call_body
+  name: (simple_identifier) @function.call
+  (list_of_arguments))
 
 (tf_call
   (hierarchical_identifier

@@ -192,6 +192,8 @@ local function smart_gf(cmd)
                 filepath = filepath:gsub(vim.pesc(char), "")
             end
 
+            filepath = filepath:gsub("^[%s%(%)%[%]{}%,%\"']+", ""):gsub("[%s%(%)%[%]{}%,%\"']+$", "")
+
             local expanded = vim.fn.expand(filepath)
             if vim.fn.filereadable(expanded) == 0 then
                 vim.notify("File not found: " .. filepath, vim.log.levels.ERROR)

@@ -113,7 +113,11 @@ local function find_files_in_project()
         prompt = "Search root> ",
         actions = {
             ["default"] = function(selected)
-                if selected and selected[1] then
+                if not (selected and selected[1]) then return end
+                -- Defer so the outer picker fully closes and restores the editor
+                -- window before the nested files() picker opens; otherwise fzf-lua
+                -- fails to open the selected file ("Unable to add buffer").
+                vim.schedule(function()
                     local cwd
                     if selected[1] == "[Enter path...]" then
                         cwd = vim.fn.input("Search directory: ", bp .. "/")
@@ -123,7 +127,7 @@ local function find_files_in_project()
                     if cwd and cwd ~= "" then
                         require("fzf-lua").files({ cwd = cwd, no_ignore = true })
                     end
-                end
+                end)
             end,
         },
     })

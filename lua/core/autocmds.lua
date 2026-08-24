@@ -100,18 +100,60 @@ autocmd("BufEnter", {
     end,
 })
 
--- SOS source control commands
-vim.api.nvim_create_user_command("Sco", "exec '!soscmd6 co %'", {})
-vim.api.nvim_create_user_command("Scon", "exec '!soscmd6 co -Nlock %'", {})
-vim.api.nvim_create_user_command("Sci", "exec '!soscmd6 ci %'", {})
+-- SOS source control commands.
+-- Run soscmd6 asynchronously and report success/failure through the notifier.
+local function sos_file()
+  return vim.fn.expand("%")
+end
+
+local function sos_notify(op, args)
+  vim.system(args, { text = true }, function(result)
+    local out = vim.trim((result.stdout or "") .. "\n" .. (result.stderr or ""))
+    out = out:gsub("\n+$", "")
+    if result.code == 0 then
+      local msg = op .. " succeeded"
+      if out ~= "" then
+        msg = msg .. ":\n" .. out
+      end
+      vim.notify(msg, vim.log.levels.INFO, { title = "SOS " .. op })
+    else
+      local msg = (out ~= "" and out or op .. " failed") .. " (exit " .. result.code .. ")"
+      vim.notify(msg, vim.log.levels.ERROR, { title = "SOS " .. op })
+    end
+  end)
+end
+
+vim.api.nvim_create_user_command("Sco", function()
+  sos_notify("co", { "soscmd6", "co", sos_file() })
+end, {})
+
+vim.api.nvim_create_user_command("Scon", function()
+  sos_notify("co -Nlock", { "soscmd6", "co", "-Nlock", sos_file() })
+end, {})
+
+vim.api.nvim_create_user_command("Sci", function()
+  sos_notify("ci", { "soscmd6", "ci", sos_file() })
+end, {})
+
 vim.api.nvim_create_user_command("Scim", function(opts)
-    local file = vim.fn.expand("%")
-    vim.system({ "soscmd6", "ci", "-achange_summary=" .. opts.args, file })
+  sos_notify("ci", { "soscmd6", "ci", "-achange_summary=" .. opts.args, sos_file() })
 end, { nargs = 1 })
-vim.api.nvim_create_user_command("Sd", "exec '!soscmd6 discard %'", {})
-vim.api.nvim_create_user_command("Sdf", "exec '!soscmd6 discard -F %'", {})
-vim.api.nvim_create_user_command("Sup", "exec '!soscmd6 update'", {})
-vim.api.nvim_create_user_command("Scr", "exec '!soscmd6 create %'", {})
+
+vim.api.nvim_create_user_command("Sd", function()
+  sos_notify("discard", { "soscmd6", "discard", sos_file() })
+end, {})
+
+vim.api.nvim_create_user_command("Sdf", function()
+  sos_notify("discard -F", { "soscmd6", "discard", "-F", sos_file() })
+end, {})
+
+vim.api.nvim_create_user_command("Sup", function()
+  sos_notify("update", { "soscmd6", "update" })
+end, {})
+
+vim.api.nvim_create_user_command("Scr", function()
+  sos_notify("create", { "soscmd6", "create", sos_file() })
+end, {})
 
 -- Other commands
 vim.api.nvim_create_user_command("Tgen", function(opts)

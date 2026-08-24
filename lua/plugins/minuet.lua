@@ -1,6 +1,7 @@
 return {
     {
         "milanglacier/minuet-ai.nvim",
+        enabled = not vim.g.is_rhel6,
         version = false,
         event = "InsertEnter",
         config = function()

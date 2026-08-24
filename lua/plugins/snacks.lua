@@ -13,7 +13,7 @@ return {
             lazygit      = { enabled = true                 },
             indent       = { enabled = true, scope = {enabled = false}, animate = { enabled = false } },
             input        = { enabled = true                 },
-            notifier     = { enabled = true, timeout = 5000 },
+            notifier     = { enabled = true, timeout = 5000, style = "fancy" },
             picker       = { enabled = true                 },
             quickfile    = { enabled = true                 },
             scope        = { enabled = true                 },
@@ -23,6 +23,9 @@ return {
             toggle       = { enabled = true                 },
             words        = { enabled = true                 },
             zen          = { enabled = true                 },
+            styles       = {
+                notification = { wo = { wrap = true } },
+            },
         },
         keys = {
             { "<leader>gz", function() Snacks.lazygit() end,                 desc = "Lazygit" },
