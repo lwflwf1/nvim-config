@@ -27,12 +27,8 @@
             vim.api.nvim_create_autocmd("FileType", {
                 pattern = "systemverilog",
                 callback = function()
-                    require("mini.pairs").map_buf(0, "i", "'", {
-                        action = "closeopen",
-                        pair = "''",
-                        neigh_pattern = "[^%a]",
-                    })
-                    require("mini.pairs").unmap_buf(0, "i", "`", "``")
+                    vim.keymap.set("i", "'", "'", { buffer = true })
+                    vim.keymap.set("i", "`", "`", { buffer = true })
                 end,
             })
 
