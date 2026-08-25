@@ -56,6 +56,12 @@ return {
                     },
                 },
                 lualine_c = {
+                    {
+                        function()
+                            return vim.fn.pathshorten(vim.fn.fnamemodify(vim.fn.getcwd(), ":~"))
+                        end,
+                        padding = { left = 1, right = 1 },
+                    },
                     { "filename", path = 1, symbols = {
                         modified = " ",
                         readonly = "",
