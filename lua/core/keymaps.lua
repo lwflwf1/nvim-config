@@ -7,6 +7,8 @@ vim.g.maplocalleader = " "
 
 map("n", "H", "^", d("Go to first non-blank"))
 map("n", "L", "$", d("Go to end of line"))
+map("v", "H", "^", d("Extend selection to first non-blank"))
+map("v", "L", "$", d("Extend selection to end of line"))
 map({ "n", "v" }, "j", "gj", d("Down (display lines)"))
 map({ "n", "v" }, "k", "gk", d("Up (display lines)"))
 
