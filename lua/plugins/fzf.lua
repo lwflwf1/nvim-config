@@ -1,4 +1,4 @@
-local project_root = require("config.project_root")
+local project_root = require("config.project").project_root
 
 local exclude_patterns = {
     ".git", "node_modules", "build", "dist",

@@ -1,4 +1,4 @@
-local root_markers = require("config.root_markers")
+local root_markers = require("config.project").markers
 
 return {
     "stevearc/oil.nvim",

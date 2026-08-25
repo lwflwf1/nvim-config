@@ -1,5 +1,5 @@
 local M = {}
-local root_markers = require("config.root_markers")
+local root_markers = require("config.project").markers
 
 ---@type table<string,string> server name -> mason package name
 --- Servers without a mapping are skipped by :ToolInstall. Excluded here:

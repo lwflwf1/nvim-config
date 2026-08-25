@@ -50,7 +50,7 @@ return {
                     { "diff", colored = true, symbols = { added = " ", modified = " ", removed = " " } },
                     {
                         function()
-                            return vim.fn.pathshorten(vim.fn.fnamemodify(vim.fn.getcwd(), ":~"))
+                            return require("config.project").project_name(0)
                         end,
                         padding = { left = 1, right = 1 },
                     },

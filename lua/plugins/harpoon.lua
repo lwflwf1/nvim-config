@@ -23,7 +23,7 @@ return {
             require("harpoon").setup({
                 settings = {
                     key = function()
-                        local root = vim.fs.root(0, require("config.root_markers"))
+                        local root = vim.fs.root(0, require("config.project").markers)
                         return root or vim.uv.cwd()
                     end,
                 },

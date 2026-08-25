@@ -75,7 +75,7 @@ autocmd("FileType", {
     end,
 })
 
-local root_markers = require("config.root_markers")
+local root_markers = require("config.project").markers
 
 local auto_cwd_aug = augroup("auto_cwd", { clear = true })
 local cwd_cache = {}
