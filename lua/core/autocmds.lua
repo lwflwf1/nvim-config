@@ -75,7 +75,7 @@ autocmd("FileType", {
     end,
 })
 
-local root_markers = require("config.project").markers
+local project = require("config.project")
 
 local auto_cwd_aug = augroup("auto_cwd", { clear = true })
 local cwd_cache = {}
@@ -91,7 +91,7 @@ autocmd("BufEnter", {
         end
         local dir = vim.fs.dirname(path)
         if cwd_cache[dir] == nil then
-            cwd_cache[dir] = vim.fs.root(0, root_markers) or dir
+            cwd_cache[dir] = project.project_root(0) or dir
         end
         local target = cwd_cache[dir]
         if vim.fn.getcwd() ~= target then

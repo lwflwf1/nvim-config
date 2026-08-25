@@ -1,4 +1,4 @@
-local root_markers = require("config.project").markers
+local project = require("config.project")
 
 return {
     "stevearc/oil.nvim",
@@ -136,7 +136,7 @@ return {
     init = function()
         vim.api.nvim_create_autocmd("VimEnter", {
             callback = function()
-                local root = vim.fs.root(0, root_markers)
+                local root = project.project_root(0)
                 if root then vim.fn.chdir(root) end
             end,
         })
