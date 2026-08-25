@@ -49,8 +49,10 @@ end
 --- Display name for lualine: only the directory name, no path.
 --- .SOS wins over any other marker (higher priority); if no .SOS is found
 --- walking up, fall back to the nearest of any other marker (equal priority).
+--- If no root marker (including .SOS) is found, returns nil so lualine hides
+--- this component instead of showing a fallback directory name.
 ---@param source string|integer absolute path or buffer number (0 = current)
----@return string directory name of the detected project root
+---@return string|nil directory name of the detected project root, or nil if none
 function M.project_name(source)
     local path = (type(source) == "number") and vim.api.nvim_buf_get_name(source) or source
     local dir
@@ -72,7 +74,7 @@ function M.project_name(source)
     if root then
         return vim.fs.basename(root)
     end
-    return vim.fs.basename(vim.uv.cwd())
+    return nil
 end
 
 vim.api.nvim_create_autocmd("BufEnter", {
