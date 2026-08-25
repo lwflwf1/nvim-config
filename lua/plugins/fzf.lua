@@ -125,7 +125,10 @@ local function find_files_in_project()
                         cwd = bp .. "/" .. selected[1]
                     end
                     if cwd and cwd ~= "" then
-                        require("fzf-lua").files({ cwd = cwd, no_ignore = true })
+                        -- Project dirs' contents live behind symlinks; fd doesn't
+                        -- follow them by default (-L only when follow=true), which
+                        -- yields an empty picker.
+                        require("fzf-lua").files({ cwd = vim.fn.resolve(cwd), no_ignore = true, follow = true })
                     end
                 end)
             end,
