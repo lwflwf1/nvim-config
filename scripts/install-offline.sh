@@ -20,6 +20,11 @@
 #       only when their content changed
 #     - Replaces nvim only when the bundled version differs
 #     - Falls back to a full install when no previous state exists
+#   config-parsers bundle (packaged with `package.ps1 -WithParsers`; carries
+#     config / data / parser-sources / lazy-lock but NO nvim / tools):
+#     - Same flow as --update for config, data and parsers; the nvim and
+#       external-tool-cache steps are skipped entirely (nothing to install)
+#     - Needs an already-installed machine (nvim + a C compiler); run with --update
 #
 # RHEL6 (kernel 2.6.32 / glibc 2.17) deployment notes:
 #   Tool matrix (all verified on RHEL6):
@@ -226,26 +231,12 @@ compile_parser() { # compile_parser <lang.tar.gz> [location] -> 0 on success
 # Shared by full install and --update: required tools, external tool cache,
 # npm tools cache and the Rust toolchain. Idempotent: already-present tools are
 # skipped, missing ones are offered for install from the bundle cache.
-apply_tools() {
-    # ---------------------------------------------------------------- External tools
-    log "== External tool confirmation =="
-    need git   "" "required for lazy plugin repositories" "git --version"
-    need gcc   "" "required to compile treesitter parsers" "gcc --version"
-    need make  "" "compile helper" "make --version"
-    need node  "install_node_from_cache node.tar.xz" "mason npm packages (bash/json/yaml-lsp, prettier)" "node --version"
-    need python3 "" "optional: zip unpack fallback if unzip is missing" "python3 --version"
-
-    # Required tools must be present and RUNNABLE or the install is aborted with a
-    # clear message (declining a need() above only warns, so enforce it here).
-    # python3 is NOT required anymore (pyrefly was replaced by ty, a standalone Rust
-    # binary); it only serves as a zip fallback when unzip is missing.
-    for t in git gcc make node; do
-        if ! command -v "$t" >/dev/null 2>&1 || ! timeout 10 "$t" --version >/dev/null 2>&1; then
-            err "Required tool '$t' is missing or not runnable; install it manually (e.g. into $LOCAL_DIR/bin) and re-run"
-            exit 1
-        fi
-    done
-
+# Select the C/C++ compiler used to build treesitter parsers: prefer the
+# RHEL6 devtoolset-7 prefixes, fall back to $CC or any devtoolset-* on disk.
+# Sets CC_BIN / CXX_BIN / DEVTOOLSET_LD and exports CC/CXX. Shared by
+# apply_tools (full/update installs) and ensure_parser_cc (config-parsers
+# bundles that skip the tool-cache flow entirely).
+pick_cc() {
     # gcc version check (parsers need C11, gcc >= 5 recommended, 7.x best).
     # RHEL6: prefer the devtoolset-7 toolchain (gcc 7, supports C11/C++11) so the 27
     # treesitter parsers compile fast + correctly instead of hanging/failing under
@@ -313,6 +304,42 @@ apply_tools() {
         rm -f /tmp/.cc-probe2
         [ "$CXX_PROBE_OK" = 1 ] || warn "g++ ('$CXX_BIN') cannot compile+link a program that includes <iostream> — C++ scanners (scanner.cc) will fail; install libstdc++-devel"
     fi
+}
+
+# Compiler check for config-parsers bundles: they ship parser sources but no
+# tools/ cache, so apply_tools is skipped — verify gcc directly instead.
+ensure_parser_cc() {
+    need gcc "" "required to compile treesitter parsers" "gcc --version"
+    if ! command -v gcc >/dev/null 2>&1 || ! timeout 10 gcc --version >/dev/null 2>&1; then
+        err "Required tool 'gcc' is missing or not runnable; install it manually (e.g. into $LOCAL_DIR/bin) and re-run"
+        exit 1
+    fi
+    pick_cc
+}
+
+apply_tools() {
+    # ---------------------------------------------------------------- External tools
+    log "== External tool confirmation =="
+    need git   "" "required for lazy plugin repositories" "git --version"
+    need gcc   "" "required to compile treesitter parsers" "gcc --version"
+    need make  "" "compile helper" "make --version"
+    need node  "install_node_from_cache node.tar.xz" "mason npm packages (bash/json/yaml-lsp, prettier)" "node --version"
+    need python3 "" "optional: zip unpack fallback if unzip is missing" "python3 --version"
+
+    # Required tools must be present and RUNNABLE or the install is aborted with a
+    # clear message (declining a need() above only warns, so enforce it here).
+    # python3 is NOT required anymore (pyrefly was replaced by ty, a standalone Rust
+    # binary); it only serves as a zip fallback when unzip is missing.
+    for t in git gcc make node; do
+        if ! command -v "$t" >/dev/null 2>&1 || ! timeout 10 "$t" --version >/dev/null 2>&1; then
+            err "Required tool '$t' is missing or not runnable; install it manually (e.g. into $LOCAL_DIR/bin) and re-run"
+            exit 1
+        fi
+    done
+
+    # gcc version check + devtoolset selection + header probes now live in
+    # pick_cc() (shared with config-parsers bundles, see above).
+    pick_cc
 
     # Table-driven external tool install (tools.sh from the bundle)
     for name in $TOOLS_DOWNLOAD; do
@@ -402,14 +429,27 @@ else
 fi
 
 # A config-only bundle (package.ps1 -ConfigOnly) carries only config/ + data/ +
-# lazy-lock.json — no tools/nvim/parser-sources. Detect it and switch to
-# config-only mode automatically (explicit --config-only also works).
-if [ "$CONFIG_ONLY" != 1 ] \
+# lazy-lock.json — no tools/nvim/parser-sources. A config-parsers bundle
+# (package.ps1 -WithParsers) additionally carries parser-sources/ so parsers
+# can be rev-updated without shipping nvim/tools. Detect the light bundles
+# here; downstream sections key off CONFIG_ONLY (pure config-only) plus
+# explicit per-directory presence checks.
+HAS_PARSERS=0
+if [ -d "$TMP/parser-sources" ] && [ -n "$(ls -A "$TMP/parser-sources" 2>/dev/null)" ]; then
+    HAS_PARSERS=1
+fi
+if [ "$CONFIG_ONLY" != 1 ] && [ "$HAS_PARSERS" != 1 ] \
    && { [ ! -d "$TMP/tools" ] || [ -z "$(ls -A "$TMP/tools" 2>/dev/null)" ] \
-        || [ ! -d "$TMP/nvim" ] || [ -z "$(ls -A "$TMP/nvim" 2>/dev/null)" ] \
-        || [ ! -d "$TMP/parser-sources" ] || [ -z "$(ls -A "$TMP/parser-sources" 2>/dev/null)" ]; }; then
+        || [ ! -d "$TMP/nvim" ] || [ -z "$(ls -A "$TMP/nvim" 2>/dev/null)" ]; }; then
     log "bundle lacks tools/nvim/parser-sources — running in config-only mode"
     CONFIG_ONLY=1
+fi
+# A config-parsers bundle relies on an existing install: fail fast with a clear
+# message instead of dying later in the parser loop.
+if [ "$CONFIG_ONLY" != 1 ] && [ "$HAS_PARSERS" = 1 ] && [ ! -d "$TMP/nvim" ] \
+   && ! command -v nvim >/dev/null 2>&1; then
+    err "bundle carries parser sources but no nvim, and nvim is not installed — run a full or config bundle first"
+    exit 1
 fi
 
 # ---------------------------------------------------------------- Mode
@@ -423,12 +463,16 @@ if [ "$UPDATE_MODE" = 1 ]; then
     fi
 fi
 
-if [ "$CONFIG_ONLY" != 1 ]; then
+if [ -d "$TMP/tools" ]; then
     apply_tools
+elif [ "$HAS_PARSERS" = 1 ] && [ "$CONFIG_ONLY" != 1 ]; then
+    # config-parsers bundle: no tool cache to apply, but the parser loop still
+    # needs a working C compiler (devtoolset-7 aware) — run the gcc checks.
+    log "== Parser toolchain check =="
+    ensure_parser_cc
 fi
 
-if [ "$CONFIG_ONLY" != 1 ]; then
-    # ---------------------------------------------------------------- nvim
+if [ -d "$TMP/nvim" ]; then
     # Neovim's runtime resolves ../lib and ../share relative to the binary, so the
     # tree is extracted to ~/.local/nvim and a symlink is placed at ~/.local/bin/nvim
     # (overwriting any existing file/link). ~/.local/bin is prepended to PATH so the
@@ -469,8 +513,12 @@ if [ "$CONFIG_ONLY" != 1 ]; then
             install_nvim
         fi
     fi
-    export PATH="$LOCAL_DIR/bin:$LOCAL_DIR/nvim/bin:$PATH"
 fi
+
+# Prepend the bundled-nvim dirs to PATH even when this bundle doesn't carry
+# nvim (config-parsers bundles) so the headless verification below and the
+# parser loop's sanity checks use the same binary the user runs.
+export PATH="$LOCAL_DIR/bin:$LOCAL_DIR/nvim/bin:$PATH"
 
 # ---------------------------------------------------------------- Config and data
 if [ "$MODE" = full ] && [ "$CONFIG_ONLY" != 1 ]; then

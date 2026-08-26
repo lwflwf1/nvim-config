@@ -32,8 +32,13 @@ param(
     [string]$ToolsFile = "",
     [string]$ConfigRepo = "https://github.com/lwflwf1/nvim-config.git",
     [string]$ConfigRev = "",
-    [switch]$ConfigOnly = $false
+    [switch]$ConfigOnly = $false,
+    [switch]$WithParsers = $false
 )
+
+if ($ConfigOnly -and $WithParsers) {
+    throw "-ConfigOnly and -WithParsers are mutually exclusive"
+}
 
 $ErrorActionPreference = "Stop"
 $script:ConfigDir = if ($env:XDG_CONFIG_HOME) { Join-Path $env:XDG_CONFIG_HOME "nvim" } else { Join-Path $env:LOCALAPPDATA "nvim" }
@@ -227,6 +232,10 @@ if (-not $ConfigOnly) {
     } else {
         Err "nvim not found, run install.ps1 first"
     }
+}
+if (-not $ConfigOnly -or $WithParsers) {
+    # -WithParsers needs the CLI only when a parser sets generate = true (perl);
+    # checking unconditionally keeps the guard simple and matches full mode.
     if (-not (Get-Command tree-sitter -ErrorAction SilentlyContinue)) {
         Err "tree-sitter CLI missing (needed to pre-generate the perl parser), install it first"
     }
@@ -279,7 +288,7 @@ Ok "config + data copied"
 Manifest "mason=0"
 
 # ---------------------------------------------------------------- nvim binary (driven by tools.json)
-if (-not $ConfigOnly) {
+if (-not $ConfigOnly -and -not $WithParsers) {
 Log "== Neovim binary (old-glibc build, from tools.json) =="
 $nvimEntry = $script:ToolsDef.tools | Where-Object { $_.name -eq "nvim" } | Select-Object -First 1
 if (-not $nvimEntry) { Err "tools.json is missing the 'nvim' entry" }
@@ -293,7 +302,7 @@ Log "Config-only mode: nvim binary skipped"
 }
 
 # ---------------------------------------------------------------- Parser sources
-if (-not $ConfigOnly) {
+if ($WithParsers -or -not $ConfigOnly) {
 Log "== Treesitter parser sources (pinned revisions) =="
 $parsersLuaPath = Join-Path $script:DataDir "lazy\nvim-treesitter\lua\nvim-treesitter\parsers.lua"
 if (-not (Test-Path $parsersLuaPath)) { Err "nvim-treesitter not found: $parsersLuaPath" }
@@ -439,7 +448,7 @@ Manifest "parsers=$psrcCount"
 # directly with gcc (see install-offline.sh header), so shipping its binary is
 # dead weight. It is only needed on the online packaging machine.
 $DownloadTools = $script:ToolsDef.tools | Where-Object { $_.source -ne "external" -and $_.name -ne "nvim" }
-if (-not $ConfigOnly) {
+if (-not $ConfigOnly -and -not $WithParsers) {
 Log "== External tool cache (from tools.json: $($DownloadTools.name -join ' ')) =="
 if (Confirm-Download "Process external tool cache for offline install? [Y/n] ") {
     foreach ($e in $DownloadTools) {
@@ -455,7 +464,7 @@ Log "Config-only mode: tool cache skipped"
 }
 
 # ---------------------------------------------------------------- npm tools cache (offline mason fallback)
-if (-not $ConfigOnly) {
+if (-not $ConfigOnly -and -not $WithParsers) {
 Log "== npm tools cache (offline fallback for mason npm packages) =="
 $NpmTools = $script:ToolsDef.npm
 if (Confirm-Download "Bundle npm tools ($NpmTools)? [Y/n] ") {
@@ -491,7 +500,7 @@ Log "Config-only mode: npm tools skipped"
 # ---------------------------------------------------------------- Emit tools.sh companion + copy tools.json
 # install-offline.sh sources tools.sh (derived from tools.json) to drive install
 # and glibc-2.34 wrapper generation — no JSON parsing needed on the offline box.
-if (-not $ConfigOnly) {
+if (-not $ConfigOnly -and -not $WithParsers) {
 foreach ($e in $script:ToolsDef.tools) {
     $glibc = if ($e.glibc234) { "1" } else { "0" }
     $realpath = if ($e.realpath) { $e.realpath } else { "" }
@@ -519,11 +528,17 @@ Log "Config-only mode: tools.sh/tools.json skipped"
 
 # ---------------------------------------------------------------- Packaging
 Log "== Generating bundle =="
-if ($ConfigOnly) {
-    # drop the empty (unpopulated) dirs so the installer's config-only
-    # auto-detection sees a clearly light bundle
-    Remove-Item -Recurse -Force (Join-Path $BundleRoot "tools") -ErrorAction SilentlyContinue
-    Remove-Item -Recurse -Force (Join-Path $BundleRoot "parser-sources") -ErrorAction SilentlyContinue
+if ($ConfigOnly -or $WithParsers) {
+    # drop the dirs this bundle type must not carry so the installer's
+    # auto-detection classifies it correctly:
+    #   -config          -> tools + nvim + parser-sources all absent
+    #   -config-parsers  -> tools + nvim absent, parser-sources KEPT
+    foreach ($d in @("tools", "nvim")) {
+        Remove-Item -Recurse -Force (Join-Path $BundleRoot $d) -ErrorAction SilentlyContinue
+    }
+    if ($ConfigOnly) {
+        Remove-Item -Recurse -Force (Join-Path $BundleRoot "parser-sources") -ErrorAction SilentlyContinue
+    }
 }
 $lockSrc = Join-Path $script:ConfigDir "lazy-lock.json"
 if (-not (Test-Path $lockSrc)) {
@@ -536,7 +551,7 @@ if (Test-Path $lockSrc) {
 } else { $lockMd5 = "" }
 Manifest "lazylock=$lockMd5"
 $date = Get-Date -Format "yyyyMMdd"
-$suffix = if ($ConfigOnly) { "-config" } else { "" }
+$suffix = if ($ConfigOnly) { "-config" } elseif ($WithParsers) { "-config-parsers" } else { "" }
 $outFile = Join-Path $Out "nvim-bundle-linux-x86_64-$date$suffix.zip"
 & tar.exe -a -cf $outFile -C $BundleRoot .
 if ($LASTEXITCODE -ne 0) { Err "tar failed while creating the bundle" }
