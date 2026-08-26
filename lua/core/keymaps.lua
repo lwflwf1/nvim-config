@@ -12,8 +12,22 @@ map("v", "L", "$", d("Extend selection to end of line"))
 map({ "n", "v" }, "j", "gj", d("Down (display lines)"))
 map({ "n", "v" }, "k", "gk", d("Up (display lines)"))
 
-map("n", "<C-h>", ":bprevious<CR>", d("Previous buffer"))
-map("n", "<C-l>", ":bnext<CR>", d("Next buffer"))
+map("n", "<C-h>", function()
+    local ok, bl = pcall(require, "bufferline")
+    if ok then
+        for _ = 1, vim.v.count1 do bl.cycle(-1) end
+    else
+        vim.cmd("bprevious")
+    end
+end, d("Previous buffer"))
+map("n", "<C-l>", function()
+    local ok, bl = pcall(require, "bufferline")
+    if ok then
+        for _ = 1, vim.v.count1 do bl.cycle(1) end
+    else
+        vim.cmd("bnext")
+    end
+end, d("Next buffer"))
 
 map("n", "<", "<<", d("Indent left"))
 map("n", ">", ">>", d("Indent right"))
