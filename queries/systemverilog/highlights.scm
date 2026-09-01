@@ -488,7 +488,12 @@ port_name: (simple_identifier) @variable
 
 (tf_call
   (hierarchical_identifier
-    name: (simple_identifier) @function.call))
+    (simple_identifier) @function.call))
+
+(tf_call
+  (package_scope
+    (simple_identifier) @constructor)
+  (simple_identifier) @function.call)
 
 ; instance
 (module_instantiation
