@@ -190,7 +190,11 @@
   (queue_dimension)
 ] @operator
 
-"#" @constructor
+; delay `#`: #100us / #10 — timing control symbol, not an attribute
+(delay_control "#" @operator)
+; parameterized: module #(param), inst #(.P(1)), Foo#(T) — keep constructor
+(parameter_port_list "#" @constructor)
+(parameter_value_assignment "#" @constructor)
 
 [
   ";"
@@ -251,7 +255,6 @@
 [
   "@"
   (cycle_delay_range)
-  (delay_control)
   (cycle_delay)
   (attribute_instance)
 ] @attribute
