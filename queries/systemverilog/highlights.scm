@@ -473,33 +473,40 @@ port_name: (simple_identifier) @variable
 (generate_block
   name: (simple_identifier) @label)
 
-; function.call — only when actually invoked with an argument list.
-; A bare member access (no list_of_arguments) is a variable, not a call.
+; function.call — only when actually invoked (an opening paren follows the
+; name). A bare member access (no parens) is a variable, not a call. The
+; zero-argument call obj.method() has no list_of_arguments node, so anchor
+; on "(" instead of requiring an argument list.
 (method_call_body
   (simple_identifier) @variable.member)
 
 (method_call_body
   name: (simple_identifier) @function.call
-  (list_of_arguments))
+  "(")
 
+; static_method_call_body always has parens (arguments are required by the
+; grammar), so any name here is a call — including zero-arg create().
 (static_method_call_body
   (simple_identifier) @variable.member)
 
 (static_method_call_body
-  name: (simple_identifier) @function.call
-  (list_of_arguments))
+  name: (simple_identifier) @function.call)
 
 ; trailing anchor: only matches the LAST simple_identifier of the path.
 ; Requires tree-sitter >= 0.26.12 (tree-sitter/tree-sitter#5818); nvim 0.13+ bundles it.
 ; nvim 0.12.x (tree-sitter 0.26.7) has the query-engine bug and this matches nothing there.
+; The "(" anchor also excludes parenthesis-less tf_calls (bare member refs like
+; `obj.member;` parse as tf_call too) from being colored as a function call.
 (tf_call
   (hierarchical_identifier
-    (simple_identifier) @function.call .))
+    (simple_identifier) @function.call .)
+  "(")
 
 (tf_call
   (package_scope
     (simple_identifier) @constructor)
-  (simple_identifier) @function.call)
+  (simple_identifier) @function.call
+  "(")
 
 ; instance
 (module_instantiation
