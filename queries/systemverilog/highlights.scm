@@ -94,6 +94,10 @@
   "typedef"
 ] @keyword.type
 
+; enum member definitions
+(enum_name_declaration
+  (simple_identifier) @constant)
+
 [
   "function"
   "endfunction"
@@ -595,10 +599,9 @@ c_name: (c_identifier) @function
 (constraint_declaration
   (simple_identifier) @constructor)
 
-(method_call
-  (primary
-    (hierarchical_identifier
-      (simple_identifier) @constructor)))
+; static method calls: Class::method() or pkg::func() — root is class_type/package_scope,
+; covered by class_type/package_scope patterns above. The generic (primary) pattern was
+; removed: it mis-highlighted the receiver of instance calls like obj.method() as @constructor.
 
 (string_literal
   (quoted_string) @string)
