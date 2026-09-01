@@ -382,18 +382,17 @@ port_name: (simple_identifier) @variable
 "null" @constant.builtin
 
 ; declaration
+; No leading `.` anchor: out-of-class definitions have a class_scope child
+; (task Foo::bar(...)) before the name field, which would break the anchor.
 (task_body_declaration
-  .
   name: (simple_identifier) @function
   (simple_identifier)? @label)
 
 (function_body_declaration
-  .
   name: (simple_identifier) @function
   (simple_identifier)? @label)
 
 (function_body_declaration
-  .
   (data_type_or_void)
   name: (simple_identifier) @function
   (simple_identifier)? @label)
