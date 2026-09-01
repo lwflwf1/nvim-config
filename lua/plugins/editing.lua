@@ -35,9 +35,9 @@
             require("mini.surround").setup({
                 n_lines = 10,
                 mappings = {
-                    add         = "ys",
-                    delete      = "ds",
-                    replace     = "cs",
+                    add         = "sy",
+                    delete      = "sd",
+                    replace     = "sr",
                     find        = "",
                     find_left   = "",
                     highlight   = "",
@@ -47,7 +47,7 @@
                 search_method = "cover_or_next",
             })
             -- vim.keymap.set("x", "S", [[:<C-u>lua MiniSurround.add("visual")<CR>]], { silent = true })
-            vim.keymap.set("n", "yss", "ys_", { remap = true, desc = "Surround line" })
+
 
             require("mini.align").setup()
 
