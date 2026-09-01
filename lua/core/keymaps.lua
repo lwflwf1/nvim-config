@@ -167,7 +167,16 @@ local function build_smart_gf_patterns()
         })
     end
 
-    -- 2. Unquoted formats with a separator: file:line, file;line, file, line
+    -- 2. file(line) format (UVM logs, compiler errors) — before :/;/,
+    --    because a line like "path.sv(256) @ 123ns: ... for ctl_id:0" must
+    --    match the file(256) part, not the later word:number (e.g. ctl_id:0).
+    for _, sep in ipairs(smart_gf_config.separators) do
+        if sep == "(" then
+            table.insert(patterns, { '([^%s]+)%((%d+)%)', 1, 2 })
+        end
+    end
+
+    -- 3. Unquoted formats with a separator: file:line, file;line, file, line
     for _, sep in ipairs(smart_gf_config.separators) do
         local sep_esc = vim.pesc(sep)
         if sep == ":" then
@@ -179,13 +188,6 @@ local function build_smart_gf_patterns()
         else
             -- file;line etc.
             table.insert(patterns, { '([^%s]+)' .. sep_esc .. '(%d+)', 1, 2 })
-        end
-    end
-
-    -- 3. file(line) format (when ( is used as the separator)
-    for _, sep in ipairs(smart_gf_config.separators) do
-        if sep == "(" then
-            table.insert(patterns, { '([^%s]+)%((%d+)%)', 1, 2 })
         end
     end
 
@@ -209,9 +211,11 @@ local function smart_gf(cmd)
             filepath = filepath:gsub("^[%s%(%)%[%]{}%,%\"']+", ""):gsub("[%s%(%)%[%]{}%,%\"']+$", "")
 
             local expanded = vim.fn.expand(filepath)
+            -- Keep trying the next pattern when this candidate does not
+            -- resolve to a real file (e.g. "ctl_id:0" inside a UVM log line
+            -- must not shadow the earlier "path.sv(256)" match).
             if vim.fn.filereadable(expanded) == 0 then
-                vim.notify("File not found: " .. filepath, vim.log.levels.ERROR)
-                return
+                goto continue
             end
 
             if cmd == "split" then
@@ -222,6 +226,8 @@ local function smart_gf(cmd)
             vim.cmd("normal! zz")
             return
         end
+
+        ::continue::
     end
 
     local ok = pcall(vim.cmd, "normal! " .. (cmd == "split" and "gF" or "gf"))
