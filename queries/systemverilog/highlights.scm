@@ -490,9 +490,12 @@ port_name: (simple_identifier) @variable
   name: (simple_identifier) @function.call
   (list_of_arguments))
 
+; trailing anchor: only matches the LAST simple_identifier of the path.
+; Requires tree-sitter >= 0.26.12 (tree-sitter/tree-sitter#5818); nvim 0.13+ bundles it.
+; nvim 0.12.x (tree-sitter 0.26.7) has the query-engine bug and this matches nothing there.
 (tf_call
   (hierarchical_identifier
-    (simple_identifier) @function.call))
+    (simple_identifier) @function.call .))
 
 (tf_call
   (package_scope
