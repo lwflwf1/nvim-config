@@ -68,9 +68,11 @@
   "do"
   "genvar"
   "inside"
+  "dist"
   "rand"
   "continue"
   "randc"
+  "with"
   "event"
   "global"
   "ref"
@@ -303,6 +305,22 @@ port_name: (simple_identifier) @variable
 (net_decl_assignment
   (simple_identifier) @variable)
 
+; for loop variable
+(for_variable_declaration
+  (simple_identifier) @variable)
+
+; foreach loop variable
+(loop_variables
+  (simple_identifier) @variable)
+
+; randomize variable list
+(variable_identifier_list
+  (simple_identifier) @variable)
+
+; array index/select variable
+(constant_primary
+  (simple_identifier) @variable)
+
 ; variable.member
 (hierarchical_identifier
   (simple_identifier)
@@ -352,8 +370,12 @@ port_name: (simple_identifier) @variable
   (severity_system_task)
   (randomize_call)
   (array_or_queue_method_name)
+  (queue_method_name)
   "new"
+  "std"
 ] @function.builtin
+
+"null" @constant.builtin
 
 ; declaration
 (task_body_declaration
@@ -448,13 +470,25 @@ port_name: (simple_identifier) @variable
 (generate_block
   name: (simple_identifier) @label)
 
-; function.call
+; function.call — only when actually invoked with an argument list.
+; A bare member access (no list_of_arguments) is a variable, not a call.
 (method_call_body
-  name: (simple_identifier) @function.call)
+  (simple_identifier) @variable.member)
+
+(method_call_body
+  name: (simple_identifier) @function.call
+  (list_of_arguments))
+
+(static_method_call_body
+  (simple_identifier) @variable.member)
+
+(static_method_call_body
+  name: (simple_identifier) @function.call
+  (list_of_arguments))
 
 (tf_call
   (hierarchical_identifier
-    (simple_identifier) @function.call))
+    name: (simple_identifier) @function.call))
 
 ; instance
 (module_instantiation
