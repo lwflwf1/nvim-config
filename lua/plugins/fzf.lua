@@ -184,6 +184,7 @@ return {
                     ["ctrl-j"] = "down",
                     ["ctrl-k"] = "up",
                     ["ctrl-c"] = "abort",
+                    ["ctrl-q"] = "select-all+accept",
                 },
             },
             -- Follow symbolic links in all file-system searches (rg --follow /
