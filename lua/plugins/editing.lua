@@ -68,8 +68,8 @@
             })
 
             local keymap = require("mini.keymap")
-            keymap.map_combo("i", "jj", "<BS><BS><Esc>")
-            keymap.map_combo("t", "jj", "<BS><BS><C-\\><C-n>")
+            keymap.map_combo("i", "jj", "<BS><BS><Esc>", { delay = 500 })
+            keymap.map_combo("t", "jj", "<BS><BS><C-\\><C-n>", { delay = 500 })
             keymap.map_combo({ "n", "x" }, "<Esc><Esc>", function()
                 if vim.v.hlsearch == 1 then vim.cmd("nohlsearch") end
             end)
