@@ -52,7 +52,7 @@
             require("mini.align").setup()
 
             require("mini.operators").setup({
-                evaluate = { prefix = "" },
+                evaluate = { prefix = "g=" },
                 exchange = { prefix = "" },
                 multiply = { prefix = "" },
                 replace  = { prefix = "s" },
