@@ -9,6 +9,7 @@ return {
             colors = true,
             keys = {
                 C = "Ctrl ",
+                BS = "󰁮 ",
             },
         },
         spec = {
