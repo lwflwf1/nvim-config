@@ -104,36 +104,37 @@ local function switch_project_file()
     })
 end
 
-local function find_files_in_project()
+-- Resolve a user-typed search root:
+--   1. existing directory (absolute or relative) -> used as-is
+--   2. bare project name -> prefix-matched against bp's subdirectories
+--   3. anything else -> nil (notify + cancel)
+local function resolve_search_root(v)
+    v = v and v:gsub("%s+$", "") or ""
+    if v == "" then return nil end
+    if vim.fn.isdirectory(v) == 1 then return vim.fn.resolve(v) end
     local bp = proj_base_path()
-    local projects = scan_dirs(bp)
-    table.insert(projects, 1, "[Enter path...]")
+    if not v:find("[/\\]") then
+        local matches = vim.tbl_filter(function(p)
+            return p:sub(1, #v):lower() == v:lower()
+        end, scan_dirs(bp))
+        if #matches == 1 then return bp .. "/" .. matches[1] end
+        if #matches > 1 then
+            vim.notify("Ambiguous project name: " .. v .. " (" .. table.concat(matches, ", ") .. ")", vim.log.levels.WARN)
+            return nil
+        end
+    end
+    vim.notify("Not a directory: " .. v, vim.log.levels.WARN)
+    return nil
+end
 
-    require("fzf-lua").fzf_exec(projects, {
-        prompt = "Search root> ",
-        actions = {
-            ["default"] = function(selected)
-                if not (selected and selected[1]) then return end
-                -- Defer so the outer picker fully closes and restores the editor
-                -- window before the nested files() picker opens; otherwise fzf-lua
-                -- fails to open the selected file ("Unable to add buffer").
-                vim.schedule(function()
-                    local cwd
-                    if selected[1] == "[Enter path...]" then
-                        cwd = vim.fn.input("Search directory: ", bp .. "/")
-                    else
-                        cwd = bp .. "/" .. selected[1]
-                    end
-                    if cwd and cwd ~= "" then
-                        -- Project dirs' contents live behind symlinks; fd doesn't
-                        -- follow them by default (-L only when follow=true), which
-                        -- yields an empty picker.
-                        require("fzf-lua").files({ cwd = vim.fn.resolve(cwd), no_ignore = true, follow = true })
-                    end
-                end)
-            end,
-        },
-    })
+-- Interactive root input with Tab directory completion.
+-- fG/fW preset the current project root; fP presets the project base path
+-- so Tab completion naturally lists the project directories.
+local function input_search_root(prompt, default, open)
+    local v = vim.fn.input(prompt, default, "dir")
+    print("")
+    local root = resolve_search_root(v)
+    if root then open(root) end
 end
 
 return {
@@ -166,7 +167,24 @@ return {
             { "<leader>ft", function() require("fzf-lua").tags() end, desc = "Project tags" },
             { "<leader>fT", function() require("fzf-lua").btags() end, desc = "Buffer tags" },
             { "<leader>fp", switch_project_file, desc = "Open same file in another project" },
-            { "<leader>fP", find_files_in_project, desc = "Find files in custom project root" },
+            { "<leader>fP", function()
+                input_search_root("Files root: ", proj_base_path() .. "/", function(root)
+                    -- Project dirs' contents live behind symlinks; fd doesn't
+                    -- follow them by default (-L only when follow=true), which
+                    -- yields an empty picker.
+                    require("fzf-lua").files({ cwd = root, no_ignore = true, follow = true })
+                end)
+              end, desc = "Find files in custom root" },
+            { "<leader>fG", function()
+                input_search_root("Grep root: ", get_project_root(), function(root)
+                    require("fzf-lua").live_grep({ cwd = root })
+                end)
+              end, desc = "Live grep in custom root" },
+            { "<leader>fW", function()
+                input_search_root("Word search root: ", get_project_root(), function(root)
+                    require("fzf-lua").grep_cword({ cwd = root })
+                end)
+              end, desc = "Word search in custom root" },
         },
         opts = {
             file_icon_padding = " ",
