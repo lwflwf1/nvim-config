@@ -194,6 +194,7 @@ return {
                 rg_opts = "--column --line-number --no-heading --color=always --smart-case --max-columns=4096 --follow -e",
             },
             files = {
+                cwd_prompt = false,
                 follow = true,
                 rg_opts = "--color=never --files " .. rg_glob_exclude(),
                 fd_opts = "--color=never --type f --type l " .. fd_glob_exclude(),
