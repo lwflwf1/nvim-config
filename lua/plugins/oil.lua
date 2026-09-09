@@ -1,25 +1,45 @@
 local project = require("config.project")
 
+-- Show the current directory in the oil winbar (official recipe)
+function _G.get_oil_winbar()
+    local bufnr = vim.api.nvim_win_get_buf(vim.g.statusline_winid)
+    local dir = require("oil").get_current_dir(bufnr)
+    if dir then
+        return vim.fn.fnamemodify(dir, ":~")
+    else
+        return vim.api.nvim_buf_get_name(0)
+    end
+end
+
 return {
     "stevearc/oil.nvim",
+    -- Official recommendation: lazy loading oil is "very tricky to make it
+    -- work correctly in all situations" (breaks `nvim .` dir takeover)
+    lazy = false,
     dependencies = {
         "nvim-tree/nvim-web-devicons",
         "malewicz1337/oil-git.nvim",
     },
-    event = "VeryLazy",
     keys = {
         {
             "<leader>ee",
             function()
-                for _, win in ipairs(vim.api.nvim_list_wins()) do
-                    local buf = vim.api.nvim_win_get_buf(win)
-                    if vim.bo[buf].filetype == "oil" then
-                        if #vim.api.nvim_list_wins() > 1 then
-                            vim.api.nvim_win_close(win, true)
+                -- Close an existing oil sidebar in the CURRENT tab only
+                -- (nvim_list_wins() spans all tabs and closed other tabs' sidebars)
+                for _, winid in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+                    if vim.api.nvim_win_get_config(winid).relative == "" then
+                        local buf = vim.api.nvim_win_get_buf(winid)
+                        if vim.bo[buf].filetype == "oil" then
+                            if #vim.api.nvim_tabpage_list_wins(0) > 1 then
+                                vim.api.nvim_win_close(winid, true)
+                            end
+                            return
                         end
-                        return
                     end
                 end
+                -- oil.open() opens in the CURRENT window (its vertical/split
+                -- opts only apply to preview), so the manual topleft vsplit is
+                -- the correct way to get a sidebar.
                 vim.cmd("topleft vsplit")
                 require("oil").open()
                 vim.api.nvim_win_set_width(0, 40)
@@ -32,6 +52,7 @@ return {
             function() require("oil").toggle_float() end,
             desc = "Oil (float)",
         },
+        { "-", "<CMD>Oil<CR>", desc = "Open parent directory" },
     },
     opts = {
         default_file_explorer = true,
@@ -47,35 +68,53 @@ return {
 
                     if entry.type == "directory" then
                         oil.select()
-                    else
-                        local prev_winid = nil
-                        local wins = vim.api.nvim_list_wins()
-                        local cur_winid = vim.api.nvim_get_current_win()
-                        for _, winid in ipairs(wins) do
-                            if winid ~= cur_winid then
-                                local buf = vim.api.nvim_win_get_buf(winid)
-                                if vim.bo[buf].buftype == "" then
-                                    prev_winid = winid
-                                    break
-                                end
+                        return
+                    end
+
+                    -- Candidate windows: normal (non-floating) windows in the
+                    -- CURRENT tab only. nvim_list_wins() spans all tabs, which
+                    -- made files open in the first tab.
+                    local candidates = {}
+                    for _, winid in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+                        if vim.api.nvim_win_get_config(winid).relative == "" then
+                            local buf = vim.api.nvim_win_get_buf(winid)
+                            if vim.bo[buf].buftype == "" and vim.bo[buf].filetype ~= "oil" then
+                                table.insert(candidates, winid)
                             end
                         end
+                    end
 
-                        if prev_winid and vim.api.nvim_win_is_valid(prev_winid) then
-                            local target_winid = prev_winid
-                            oil.select({
-                                handle_buffer_callback = function(buf_id)
-                                    if vim.api.nvim_win_is_valid(target_winid) then
-                                        vim.api.nvim_win_set_buf(target_winid, buf_id)
-                                    end
-                                end,
-                            })
-                        else
-                            oil.select({ vertical = true })
-                        end
+                    local function open_in(winid)
+                        oil.select({
+                            handle_buffer_callback = function(buf_id)
+                                if vim.api.nvim_win_is_valid(winid) then
+                                    vim.api.nvim_win_set_buf(winid, buf_id)
+                                end
+                            end,
+                        })
+                    end
+
+                    if #candidates == 0 then
+                        oil.select({ vertical = true })
+                    elseif #candidates == 1 then
+                        open_in(candidates[1])
+                    else
+                        -- Multiple windows: let the user pick (vim.ui.select is
+                        -- backed by snacks.picker.select in this config)
+                        vim.ui.select(candidates, {
+                            prompt = "Open file in window:",
+                            format_item = function(winid)
+                                local buf = vim.api.nvim_win_get_buf(winid)
+                                local name = vim.api.nvim_buf_get_name(buf)
+                                if name == "" then name = "[No Name]" end
+                                return ("win %d  %s"):format(winid, vim.fn.fnamemodify(name, ":t"))
+                            end,
+                        }, function(winid)
+                            if winid then open_in(winid) end
+                        end)
                     end
                 end,
-                desc = "Open file in right window / enter directory",
+                desc = "Open file in chosen window / enter directory",
             },
             ["<leader>fx"] = {
                 callback = function()
@@ -106,6 +145,7 @@ return {
             list = false,
             conceallevel = 3,
             concealcursor = "nvic",
+            winbar = "%!v:lua.get_oil_winbar()",
         },
         view_options = {
             show_hidden = true,
