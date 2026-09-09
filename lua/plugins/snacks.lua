@@ -16,6 +16,14 @@ return {
             notifier     = { enabled = true, timeout = 5000, style = "fancy" },
             picker       = {
                 enabled = true,
+                sources = {
+                    -- RHEL6 trees live behind symlinks (fzf-lua shipped --follow;
+                    -- snacks defaults to no-follow) and fzf-lua showed hidden files
+                    -- by default — restore both behaviors globally.
+                    grep  = { follow = true },
+                    files = { follow = true, hidden = true },
+                    smart = { follow = true, hidden = true, ignored = true },
+                },
                 actions = {
                     trouble_open = function(...)
                         return require("trouble.sources.snacks").actions.trouble_open.action(...)
