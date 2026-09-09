@@ -3,8 +3,7 @@ return {
     event = "VeryLazy",
     dependencies = { "nvim-lua/plenary.nvim" },
     keys = {
-        -- NOTE: Snacks.picker.todo_comments() requires a newer snacks; grep fallback until then
-        { "<leader>tf", function() Snacks.picker.grep({ search = "\\b(TODO|WAIT|HOLD|FIXME|XXX|HACK)\\b" }) end, desc = "TODOs search (snacks)" },
+        { "<leader>tf", function() Snacks.picker.todo_comments() end, desc = "TODOs search (snacks)" },
         { "<leader>tq", "<cmd>TodoQuickFix<CR>", desc = "TODOs to quickfix" },
         { "<leader>tn", "<cmd>lua require('todo-comments').jump_next()<CR>", desc = "Next TODO" },
         { "<leader>tp", "<cmd>lua require('todo-comments').jump_prev()<CR>", desc = "Prev TODO" },
