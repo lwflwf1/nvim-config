@@ -18,14 +18,6 @@ return {
         { "<leader>lq", "<cmd>Trouble qflist toggle<CR>", desc = "Quickfix (Trouble)" },
         { "<leader>lk", "<cmd>Trouble loclist toggle<CR>", desc = "Location List (Trouble)" },
     },
-    specs = {
-        "ibhagwan/fzf-lua",
-        opts = function(_, opts)
-            local config = require("fzf-lua.config")
-            local actions = require("trouble.sources.fzf").actions
-            config.defaults.actions.files["ctrl-t"] = actions.open
-        end,
-    },
     init = function()
         vim.api.nvim_create_autocmd("QuickFixCmdPost", {
             callback = function()

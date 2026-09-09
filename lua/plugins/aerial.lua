@@ -2,13 +2,10 @@ return {
     {
         "stevearc/aerial.nvim",
         cmd = { "AerialToggle", "AerialOpen", "AerialNavToggle" },
-        dependencies = {
-            "ibhagwan/fzf-lua",
-        },
         keys = {
             { "<leader>lo", "<cmd>AerialToggle!<CR>", desc = "Aerial outline" },
             { "<leader>lO", "<cmd>AerialNavToggle<CR>", desc = "Aerial nav window" },
-            { "<leader>fs", function() require("aerial").fzf_lua_picker() end, desc = "Aerial symbols (fzf)" },
+            { "<leader>fs", function() require("aerial").snacks_picker() end, desc = "Aerial symbols (snacks)" },
             { "]s", function() require("aerial").next() end, desc = "Next symbol" },
             { "[s", function() require("aerial").prev() end, desc = "Prev symbol" },
         },

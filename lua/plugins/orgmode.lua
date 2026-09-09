@@ -4,7 +4,6 @@ return {
     ft = { "org" },
     dependencies = {
       "nvim-lua/plenary.nvim",
-      { "0xzhzh/fzf-org.nvim", dependencies = "ibhagwan/fzf-lua" },
       "nvim-orgmode/org-bullets.nvim",
       "danilshvalov/org-modern.nvim",
       "seflue/org-link.nvim",
