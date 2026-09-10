@@ -25,4 +25,23 @@ return {
         { "<leader>fz", function() require("fff").live_grep() end, desc = "Live grep (fff)" },
         { "<leader>fw", function() require("fff").live_grep_under_cursor() end, mode = { "n", "x" }, desc = "Search current word/selection (fff)" },
     },
+    config = function(_, opts)
+        require("fff").setup(opts)
+        local preview = require("fff.file_picker.preview")
+
+        -- The preview window is recreated on every open with cursorline=false
+        -- hardcoded, so the match line has no highlight. Re-enable it after
+        -- each open; cursorlineopt (global 'both') then renders both the
+        -- line background and the line number in CursorLine/CursorLineNr.
+        vim.api.nvim_create_autocmd("User", {
+            pattern = "FFFOpen",
+            callback = function()
+                vim.defer_fn(function()
+                    if preview.state.winid and vim.api.nvim_win_is_valid(preview.state.winid) then
+                        vim.wo[preview.state.winid].cursorline = true
+                    end
+                end, 50)
+            end,
+        })
+    end,
 }
