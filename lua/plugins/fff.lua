@@ -7,6 +7,13 @@ return {
     opts = {
         -- RHEL6 / Windows project trees live behind symlinks
         follow_symlinks = true,
+        -- default prompt is the goose emoji (missing glyph in most fonts)
+        prompt = "> ",
+        keymaps = {
+            -- list replaces the default, so re-declare built-ins when adding
+            move_up = { "<Up>", "<C-p>", "<C-k>" },
+            move_down = { "<Down>", "<C-n>", "<C-j>" },
+        },
     },
     keys = {
         { "<leader>ff", function() require("fff").find_files() end, desc = "Find files (fff)" },
