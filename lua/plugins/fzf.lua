@@ -126,7 +126,7 @@ return {
     {
         "folke/snacks.nvim",
         keys = {
-            { "<leader>ff", function() Snacks.picker.files({ cwd = get_project_root(), ignored = true, follow = true, exclude = exclude_patterns }) end, desc = "Find files (project root)" },
+            -- <leader>ff/fz/fw live in fff.lua (fff.nvim search)
             { "<leader>fg", function() Snacks.picker.git_files() end, desc = "Find git files" },
             { "<leader>fm", function() Snacks.picker.smart() end, desc = "Smart find files" },
             { "<leader>fu", function() Snacks.picker.lsp_symbols() end, desc = "LSP document symbols" },
@@ -134,14 +134,12 @@ return {
             { "<leader>fd", function() Snacks.picker.lsp_references() end, desc = "LSP references" },
             { "<leader>fl", function() Snacks.picker.lines() end, desc = "Buffer line fuzzy search" },
             { "<leader>fL", function() Snacks.picker.grep_buffers() end, desc = "Grep open buffers" },
-            { "<leader>fw", function() Snacks.picker.grep_word() end, desc = "Word search" },
             { "<leader>fn", function() Snacks.picker.grep({ search = vim.fn.expand("%:t") }) end, desc = "Search current filename in text" },
             { "<leader>fr", function() Snacks.picker.resume() end, desc = "Resume" },
             { "<leader>fb", function() Snacks.picker.buffers() end, desc = "Buffers" },
             { "<leader>fc", function() Snacks.picker.commands() end, desc = "Commands" },
             { "<leader>fh", function() Snacks.picker.command_history() end, desc = "Command history" },
             { "<leader>fq", function() Snacks.picker.qflist() end, desc = "Quickfix" },
-            { "<leader>fz", function() Snacks.picker.grep() end, desc = "Live grep" },
             { "<leader>ft", function() Snacks.picker.tags({ workspace = true }) end, desc = "Project tags" },
             { "<leader>fT", function() Snacks.picker.tags({ workspace = false }) end, desc = "Buffer tags" },
             { "<leader>f'", function() Snacks.picker.registers() end, desc = "Registers" },
