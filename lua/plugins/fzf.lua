@@ -37,9 +37,7 @@ local fff_file_finder = function(opts, ctx)
             end
         end
     end
-    if #items > 0 then return items end
-    -- fff index not ready (cold start / re-scan in flight) → stock rg finder
-    return require("snacks.picker.source.files").files(opts, ctx)
+    return items
 end
 
 local fff_grep_finder = function(opts, ctx)
@@ -69,9 +67,7 @@ local fff_grep_finder = function(opts, ctx)
             end
         end
     end
-    if #items > 0 then return items end
-    -- fff index not ready → stock snacks live-grep finder (async rg)
-    return require("snacks.picker.source.grep").grep(opts, ctx)
+    return items
 end
 
 local function fff_cycle_grep_mode(picker)
