@@ -1,14 +1,137 @@
 local project_root = require("config.project").project_root
 
+local function get_project_root()
+    return project_root(0) or vim.fn.getcwd()
+end
+
+-- ============== fff-powered sources (Rust in-memory index) ==============
+-- Engine: require("fff").file_search/content_search (see plugins/fff.lua).
+-- Sync FFI calls from the finder coroutine; typical query <10ms against the
+-- resident index (time_budget_ms=150 caps the worst-case grep).
+--
+-- Degradation: fff's programmatic wait_for_initial_scan has an upstream bug
+-- (returns instantly after a re-root; the real re-scan runs on a background
+-- thread), so right after startup or a project switch the fff query can
+-- return empty. In that case we fall through to the stock snacks rg finders
+-- seamlessly; once the index is warm the fff results take over.
+
+local fff_grep_mode = "plain"
+local FFF_GREP_MODES = { "plain", "regex", "fuzzy" }
+
+local fff_file_finder = function(opts, ctx)
+    local q = ctx.filter.search
+    local ok, res = pcall(require("fff").file_search, q, {
+        max_results = 200,
+        wait_for_index_ms = 0,
+        cwd = get_project_root(), -- always index the project root, not the startup dir
+    })
+    local items = {}
+    if ok and res.items then
+        local canon = require("fff.utils").canonicalize_fff_path
+        for _, it in ipairs(res.items) do
+            if it.type == "file" then
+                local abs = canon(it.relative_path)
+                if abs then
+                    items[#items + 1] = { file = abs, text = abs }
+                end
+            end
+        end
+    end
+    if #items > 0 then return items end
+    -- fff index not ready (cold start / re-scan in flight) → stock rg finder
+    return require("snacks.picker.source.files").files(opts, ctx)
+end
+
+local fff_grep_finder = function(opts, ctx)
+    local q = ctx.filter.search
+    if q == "" then return {} end
+    local ok, res = pcall(require("fff").content_search, q, {
+        page_size = 200,
+        mode = fff_grep_mode,
+        trim_whitespace = false,
+        wait_for_index_ms = 0,
+        cwd = get_project_root(),
+    })
+    local items = {}
+    if ok and res.items then
+        local canon = require("fff.utils").canonicalize_fff_path
+        for _, m in ipairs(res.items) do
+            local abs = canon(m.relative_path)
+            if abs then
+                items[#items + 1] = {
+                    file = abs,
+                    text = abs,
+                    -- fff: line 1-based, col 0-based byte offset — identical to snacks pos
+                    pos = { m.line_number, m.col },
+                    line = m.line_content or "",
+                    positions = vim.tbl_map(function(r) return r[1] end, m.match_ranges or {}),
+                }
+            end
+        end
+    end
+    if #items > 0 then return items end
+    -- fff index not ready → stock snacks live-grep finder (async rg)
+    return require("snacks.picker.source.grep").grep(opts, ctx)
+end
+
+local function fff_cycle_grep_mode(picker)
+    local next_idx = 1
+    for i, m in ipairs(FFF_GREP_MODES) do
+        if m == fff_grep_mode then next_idx = (i % #FFF_GREP_MODES) + 1 end
+    end
+    fff_grep_mode = FFF_GREP_MODES[next_idx]
+    vim.notify("fff grep mode: " .. fff_grep_mode, vim.log.levels.INFO)
+    picker:find({ refresh = true })
+end
+
+local function fff_jump_file(picker, item, step)
+    local items = picker:items()
+    if not item or not item.idx then return end
+    for i = item.idx + step, step > 0 and #items or 1, step do
+        if items[i] and items[i].file ~= item.file then
+            picker.list:_move(i, true, true)
+            return
+        end
+    end
+end
+
+local fff_file_source = {
+    finder = fff_file_finder,
+    format = "file",
+    live = true,
+    supports_live = true,
+}
+
+local fff_grep_source = {
+    finder = fff_grep_finder,
+    format = "file",
+    live = true,
+    supports_live = true,
+    actions = {
+        fff_mode = function(picker) fff_cycle_grep_mode(picker) end,
+        fff_next_file = function(picker, item) fff_jump_file(picker, item, 1) end,
+        fff_prev_file = function(picker, item) fff_jump_file(picker, item, -1) end,
+    },
+    win = {
+        input = {
+            keys = {
+                ["<a-r>"] = { "fff_mode", mode = { "i", "n" }, desc = "Cycle grep mode" },
+                ["<a-n>"] = { "fff_next_file", mode = { "i", "n" }, desc = "Next file" },
+                ["<a-p>"] = { "fff_prev_file", mode = { "i", "n" }, desc = "Prev file" },
+            },
+        },
+    },
+}
+
+-- ============== end fff sources ==============
+
+local project_root = require("config.project").project_root
+
 local exclude_patterns = {
     ".git", "node_modules", "build", "dist",
     "*.o", "*.obj", "*.so", "*.dll", "*.exe",
     "*.pyc", "*.png", "*.jpg", "*.pdf",
 }
-
-local function get_project_root()
-    return project_root(0) or vim.fn.getcwd()
-end
 
 local function proj_base_path()
     return "/proj/crane/wa/" .. vim.fn.expand("$USER")
@@ -126,7 +249,14 @@ return {
     {
         "folke/snacks.nvim",
         keys = {
-            -- <leader>ff/fz/fw live in fff.lua (fff.nvim search)
+            -- <leader>ff/fz/fw are driven by the fff engine (Rust in-memory index)
+            { "<leader>ff", function() Snacks.picker.pick(fff_file_source) end, desc = "Find files (fff)" },
+            { "<leader>fz", function() Snacks.picker.pick(fff_grep_source) end, desc = "Live grep (fff)" },
+            { "<leader>fw", function()
+                Snacks.picker.pick(vim.tbl_extend("force", fff_grep_source, {
+                    search = function(picker) return picker:word() end,
+                }))
+              end, mode = { "n", "x" }, desc = "Search current word/selection (fff)" },
             { "<leader>fg", function() Snacks.picker.git_files() end, desc = "Find git files" },
             { "<leader>fm", function() Snacks.picker.smart() end, desc = "Smart find files" },
             { "<leader>fu", function() Snacks.picker.lsp_symbols() end, desc = "LSP document symbols" },
