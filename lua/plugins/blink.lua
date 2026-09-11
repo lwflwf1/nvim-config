@@ -15,7 +15,12 @@ return {
             -- implementation there only.
             fuzzy = vim.g.is_rhel6 and { implementation = "lua" } or nil,
             appearance = {
-                use_nvim_cmp_as_default = true,
+                -- ginit.vim uses the proportional "JetBrainsMono NF" variant,
+                -- whose NF icon glyphs render 2 cells wide while nvim measures
+                -- them as 1, clipping the icon. 'normal' makes blink append
+                -- ctx.icon_gap (a space) after the icon; the kind_icon text
+                -- below must include it (the default component did).
+                nerd_font_variant = "normal",
             },
             keymap = {
                 ["<Tab>"] = { "select_next", "fallback" },
@@ -55,11 +60,11 @@ return {
                 documentation = { auto_show = true },
                 menu = {
                     draw = {
-                        columns = { { "kind_icon", gap = 1, "kind" }, { "label", "label_description", gap = 1 } },
+                        columns = { { "kind_icon", gap = 0, "kind" }, { "label", "label_description", gap = 1 } },
                         components = {
                             kind_icon = {
                                 text = function(ctx)
-                                    return require("lspkind").symbol_map[ctx.kind] or ""
+                                    return (require("lspkind").symbol_map[ctx.kind] or "") .. ctx.icon_gap
                                 end,
                             },
                         },

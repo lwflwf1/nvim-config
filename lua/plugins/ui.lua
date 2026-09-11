@@ -7,6 +7,18 @@ return {
         opts = {
             highlights = {
                 ["@punctuation.bracket"] = { fg = "#61afef" }, -- brackets same color as function call (blue)
+                -- blink.cmp and this theme both omit CmpItemKind*/BlinkCmpKind*
+                -- for these 4 kinds; link them to the theme's own semantic
+                -- groups so both the icon and the kind label stay colored.
+                ["BlinkCmpKindVariable"] = { link = "Identifier" },
+                ["BlinkCmpKindFolder"] = { link = "Directory" },
+                ["BlinkCmpKindReference"] = { link = "Tag" },
+                ["BlinkCmpKindColor"] = { link = "Constant" },
+                -- onedarkpro also omits the label detail/description groups, so
+                -- without use_nvim_cmp_as_default they'd fall back to PmenuExtra
+                -- (no fg). Link them to the theme's own secondary-text group.
+                ["BlinkCmpLabelDetail"] = { link = "BlinkCmpSource" },
+                ["BlinkCmpLabelDescription"] = { link = "BlinkCmpSource" },
             },
         },
         config = function(_, opts)
