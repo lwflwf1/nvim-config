@@ -9,25 +9,31 @@ end
 -- Sync FFI calls from the finder coroutine; typical query <10ms against the
 -- resident index (time_budget_ms=150 caps the worst-case grep).
 --
--- Degradation: fff's programmatic wait_for_initial_scan has an upstream bug
--- (returns instantly after a re-root; the real re-scan runs on a background
--- thread), so right after startup or a project switch the fff query can
--- return empty. In that case we fall through to the stock snacks rg finders
--- seamlessly; once the index is warm the fff results take over.
+-- Cold-start handling: fff's index initialises lazily and re-roots run on a
+-- background thread, so the first query after startup/a project switch can
+-- be empty. Instead of falling back to rg, we poll inside the finder's async
+-- coroutine (ctx.async:sleep — non-blocking) and stream results in as soon
+-- as the index is ready; a new keystroke aborts the poll automatically.
 
 local fff_grep_mode = "plain"
 local FFF_GREP_MODES = { "plain", "regex", "fuzzy" }
 
-local fff_file_finder = function(opts, ctx)
-    local q = ctx.filter.search
+-- While polling, wake every POLL_MS up to POLL_TRIES times (~6s).
+local FFF_POLL_MS = 350
+local FFF_POLL_TRIES = 17
+
+local fff_canon = function() return require("fff.utils").canonicalize_fff_path end
+
+-- Returns snacks items for a fff file_search query (max 200).
+local function fff_files(q)
     local ok, res = pcall(require("fff").file_search, q, {
         max_results = 200,
         wait_for_index_ms = 0,
-        cwd = get_project_root(), -- always index the project root, not the startup dir
+        cwd = get_project_root(),
     })
     local items = {}
     if ok and res.items then
-        local canon = require("fff.utils").canonicalize_fff_path
+        local canon = fff_canon()
         for _, it in ipairs(res.items) do
             if it.type == "file" then
                 local abs = canon(it.relative_path)
@@ -40,9 +46,7 @@ local fff_file_finder = function(opts, ctx)
     return items
 end
 
-local fff_grep_finder = function(opts, ctx)
-    local q = ctx.filter.search
-    if q == "" then return {} end
+local function fff_grep(q)
     local ok, res = pcall(require("fff").content_search, q, {
         page_size = 200,
         mode = fff_grep_mode,
@@ -52,7 +56,7 @@ local fff_grep_finder = function(opts, ctx)
     })
     local items = {}
     if ok and res.items then
-        local canon = require("fff.utils").canonicalize_fff_path
+        local canon = fff_canon()
         for _, m in ipairs(res.items) do
             local abs = canon(m.relative_path)
             if abs then
@@ -68,6 +72,40 @@ local fff_grep_finder = function(opts, ctx)
         end
     end
     return items
+end
+
+-- Wrap a snapshot query: when it has results, return them as a plain table
+-- (fast path). When empty (index still warming up), return an async generator
+-- that sleeps between retries and streams results in; snacks aborts it on the
+-- next keystroke / picker close via ctx.async.
+local function fff_polling_finder(query_fn)
+    return function(opts, ctx)
+        local q = ctx.filter.search
+        local items = query_fn(q)
+        if #items > 0 then return items end
+
+        return function(cb)
+            local async = ctx.async
+            for _ = 1, FFF_POLL_TRIES do
+                if not async or not async:running() then return end
+                async:sleep(FFF_POLL_MS) -- non-blocking; raises on abort
+                local got = query_fn(q)
+                if #got > 0 then
+                    for _, item in ipairs(got) do cb(item) end
+                    return
+                end
+            end
+        end
+    end
+end
+
+local fff_file_finder = fff_polling_finder(fff_files)
+
+local fff_grep_polling = fff_polling_finder(fff_grep)
+local fff_grep_finder = function(opts, ctx)
+    -- empty query has no grep meaning; don't hand it to fff
+    if ctx.filter.search == "" then return {} end
+    return fff_grep_polling(opts, ctx)
 end
 
 local function fff_cycle_grep_mode(picker)
