@@ -24,12 +24,46 @@ local FFF_POLL_TRIES = 17
 
 local fff_canon = function() return require("fff.utils").canonicalize_fff_path end
 
+-- Canonical path for comparing against the Rust-side picker root.
+local function fff_path_eq(a, b)
+    if not a or not b then return false end
+    local function norm(p)
+        local abs = vim.fn.fnamemodify(vim.fn.expand(p), ":p"):gsub("[/\\]+$", "")
+        local n = vim.fs.normalize(abs)
+        if vim.fn.has("win32") == 1 then n = n:lower() end
+        return n
+    end
+    return norm(a) == norm(b)
+end
+
+-- Root currently held by the Rust picker (nil before initialisation).
+local function fff_rust_root()
+    local ok, h = pcall(require("fff.rust").health_check)
+    if ok and type(h) == "table" and h.file_picker then
+        return h.file_picker.base_path
+    end
+end
+
+-- True when the Rust index is still rooted elsewhere; triggers the background
+-- re-root and reports "not ready" so the caller polls instead of returning the
+-- previous project's results.
+local function fff_root_pending(target)
+    local root = fff_rust_root()
+    if root and not fff_path_eq(root, target) then
+        pcall(require("fff").file_search, "", { cwd = target, wait_for_index_ms = 0 })
+        return true
+    end
+    return false
+end
+
 -- Returns snacks items for a fff file_search query (max 200).
 local function fff_files(q)
+    local target = get_project_root()
+    if fff_root_pending(target) then return {} end
     local ok, res = pcall(require("fff").file_search, q, {
         max_results = 200,
         wait_for_index_ms = 0,
-        cwd = get_project_root(),
+        cwd = target,
     })
     local items = {}
     if ok and res.items then
@@ -47,12 +81,14 @@ local function fff_files(q)
 end
 
 local function fff_grep(q)
+    local target = get_project_root()
+    if fff_root_pending(target) then return {} end
     local ok, res = pcall(require("fff").content_search, q, {
         page_size = 200,
         mode = fff_grep_mode,
         trim_whitespace = false,
         wait_for_index_ms = 0,
-        cwd = get_project_root(),
+        cwd = target,
     })
     local items = {}
     if ok and res.items then
