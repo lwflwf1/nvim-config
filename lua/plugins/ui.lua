@@ -44,7 +44,20 @@ return {
                 globalstatus = true,
             },
             sections = {
-                lualine_a = { { "mode", separator = { left = "" }, right_padding = 2 } },
+                lualine_a = {
+                    { "mode", separator = { left = "" }, right_padding = 2 },
+                    -- Macro recording indicator. noice suppresses the native
+                    -- "recording @a" msg_showmode message and lualine's mode
+                    -- component can't distinguish recording from insert/visual,
+                    -- so show only while recording via reg_recording().
+                    {
+                        function() return vim.fn.reg_recording() end,
+                        cond = function() return vim.fn.reg_recording() ~= "" end,
+                        fmt = function(reg) return "REC @" .. reg end,
+                        color = { fg = "#1e2127", bg = "#e06c75", gui = "bold" },
+                        padding = { left = 1, right = 1 },
+                    },
+                },
                 lualine_b = {
                     { "branch", icon = "" },
                     { "diff", colored = true, symbols = { added = " ", modified = " ", removed = " " } },
@@ -117,6 +130,13 @@ return {
             tabline = {},
             extensions = {},
         },
+        -- lualine does not refresh on recording start/stop by default.
+        config = function(_, opts)
+            require("lualine").setup(opts)
+            vim.api.nvim_create_autocmd({ "RecordingEnter", "RecordingLeave" }, {
+                callback = function() require("lualine").refresh() end,
+            })
+        end,
     },
     {
         "akinsho/bufferline.nvim",
