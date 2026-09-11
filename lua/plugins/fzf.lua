@@ -22,21 +22,19 @@ local FFF_GREP_MODES = { "plain", "regex", "fuzzy" }
 local FFF_POLL_MS = 350
 local FFF_POLL_TRIES = 17
 
-local fff_canon = function() return require("fff.utils").canonicalize_fff_path end
-
--- Canonical path for comparing against the Rust-side picker root.
-local function fff_path_eq(a, b)
-    if not a or not b then return false end
-    local function norm(p)
-        local abs = vim.fn.fnamemodify(vim.fn.expand(p), ":p"):gsub("[/\\]+$", "")
-        local n = vim.fs.normalize(abs)
-        if vim.fn.has("win32") == 1 then n = n:lower() end
-        return n
-    end
-    return norm(a) == norm(b)
+-- Canonical form, for comparing a path with the Rust-side picker root.
+-- Mirrors fff's ensure_indexed.canon: resolve the real path (Windows 8.3 short
+-- names, symlinks) so it matches the Rust side's dunce::canonicalize base_path.
+local function fff_norm(p)
+    local abs = vim.fn.fnamemodify(vim.fn.expand(p), ":p"):gsub("[/\\]+$", "")
+    local ok, real = pcall(vim.uv.fs_realpath, abs)
+    if ok and real then abs = real end
+    local n = vim.fs.normalize(abs)
+    if vim.fn.has("win32") == 1 then n = n:lower() end
+    return n
 end
 
--- Root currently held by the Rust picker (nil before initialisation).
+-- Root held by the Rust picker (nil before it is initialised).
 local function fff_rust_root()
     local ok, h = pcall(require("fff.rust").health_check)
     if ok and type(h) == "table" and h.file_picker then
@@ -44,22 +42,33 @@ local function fff_rust_root()
     end
 end
 
--- True when the Rust index is still rooted elsewhere; triggers the background
--- re-root and reports "not ready" so the caller polls instead of returning the
--- previous project's results.
-local function fff_root_pending(target)
-    local root = fff_rust_root()
-    if root and not fff_path_eq(root, target) then
-        pcall(require("fff").file_search, "", { cwd = target, wait_for_index_ms = 0 })
+-- Last target confirmed ready and when. health_check runs a git discover, so
+-- cache the result instead of re-checking on every keystroke.
+local fff_ready_root, fff_ready_at = nil, 0
+local FFF_READY_TTL_MS = 2000
+
+-- True when the Rust index is rooted at `target`; otherwise request the
+-- background re-root and report not-ready so the caller polls instead of
+-- returning the previous project's files.
+local function fff_root_ready(target)
+    local now = vim.uv.hrtime() / 1e6
+    if fff_ready_root and now - fff_ready_at < FFF_READY_TTL_MS and fff_norm(fff_ready_root) == fff_norm(target) then
         return true
     end
+    local root = fff_rust_root()
+    if root and fff_norm(root) == fff_norm(target) then
+        fff_ready_root, fff_ready_at = target, now
+        return true
+    end
+    fff_ready_root = nil
+    pcall(require("fff").change_indexing_directory, target)
     return false
 end
 
 -- Returns snacks items for a fff file_search query (max 200).
 local function fff_files(q)
     local target = get_project_root()
-    if fff_root_pending(target) then return {} end
+    if not fff_root_ready(target) then return {} end
     local ok, res = pcall(require("fff").file_search, q, {
         max_results = 200,
         wait_for_index_ms = 0,
@@ -67,7 +76,7 @@ local function fff_files(q)
     })
     local items = {}
     if ok and res.items then
-        local canon = fff_canon()
+        local canon = require("fff.utils").canonicalize_fff_path
         for _, it in ipairs(res.items) do
             if it.type == "file" then
                 local abs = canon(it.relative_path)
@@ -82,7 +91,7 @@ end
 
 local function fff_grep(q)
     local target = get_project_root()
-    if fff_root_pending(target) then return {} end
+    if not fff_root_ready(target) then return {} end
     local ok, res = pcall(require("fff").content_search, q, {
         page_size = 200,
         mode = fff_grep_mode,
@@ -92,7 +101,7 @@ local function fff_grep(q)
     })
     local items = {}
     if ok and res.items then
-        local canon = fff_canon()
+        local canon = require("fff.utils").canonicalize_fff_path
         for _, m in ipairs(res.items) do
             local abs = canon(m.relative_path)
             if abs then
@@ -194,8 +203,6 @@ local fff_grep_source = {
 }
 
 -- ============== end fff sources ==============
-
-local project_root = require("config.project").project_root
 
 local exclude_patterns = {
     ".git", "node_modules", "build", "dist",
