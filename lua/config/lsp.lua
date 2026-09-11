@@ -92,6 +92,7 @@ function M.setup()
             vim.lsp.buf_request_all(0, method, function(client)
                 local params = vim.lsp.util.make_position_params(0, client.offset_encoding)
                 if method == "textDocument/references" then
+                    ---@cast params lsp.ReferenceParams
                     params.context = { includeDeclaration = true }
                 end
                 return params
@@ -237,7 +238,7 @@ function M.setup()
         settings = {
             Lua = {
                 runtime = { version = "LuaJIT" },
-                diagnostics = { globals = { "vim" } },
+                diagnostics = { globals = { "vim", "Snacks" } },
                 workspace = {
                     library = vim.api.nvim_get_runtime_file("", true),
                     checkThirdParty = false,

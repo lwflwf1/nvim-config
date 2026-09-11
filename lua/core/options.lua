@@ -99,7 +99,7 @@ opt.signcolumn = "yes:2"
 
 if vim.fn.executable("rg") == 1 then
     opt.grepformat = "%f:%l:%m"
-    opt.grepprg = "rg --vimgrep" .. (opt.smartcase:get() and " --smart-case" or "")
+    opt.grepprg = "rg --vimgrep" .. (vim.o.smartcase and " --smart-case" or "")
 end
 
 local data_dir = vim.g.data_dir

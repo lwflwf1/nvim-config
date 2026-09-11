@@ -159,11 +159,11 @@ return {
             -- Note: bufferline passes the FULL defaults table (options +
             -- highlights map) to the function.
             highlights = function(defaults)
-                local ok, norm = pcall(vim.api.nvim_get_hl_by_name, "Normal", true)
-                if not ok or not norm.background then
+                local ok, norm = pcall(function() return vim.api.nvim_get_hl(0, { name = "Normal", link = false }) end)
+                if not ok or not norm.bg then
                     return {}
                 end
-                local bg = ("#%06x"):format(norm.background)
+                local bg = ("#%06x"):format(norm.bg)
                 local r = tonumber(bg:sub(2, 3), 16)
                 local g = tonumber(bg:sub(4, 5), 16)
                 local b = tonumber(bg:sub(6, 7), 16)

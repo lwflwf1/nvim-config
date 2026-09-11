@@ -42,7 +42,7 @@ return {
                 -- the correct way to get a sidebar.
                 vim.cmd("topleft vsplit")
                 require("oil").open()
-                vim.api.nvim_win_set_width(0, 40)
+                vim.api.nvim_win_resize(0, 40, -1)
                 vim.wo.winfixwidth = true
             end,
             desc = "Oil (sidebar)",

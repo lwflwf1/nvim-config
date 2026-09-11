@@ -33,6 +33,7 @@ function M.project_root(source)
     else
         path = source
     end
+    ---@cast path string
     if path == "" then return nil end
     local dir = vim.fs.dirname(vim.fs.abspath(path))
     while dir do
@@ -55,6 +56,7 @@ end
 ---@return string directory name of the detected project root, or "" if none (lualine hides empty strings)
 function M.project_name(source)
     local path = (type(source) == "number") and vim.api.nvim_buf_get_name(source) or source
+    ---@cast path string
     local dir
     if path == "" then
         dir = vim.uv.cwd()

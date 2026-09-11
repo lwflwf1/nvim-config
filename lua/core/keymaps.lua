@@ -230,7 +230,7 @@ local function smart_gf(cmd)
         ::continue::
     end
 
-    local ok = pcall(vim.cmd, "normal! " .. (cmd == "split" and "gF" or "gf"))
+    local ok = pcall(function() vim.cmd("normal! " .. (cmd == "split" and "gF" or "gf")) end)
     if not ok then
         vim.notify("gf: can't find file - " .. vim.fn.expand("<cfile>"), vim.log.levels.WARN)
     end

@@ -79,28 +79,28 @@ M.tools = function()
 end
 
 --- Ensure the mason plugin is loaded (it is lazily loaded via VeryLazy).
---- @return boolean ok
---- @return table? registry  the mason-registry module
+--- @return table? registry  the mason-registry module, or nil if unavailable
 local function ensure_mason()
     local ok, registry = pcall(require, "mason-registry")
     if ok then
-        return true, registry
+        return registry
     end
     local lazy_ok = pcall(require, "lazy")
     if lazy_ok then
         -- short name for mason-org/mason.nvim
         pcall(function() require("lazy").load({ plugins = { "mason.nvim" } }) end)
     end
-    return pcall(require, "mason-registry")
+    local ok2, mod = pcall(require, "mason-registry")
+    return ok2 and mod or nil
 end
 
 local function registry_package(name)
-    local ok, registry = ensure_mason()
-    if not ok then
+    local registry = ensure_mason()
+    if not registry then
         return nil
     end
-    local ok2, pkg = pcall(function() return registry.get_package(name) end)
-    return ok2 and pkg or nil
+    local ok, pkg = pcall(function() return registry.get_package(name) end)
+    return ok and pkg or nil
 end
 
 --- Check if a treesitter parser for `lang` is currently installed.
@@ -160,8 +160,8 @@ end
 --- that has a newer version, and update all treesitter parsers.
 --- Plugins are NOT touched.
 function M.update()
-    local ok, registry = ensure_mason()
-    if not ok then
+    local registry = ensure_mason()
+    if not registry then
         vim.notify("ToolUpdate: mason not available, skipped", vim.log.levels.WARN)
     else
         registry.update(function(success)

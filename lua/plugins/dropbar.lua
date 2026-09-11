@@ -354,7 +354,7 @@ return {
           end
 
           local ok, parser = pcall(vim.treesitter.get_parser, buf or 0)
-          if not ok then
+          if not ok or not parser then
             return {}
           end
           parser:parse()
@@ -370,7 +370,7 @@ return {
           if nws then
             col = math.max(col, nws - 1)
           end
-          local pos_node = vim.F.npcall(vim.treesitter.get_node, {
+          local pos_node = vim.npcall(vim.treesitter.get_node, {
             ft = vim.filetype.match({ buf = buf }),
             bufnr = buf,
             pos = { cursor[1] - 1, col },
@@ -381,7 +381,7 @@ return {
           -- Re-resolve from the first non-whitespace position and prefer it when
           -- it carries a member that the cursor position lacks.
           if nws and col ~= nws - 1 then
-            local alt = vim.F.npcall(vim.treesitter.get_node, {
+            local alt = vim.npcall(vim.treesitter.get_node, {
               ft = vim.filetype.match({ buf = buf }),
               bufnr = buf,
               pos = { cursor[1] - 1, nws - 1 },

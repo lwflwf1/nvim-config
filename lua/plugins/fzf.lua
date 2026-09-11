@@ -48,7 +48,7 @@ local FFF_POLL_TRIES = 17
 -- names, symlinks) so it matches the Rust side's dunce::canonicalize base_path.
 local function fff_norm(p)
     local abs = vim.fn.fnamemodify(vim.fn.expand(p), ":p"):gsub("[/\\]+$", "")
-    local ok, real = pcall(vim.uv.fs_realpath, abs)
+    local ok, real = pcall(function() return vim.uv.fs_realpath(abs) end)
     if ok and real then abs = real end
     local n = vim.fs.normalize(abs)
     if vim.fn.has("win32") == 1 then n = n:lower() end

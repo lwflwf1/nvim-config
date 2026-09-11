@@ -21,7 +21,7 @@ autocmd("BufReadPost", {
         local mark = vim.api.nvim_buf_get_mark(0, '"')
         local lcount = vim.fn.line("$")
         if mark[1] > 1 and mark[1] <= lcount then
-            pcall(vim.cmd, 'normal! g`"zzzv')
+            pcall(function() vim.cmd('normal! g`"zzzv') end)
         end
     end,
 })
