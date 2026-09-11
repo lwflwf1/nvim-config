@@ -12,11 +12,11 @@ return {
                 json = { "prettierd", "prettier" },
                 yaml = { "prettierd", "prettier" },
                 markdown = { "prettierd", "prettier" },
-                systemverilog = { "verible-verilog-format" },
-                verilog = { "verible-verilog-format" },
+                systemverilog = { "verible" },
+                verilog = { "verible" },
             },
             formatters = {
-                ["verible-verilog-format"] = {
+                verible = {
                     prepend_args = {
                         "--indentation_spaces", "4",
                         "--column_limit", "120",

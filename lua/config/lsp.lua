@@ -263,7 +263,7 @@ function M.setup()
 
     vim.lsp.config.yamlls = {
         cmd = { "yaml-language-server", "--stdio" },
-        filetypes = { "yaml", "yml" },
+        filetypes = { "yaml" },
         root_markers = { ".git" },
         capabilities = capabilities,
         on_attach = on_attach,
