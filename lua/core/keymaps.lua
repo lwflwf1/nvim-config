@@ -93,8 +93,6 @@ map("n", "<leader>te", ":<C-u>tabnew<CR>", vim.tbl_extend("force", opts, { desc 
 map("n", "<leader>tc", ":<C-u>tabclose<CR>", vim.tbl_extend("force", opts, { desc = "Close tab" }))
 map("n", "<leader>to", ":<C-u>tabonly<CR>", vim.tbl_extend("force", opts, { desc = "Close other tabs" }))
 map("n", "<leader>tm", ":<C-u>tabmove<CR>", vim.tbl_extend("force", opts, { desc = "Move tab" }))
-map("n", "<Tab>", ":<C-u>tabnext<CR>", vim.tbl_extend("force", opts, { desc = "Next tab" }))
-map("n", "<S-Tab>", ":<C-u>tabprevious<CR>", vim.tbl_extend("force", opts, { desc = "Previous tab" }))
 
 -- SOS source control shortcuts
 -- map("n", "<leader>so", ":Sco<CR>", vim.tbl_extend("force", opts, { desc = "SOS checkout" }))
