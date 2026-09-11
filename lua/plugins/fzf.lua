@@ -15,8 +15,29 @@ end
 -- coroutine (ctx.async:sleep — non-blocking) and stream results in as soon
 -- as the index is ready; a new keystroke aborts the poll automatically.
 
-local fff_grep_mode = "plain"
-local FFF_GREP_MODES = { "plain", "regex", "fuzzy" }
+local fff_grep_mode = "regex"
+local FFF_GREP_MODES = { "regex", "plain", "fuzzy" }
+
+-- One-line hint shown as the input window's winbar (above the prompt). The mode
+-- word mirrors fff_grep_mode; refreshed when the picker opens and on <a-r>.
+local function fff_grep_hint()
+    local label = fff_grep_mode:sub(1, 1):upper() .. fff_grep_mode:sub(2)
+    return " " .. label .. " · <a-r> mode · *.sv · dir/ · !dir"
+end
+
+-- Push the current hint onto a live picker's input winbar (and the layout's
+-- cached win opts so a layout rebuild keeps it).
+local function fff_set_hint(picker)
+    local text = fff_grep_hint()
+    local w = picker.layout and picker.layout.wins and picker.layout.wins.input
+    if not w then return end
+    w.opts.wo.winbar = text
+    local wo = picker.layout.win_opts and picker.layout.win_opts.input
+    if wo and wo.wo then wo.wo.winbar = text end
+    if w.win and vim.api.nvim_win_is_valid(w.win) then
+        vim.wo[w.win].winbar = text
+    end
+end
 
 -- While polling, wake every POLL_MS up to POLL_TRIES times (~6s).
 local FFF_POLL_MS = 350
@@ -123,6 +144,10 @@ end
 -- (fast path). When empty (index still warming up), return an async generator
 -- that sleeps between retries and streams results in; snacks aborts it on the
 -- next keystroke / picker close via ctx.async.
+--
+-- The first call runs on the main thread; the retries run in the finder's
+-- fast-event context where vim API calls (project_root → nvim_buf_get_name)
+-- are forbidden, so each retry hops back to the main thread via async:schedule.
 local function fff_polling_finder(query_fn)
     return function(opts, ctx)
         local q = ctx.filter.search
@@ -131,10 +156,11 @@ local function fff_polling_finder(query_fn)
 
         return function(cb)
             local async = ctx.async
+            local function poll() return query_fn(q) end
             for _ = 1, FFF_POLL_TRIES do
                 if not async or not async:running() then return end
                 async:sleep(FFF_POLL_MS) -- non-blocking; raises on abort
-                local got = query_fn(q)
+                local got = async:schedule(poll)
                 if #got > 0 then
                     for _, item in ipairs(got) do cb(item) end
                     return
@@ -159,7 +185,7 @@ local function fff_cycle_grep_mode(picker)
         if m == fff_grep_mode then next_idx = (i % #FFF_GREP_MODES) + 1 end
     end
     fff_grep_mode = FFF_GREP_MODES[next_idx]
-    vim.notify("fff grep mode: " .. fff_grep_mode, vim.log.levels.INFO)
+    fff_set_hint(picker)
     picker:find({ refresh = true })
 end
 
@@ -181,6 +207,19 @@ local fff_file_source = {
     supports_live = true,
 }
 
+-- The input must be 2 rows tall for the winbar to render (nvim drops a winbar
+-- on a 1-row float), so grow the input child in the resolved layout tree.
+local function fff_grep_layout(l)
+    local function walk(node)
+        for _, c in ipairs(node) do
+            if c.win == "input" then c.height = (c.height or 1) + 1
+            elseif c.box then walk(c) end
+        end
+    end
+    walk(l.layout)
+    return l
+end
+
 local fff_grep_source = {
     finder = fff_grep_finder,
     format = "file",
@@ -191,8 +230,11 @@ local fff_grep_source = {
         fff_next_file = function(picker, item) fff_jump_file(picker, item, 1) end,
         fff_prev_file = function(picker, item) fff_jump_file(picker, item, -1) end,
     },
+    layout = { config = fff_grep_layout },
+    on_show = fff_set_hint,
     win = {
         input = {
+            wo = { winbar = fff_grep_hint() },
             keys = {
                 ["<a-r>"] = { "fff_mode", mode = { "i", "n" }, desc = "Cycle grep mode" },
                 ["<a-n>"] = { "fff_next_file", mode = { "i", "n" }, desc = "Next file" },
@@ -201,6 +243,12 @@ local fff_grep_source = {
         },
     },
 }
+
+-- Seed a grep query from a literal string (shares the fff grep source: hint,
+-- keys, regex default, polling).
+local function fff_grep_seeded(text)
+    return vim.tbl_extend("force", fff_grep_source, { search = text })
+end
 
 -- ============== end fff sources ==============
 
@@ -245,7 +293,7 @@ function _G.grep_textobj()
         local text = table.concat(lines, '\n')
         search = text:sub(1, 80)
     end
-    if search ~= "" then require("snacks").picker.grep({ search = search }) end
+    if search ~= "" then Snacks.picker.pick(fff_grep_seeded(search)) end
 end
 
 vim.keymap.set('n', '<leader>fo', function()
@@ -341,7 +389,7 @@ return {
             { "<leader>fd", function() Snacks.picker.lsp_references() end, desc = "LSP references" },
             { "<leader>fl", function() Snacks.picker.lines() end, desc = "Buffer line fuzzy search" },
             { "<leader>fL", function() Snacks.picker.grep_buffers() end, desc = "Grep open buffers" },
-            { "<leader>fn", function() Snacks.picker.grep({ search = vim.fn.expand("%:t") }) end, desc = "Search current filename in text" },
+            { "<leader>fn", function() Snacks.picker.pick(fff_grep_seeded(vim.fn.expand("%:t"))) end, desc = "Search current filename in text" },
             { "<leader>fr", function() Snacks.picker.resume() end, desc = "Resume" },
             { "<leader>fb", function() Snacks.picker.buffers() end, desc = "Buffers" },
             { "<leader>fc", function() Snacks.picker.commands() end, desc = "Commands" },
