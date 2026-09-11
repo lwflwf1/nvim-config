@@ -287,6 +287,39 @@ Ok "config + data copied"
 # No mason/ packages are bundled (Linux tools come from tools/ + npm-tools).
 Manifest "mason=0"
 
+# ---------------------------------------------------------------- fff prebuilt binary (RHEL6)
+# Offline targets are RHEL6 (glibc 2.17). NONE of fff's release binaries work there:
+#   - x86_64-unknown-linux-gnu  -> linked for glibc >= 2.31
+#   - x86_64-unknown-linux-musl -> dynamic musl (DT_NEEDED libc.so); dlopen into a
+#     glibc Neovim fails with "/usr/lib64/libc.so: invalid ELF header"
+# So we ship a .so we cross-built ourself against glibc 2.17 (rust 1.90 +
+# cargo-zigbuild; see scripts/build-fff-rhel6.sh) into scripts/prebuilt/fff/
+# (gitignored - build it before packaging). Pre-placing it where fff looks makes
+# binary_exists() short-circuit so the plugin never auto-downloads the wrong
+# build on-target.
+Log "== fff prebuilt binary (RHEL6, glibc 2.17) =="
+$fffPrebuilt = Join-Path $PSScriptRoot "prebuilt\fff\libfff_nvim.so"
+$fffDir = Join-Path $script:DataDir "lazy\fff"
+if (-not (Test-Path $fffDir)) {
+    Warn "fff plugin not found at $fffDir - skipping fff binary"
+} elseif (-not (Test-Path $fffPrebuilt)) {
+    Warn "prebuilt fff binary missing: $fffPrebuilt"
+    Warn "  build it first: run scripts/build-fff-rhel6.sh on a Linux host (WSL)"
+    Warn "  fff will be unavailable on RHEL6 until then"
+} else {
+    # Sanity: must be a 64-bit x86 ELF (starts with 7F 45 4C 46).
+    $magic = [System.IO.File]::ReadAllBytes($fffPrebuilt)[0..3]
+    if (($magic -join ',') -ne '127,69,76,70') {
+        Err "prebuilt fff binary is not an ELF file: $fffPrebuilt"
+    }
+    $fffOut = Join-Path $dataCopy "lazy\fff\target\release\libfff_nvim.so"
+    New-Item -ItemType Directory -Force -Path (Split-Path $fffOut) | Out-Null
+    Copy-Item $fffPrebuilt $fffOut -Force
+    $fffSha = (Get-FileHash -Algorithm SHA256 $fffOut).Hash.ToLower()
+    Ok "fff prebuilt -> data/lazy/fff/target/release/libfff_nvim.so ($(Get-FileSizeMB $fffOut))"
+    Manifest "fff-rhel6 glibc2.17 sha256=$fffSha"
+}
+
 # ---------------------------------------------------------------- nvim binary (driven by tools.json)
 if (-not $ConfigOnly -and -not $WithParsers) {
 Log "== Neovim binary (old-glibc build, from tools.json) =="

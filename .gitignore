@@ -6,3 +6,6 @@ words
 
 # opencode session memory (local only)
 .opencode-memory/
+
+# generated RHEL6 fff binary (build with scripts/build-fff-rhel6.sh)
+scripts/prebuilt/
