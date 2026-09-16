@@ -9,6 +9,38 @@ function _G.get_oil_winbar()
     end
 end
 
+-- Overlay a full-width, centered one-char label on each candidate window's
+-- winbar and return the window id whose label the user pressed (nil on cancel).
+-- The winbar (the window's top row) is used so the label never covers code;
+-- replaced with vim.ui.select's window picker.
+local function pick_window_with_labels(candidates)
+    local labels = "asdfghjklqwertyuiopzxcvbnm"
+    if #candidates == 0 then return nil end
+
+    vim.api.nvim_set_hl(0, "OilWinLabel", { fg = "#111111", bg = "#ffcc00", bold = true, default = true })
+    local by_key, saved = {}, {}
+    for i, winid in ipairs(candidates) do
+        local ch = labels:sub(i, i)
+        if ch == "" then break end
+        by_key[ch] = winid
+        saved[#saved + 1] = { win = winid, winbar = vim.api.nvim_get_option_value("winbar", { win = winid }) }
+        -- %#hl# then %=..%= centers the char; everything (incl. fill) is highlighted
+        vim.api.nvim_set_option_value("winbar", "%#OilWinLabel#%=" .. ch .. "%=", { win = winid })
+    end
+
+    vim.cmd.redraw()
+    local ok, ch = pcall(vim.fn.getcharstr)
+    for _, s in ipairs(saved) do
+        if vim.api.nvim_win_is_valid(s.win) then
+            vim.api.nvim_set_option_value("winbar", s.winbar, { win = s.win })
+        end
+    end
+    vim.cmd.redraw()
+
+    if ok and type(ch) == "string" and ch ~= "" then return by_key[ch] end
+    return nil
+end
+
 return {
     "stevearc/oil.nvim",
     -- Official recommendation: lazy loading oil is "very tricky to make it
@@ -90,6 +122,11 @@ return {
                                 end
                             end,
                         })
+                        -- Move focus to the target window (after oil.select returns,
+                        -- since oil may re-focus during it).
+                        if vim.api.nvim_win_is_valid(winid) then
+                            vim.api.nvim_set_current_win(winid)
+                        end
                     end
 
                     if #candidates == 0 then
@@ -97,19 +134,10 @@ return {
                     elseif #candidates == 1 then
                         open_in(candidates[1])
                     else
-                        -- Multiple windows: let the user pick (vim.ui.select is
-                        -- backed by snacks.picker.select in this config)
-                        vim.ui.select(candidates, {
-                            prompt = "Open file in window:",
-                            format_item = function(winid)
-                                local buf = vim.api.nvim_win_get_buf(winid)
-                                local name = vim.api.nvim_buf_get_name(buf)
-                                if name == "" then name = "[No Name]" end
-                                return ("win %d  %s"):format(winid, vim.fn.fnamemodify(name, ":t"))
-                            end,
-                        }, function(winid)
-                            if winid then open_in(winid) end
-                        end)
+                        -- Multiple windows: overlay a one-char label on each and
+                        -- open the file in the window whose label is pressed.
+                        local winid = pick_window_with_labels(candidates)
+                        if winid then open_in(winid) end
                     end
                 end,
                 desc = "Open file in chosen window / enter directory",
