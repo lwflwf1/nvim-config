@@ -1,5 +1,3 @@
-local project = require("config.project")
-
 -- Show the current directory in the oil winbar (official recipe)
 function _G.get_oil_winbar()
     local bufnr = vim.api.nvim_win_get_buf(vim.g.statusline_winid)
@@ -173,12 +171,4 @@ return {
             preview_split = "auto",
         },
     },
-    init = function()
-        vim.api.nvim_create_autocmd("VimEnter", {
-            callback = function()
-                local root = project.project_root(0)
-                if root then vim.fn.chdir(root) end
-            end,
-        })
-    end,
 }

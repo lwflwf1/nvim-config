@@ -6,8 +6,8 @@
 --   no priority). Used for the cwd follower and by fzf/harpoon/etc.
 -- - project_name(source): display name for lualine. .SOS has HIGHEST priority
 --   (regardless of distance); otherwise the nearest of any other marker.
--- - BufEnter: set the window-local cwd to project_root (fzf/live-grep/:!-commands
---   /git all operate inside the project root automatically).
+-- The auto-cwd BufEnter (global chdir) lives in core/autocmds.lua, gated by
+-- vim.g.auto_cwd and overridable via vim.g.project_cwd (see core/keymaps.lua).
 local M = {}
 
 M.markers = {
@@ -78,17 +78,5 @@ function M.project_name(source)
     end
     return ""   -- no root marker found -> empty string so lualine hides this component
 end
-
-vim.api.nvim_create_autocmd("BufEnter", {
-    callback = function()
-        local buf = vim.api.nvim_get_current_buf()
-        if vim.bo[buf].buftype ~= "" then return end
-        if vim.api.nvim_buf_get_name(buf) == "" then return end
-        local root = M.project_root(buf)
-        if root and root ~= vim.fn.getcwd() then
-            vim.cmd.lcd(root)
-        end
-    end,
-})
 
 return M

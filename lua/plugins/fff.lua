@@ -8,6 +8,7 @@ return {
         -- RHEL6 / Windows project trees live behind symlinks
         follow_symlinks = true,
     },
-    -- The bundled picker UI is intentionally unused: ff/fz/fw go through
-    -- snacks.picker sources driven by fff's programmatic API (fzf.lua).
+    -- The bundled picker UI is intentionally unused: ff/fz/fw/fn/fo go through
+    -- snacks.picker sources driven by fff's programmatic API — but only inside a
+    -- project; outside one they fall back to snacks' native rg (fzf.lua).
 }

@@ -23,6 +23,38 @@ return {
                     grep  = { follow = true },
                     files = { follow = true, hidden = true },
                     smart = { follow = true, hidden = true, ignored = true },
+                    -- `lines` uses preview="main": its preview is a float over the
+                    -- current window showing the SAME buffer. Two fixes while keeping
+                    -- preview="main":
+                    --  * clear the float's winbar — nvim copies the buffer's window
+                    --    options (winbar) into the new float, so dropbar/lualine render
+                    --    a second breadcrumb there;
+                    --  * shrink that float to the rows NOT covered by the picker, so the
+                    --    preview's `zz` centers the match in the visible window instead
+                    --    of the whole (partly overlaid) window.
+                    lines = {
+                        win = { preview = { wo = { winbar = "" } } },
+                        on_show = function(picker)
+                            require("snacks.picker.config.sources").lines.on_show(picker)
+                            local pv = picker.preview and picker.preview.win and picker.preview.win.win
+                            local iw = picker.input and picker.input.win and picker.input.win.win
+                            if pv and iw and vim.api.nvim_win_is_valid(pv) and vim.api.nvim_win_is_valid(iw) then
+                                local pos_pv = vim.api.nvim_win_get_position(pv)
+                                local pos_iw = vim.api.nvim_win_get_position(iw)
+                                local vis = pos_iw[1] - pos_pv[1] - 1 -- rows above the picker (minus its border)
+                                vim.api.nvim_win_set_config(pv, {
+                                    relative = "win",
+                                    win = picker.main,
+                                    row = 0,
+                                    col = 0,
+                                    width = vim.api.nvim_win_get_width(pv),
+                                    height = math.max(1, vis),
+                                })
+                                picker:show_preview()
+                                picker.preview:show(picker, { force = true })
+                            end
+                        end,
+                    },
                 },
                 actions = {
                     trouble_open = function(...)

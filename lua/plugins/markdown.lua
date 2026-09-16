@@ -105,6 +105,11 @@ return {
             default = {
                 dir_path = "assets",
                 template = "$FILE_PATH",
+                -- Silence img-clip's "Content is not an image." warning, which fires
+                -- on every terminal paste (Ctrl+Shift+V) because it overrides
+                -- vim.paste for drag-and-drop and the clipboard usually isn't an
+                -- image. Paste still falls back to normal.
+                verbose = false,
             },
             filetypes = {
                 markdown = {

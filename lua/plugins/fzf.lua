@@ -1,7 +1,19 @@
 local project_root = require("config.project").project_root
 
+-- Default root for the fG/fW custom-root searches: the maintained cwd (project
+-- root via auto-cwd, or the manual <leader>uA root).
 local function get_project_root()
-    return project_root(0) or vim.fn.getcwd()
+    return vim.fn.getcwd()
+end
+
+-- fff's indexed engine is used only inside a recognised project
+-- (project_root(0)); outside one the pickers fall back to snacks' native rg.
+-- vim.g.fff_mode == "off" disables fff entirely.
+
+-- Root for the fff index, or nil when outside a project (-> native fallback).
+-- A manual root set via <leader>uA (vim.g.project_cwd) takes priority.
+local function fff_root()
+    return vim.g.project_cwd or project_root(0)
 end
 
 -- ============== fff-powered sources (Rust in-memory index) ==============
@@ -87,9 +99,8 @@ local function fff_root_ready(target)
 end
 
 -- Returns snacks items for a fff file_search query (max 200).
-local function fff_files(q)
-    local target = get_project_root()
-    if not fff_root_ready(target) then return {} end
+local function fff_files(q, target)
+    if not target or not fff_root_ready(target) then return {} end
     local ok, res = pcall(require("fff").file_search, q, {
         max_results = 200,
         wait_for_index_ms = 0,
@@ -110,9 +121,8 @@ local function fff_files(q)
     return items
 end
 
-local function fff_grep(q)
-    local target = get_project_root()
-    if not fff_root_ready(target) then return {} end
+local function fff_grep(q, target)
+    if not target or not fff_root_ready(target) then return {} end
     local ok, res = pcall(require("fff").content_search, q, {
         page_size = 200,
         mode = fff_grep_mode,
@@ -126,13 +136,23 @@ local function fff_grep(q)
         for _, m in ipairs(res.items) do
             local abs = canon(m.relative_path)
             if abs then
+                -- fff match_ranges are 0-based end-exclusive ranges; snacks wants
+                -- 1-based columns, one entry per matched char (SnacksPickerMatch
+                -- highlights a single byte per position). Expand, and use nil when
+                -- empty so snacks' regex fallback still applies.
+                local positions = {}
+                for _, r in ipairs(m.match_ranges or {}) do
+                    for i = (r[1] or 0) + 1, (r[2] or 0) do
+                        positions[#positions + 1] = i
+                    end
+                end
                 items[#items + 1] = {
                     file = abs,
                     text = abs,
                     -- fff: line 1-based, col 0-based byte offset — identical to snacks pos
                     pos = { m.line_number, m.col },
                     line = m.line_content or "",
-                    positions = vim.tbl_map(function(r) return r[1] end, m.match_ranges or {}),
+                    positions = #positions > 0 and positions or nil,
                 }
             end
         end
@@ -145,18 +165,20 @@ end
 -- that sleeps between retries and streams results in; snacks aborts it on the
 -- next keystroke / picker close via ctx.async.
 --
--- The first call runs on the main thread; the retries run in the finder's
--- fast-event context where vim API calls (project_root → nvim_buf_get_name)
--- are forbidden, so each retry hops back to the main thread via async:schedule.
+-- The target root is captured at pick time in `opts.fff_root` (stable across
+-- retries and :resume) so the finder never re-derives it from the current buffer.
 local function fff_polling_finder(query_fn)
     return function(opts, ctx)
         local q = ctx.filter.search
-        local items = query_fn(q)
+        local root = opts.fff_root
+        -- no captured root -> fail fast instead of burning the 6s poll loop
+        if not root then return {} end
+        local items = query_fn(q, root)
         if #items > 0 then return items end
 
         return function(cb)
             local async = ctx.async
-            local function poll() return query_fn(q) end
+            local function poll() return query_fn(q, root) end
             for _ = 1, FFF_POLL_TRIES do
                 if not async or not async:running() then return end
                 async:sleep(FFF_POLL_MS) -- non-blocking; raises on abort
@@ -203,6 +225,7 @@ end
 local fff_file_source = {
     finder = fff_file_finder,
     format = "file",
+    title = "fff file",
     live = true,
     supports_live = true,
 }
@@ -223,6 +246,7 @@ end
 local fff_grep_source = {
     finder = fff_grep_finder,
     format = "file",
+    title = "fff grep",
     live = true,
     supports_live = true,
     actions = {
@@ -244,13 +268,43 @@ local fff_grep_source = {
     },
 }
 
--- Seed a grep query from a literal string (shares the fff grep source: hint,
--- keys, regex default, polling).
-local function fff_grep_seeded(text)
-    return vim.tbl_extend("force", fff_grep_source, { search = text })
+-- ============== end fff sources ==============
+
+-- Pickers route through these: fff's indexed engine inside a project, snacks'
+-- native rg everywhere else (or when vim.g.fff_mode == "off"). The root is
+-- captured here and frozen into the picker opts (`fff_root`), so a mid-pick
+-- project switch (or :resume) can't re-root the index out from under the finder.
+local function fff_root_enabled()
+    return ((vim.g.fff_mode or "project") ~= "off") and fff_root() or nil
 end
 
--- ============== end fff sources ==============
+local function pick_files()
+    local root = fff_root_enabled()
+    if root then
+        Snacks.picker.pick(vim.tbl_extend("force", fff_file_source, { fff_root = root }))
+    else
+        Snacks.picker.files()
+    end
+end
+
+local function pick_grep(seed)
+    local root = fff_root_enabled()
+    if root then
+        Snacks.picker.pick(vim.tbl_extend("force", fff_grep_source, { fff_root = root, search = seed }))
+    else
+        Snacks.picker.grep({ search = seed })
+    end
+end
+
+local function pick_grep_word()
+    local root = fff_root_enabled()
+    local search = function(picker) return picker:word() end
+    if root then
+        Snacks.picker.pick(vim.tbl_extend("force", fff_grep_source, { fff_root = root, search = search }))
+    else
+        Snacks.picker.grep({ search = search })
+    end
+end
 
 local exclude_patterns = {
     ".git", "node_modules", "build", "dist",
@@ -293,7 +347,7 @@ function _G.grep_textobj()
         local text = table.concat(lines, '\n')
         search = text:sub(1, 80)
     end
-    if search ~= "" then Snacks.picker.pick(fff_grep_seeded(search)) end
+    if search ~= "" then pick_grep(search) end
 end
 
 vim.keymap.set('n', '<leader>fo', function()
@@ -374,22 +428,18 @@ return {
     {
         "folke/snacks.nvim",
         keys = {
-            -- <leader>ff/fz/fw are driven by the fff engine (Rust in-memory index)
-            { "<leader>ff", function() Snacks.picker.pick(fff_file_source) end, desc = "Find files (fff)" },
-            { "<leader>fz", function() Snacks.picker.pick(fff_grep_source) end, desc = "Live grep (fff)" },
-            { "<leader>fw", function()
-                Snacks.picker.pick(vim.tbl_extend("force", fff_grep_source, {
-                    search = function(picker) return picker:word() end,
-                }))
-              end, mode = { "n", "x" }, desc = "Search current word/selection (fff)" },
+            -- fff-backed in a project, snacks native elsewhere (see pick_* above)
+            { "<leader>ff", pick_files, desc = "Find files" },
+            { "<leader>fz", function() pick_grep(nil) end, desc = "Live grep" },
+            { "<leader>fw", pick_grep_word, mode = { "n", "x" }, desc = "Search current word/selection" },
             { "<leader>fg", function() Snacks.picker.git_files() end, desc = "Find git files" },
-            { "<leader>fm", function() Snacks.picker.smart() end, desc = "Smart find files" },
+            { "<leader>fm", function() Snacks.picker.recent() end, desc = "Recent files" },
             { "<leader>fu", function() Snacks.picker.lsp_symbols() end, desc = "LSP document symbols" },
             { "<leader>fS", function() Snacks.picker.lsp_symbols({ workspace = true }) end, desc = "LSP workspace symbols" },
             { "<leader>fd", function() Snacks.picker.lsp_references() end, desc = "LSP references" },
             { "<leader>fl", function() Snacks.picker.lines() end, desc = "Buffer line fuzzy search" },
             { "<leader>fL", function() Snacks.picker.grep_buffers() end, desc = "Grep open buffers" },
-            { "<leader>fn", function() Snacks.picker.pick(fff_grep_seeded(vim.fn.expand("%:t"))) end, desc = "Search current filename in text" },
+            { "<leader>fn", function() pick_grep(vim.fn.expand("%:t")) end, desc = "Search current filename in text" },
             { "<leader>fr", function() Snacks.picker.resume() end, desc = "Resume" },
             { "<leader>fb", function() Snacks.picker.buffers() end, desc = "Buffers" },
             { "<leader>fc", function() Snacks.picker.commands() end, desc = "Commands" },

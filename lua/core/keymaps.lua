@@ -140,6 +140,29 @@ end
 
 map("n", "<leader>sw", toggle_value, vim.tbl_extend("force", opts, { desc = "Toggle value" }))
 
+-- Auto project cwd: <leader>ua toggles it, <leader>uA sets a manual root (which
+-- turns auto off). core/autocmds.lua's BufEnter honours both.
+map("n", "<leader>ua", function()
+    local on = vim.g.auto_cwd == false
+    vim.g.auto_cwd = on
+    if on then vim.g.project_cwd = nil end
+    vim.notify("Auto cwd: " .. (on and "ON" or "OFF"), vim.log.levels.INFO)
+end, d("Toggle auto project cwd"))
+
+map("n", "<leader>uA", function()
+    local v = vim.fn.input("Project cwd: ", vim.fn.getcwd(), "dir")
+    if v == "" then return end
+    local p = vim.fn.fnamemodify(vim.fn.expand(v), ":p"):gsub("[/\\]+$", "")
+    if vim.fn.isdirectory(p) == 0 then
+        vim.notify("Not a directory: " .. v, vim.log.levels.WARN)
+        return
+    end
+    vim.fn.chdir(p)
+    vim.g.project_cwd = p
+    vim.g.auto_cwd = false
+    vim.notify("Project cwd: " .. p .. " (auto off)", vim.log.levels.INFO)
+end, d("Set project cwd (disables auto)"))
+
 -- Smart GF: open file and jump to line
 local smart_gf_config = {
     -- Characters wrapping the filename (add more, e.g. [[ or `)
@@ -196,64 +219,56 @@ local smart_gf_patterns = build_smart_gf_patterns()
 
 local function smart_gf(cmd)
     local line = vim.api.nvim_get_current_line()
+    local cursor_col = vim.api.nvim_win_get_cursor(0)[2]
 
+    -- Open the file:line match that spans the cursor (strict). Patterns are
+    -- tried in priority order, each scanned left to right; a line with several
+    -- paths therefore opens the one under the cursor, not the leftmost. If
+    -- nothing file:line-like is under the cursor, fall back to built-in gf/gF
+    -- (handles bare filenames without a line number).
     for _, pattern_info in ipairs(smart_gf_patterns) do
-        local pattern, filepath_group, line_group = pattern_info[1], pattern_info[2], pattern_info[3]
-        local filepath, linenr = line:match(pattern)
+        local pattern = pattern_info[1]
+        local init = 1
+        while true do
+            local s, e, filepath, linenr = line:find(pattern, init)
+            if not s then break end
+            init = e + 1
 
-        if filepath and linenr then
-            for _, char in ipairs(smart_gf_config.trim_chars) do
-                filepath = filepath:gsub(vim.pesc(char), "")
+            if cursor_col >= s - 1 and cursor_col <= e - 1 then
+                for _, char in ipairs(smart_gf_config.trim_chars) do
+                    filepath = filepath:gsub(vim.pesc(char), "")
+                end
+                filepath = filepath:gsub("^[%s%(%)%[%]{}%,%\"']+", ""):gsub("[%s%(%)%[%]{}%,%\"']+$", "")
+
+                if vim.fn.filereadable(vim.fn.expand(filepath)) == 1 then
+                    if cmd == "split" then
+                        vim.cmd("split")
+                    end
+                    vim.cmd("edit " .. vim.fn.fnameescape(filepath))
+                    vim.api.nvim_win_set_cursor(0, { tonumber(linenr), 0 })
+                    vim.cmd("normal! zz")
+                    return
+                end
             end
-
-            filepath = filepath:gsub("^[%s%(%)%[%]{}%,%\"']+", ""):gsub("[%s%(%)%[%]{}%,%\"']+$", "")
-
-            local expanded = vim.fn.expand(filepath)
-            -- Keep trying the next pattern when this candidate does not
-            -- resolve to a real file (e.g. "ctl_id:0" inside a UVM log line
-            -- must not shadow the earlier "path.sv(256)" match).
-            if vim.fn.filereadable(expanded) == 0 then
-                goto continue
-            end
-
-            if cmd == "split" then
-                vim.cmd("split")
-            end
-            vim.cmd("edit " .. vim.fn.fnameescape(filepath))
-            vim.api.nvim_win_set_cursor(0, { tonumber(linenr), 0 })
-            vim.cmd("normal! zz")
-            return
         end
-
-        ::continue::
     end
 
-    local ok = pcall(function() vim.cmd("normal! " .. (cmd == "split" and "gF" or "gf")) end)
+    -- Nothing file:line-like was under the cursor: fall back to built-in gF
+    -- (gf + jump-to-line). Builtin gF never splits, so split explicitly first
+    -- and roll it back if the file can't be found.
+    if cmd == "split" then
+        vim.cmd("split")
+    end
+    local ok = pcall(function()
+        vim.cmd("normal! gF")
+    end)
     if not ok then
+        if cmd == "split" then
+            pcall(function() vim.cmd("close") end)
+        end
         vim.notify("gf: can't find file - " .. vim.fn.expand("<cfile>"), vim.log.levels.WARN)
     end
 end
 
 map("n", "gf", function() smart_gf("edit") end, vim.tbl_extend("force", opts, { desc = "Smart gf (file:line)" }))
 map("n", "gF", function() smart_gf("split") end, vim.tbl_extend("force", opts, { desc = "Smart gf (split)" }))
-
-map("i", "<M-;>", function()
-    local chars = {}
-    for _, info in pairs(require("mini.pairs").config.mappings) do
-        chars[vim.fn.strcharpart(info.pair, 1, 1)] = true
-    end
-    local line = vim.api.nvim_get_current_line()
-    local col = vim.api.nvim_win_get_cursor(0)[2] + 1
-    local rest = line:sub(col)
-    local min_pos
-    for c in pairs(chars) do
-        local p = rest:find(vim.pesc(c))
-        if p and (not min_pos or p < min_pos) then min_pos = p end
-    end
-    if min_pos then
-        vim.api.nvim_feedkeys(
-            vim.api.nvim_replace_termcodes(string.rep("<Right>", min_pos), true, false, true),
-            "n", false
-        )
-    end
-end, d("Jump to next closing bracket/quote"))

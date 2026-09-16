@@ -74,9 +74,23 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   lib needs glibc ≥ 2.18). **RHEL6 nvim is kept on the same version as Windows
   (both 0.13-dev)** — do NOT add version-branch shims for "older nvim"; only branch
   on `is_rhel6` for real glibc/tooling matters.
-- **FFF engine** (`plugins/fff.lua` + `plugins/fzf.lua`): `ff/fz/fw` and
-  `fn/fo` are snacks.picker sources backed by fff's Rust index (programmatic API),
-  not fff's bundled UI. `fff.nvim` is a **single-global-root** index (no multi-root
+- **Auto cwd:** the only auto-cwd is the global `chdir` in `core/autocmds.lua`
+  (the old window-local `lcd` in `config/project.lua` was removed, so all windows
+  share one cwd that follows the current buffer's project). `<leader>ua` toggles
+  it (`vim.g.auto_cwd`); `<leader>uA` prompts for a manual root
+  (`vim.g.project_cwd`), chdir's there, and turns auto off. `fzf.lua` treats
+  `vim.g.project_cwd` as the fff root / project-gate override.
+- **FFF engine** (`plugins/fff.lua` + `plugins/fzf.lua`): `ff/fz/fw/fn/fo` are
+  snacks.picker sources backed by fff's Rust index (programmatic API), **but only
+  inside a project** (`project_root(0) ~= nil`); outside one they fall back to
+  snacks' native `files`/`grep` (the `pick_*` dispatchers in `fzf.lua`; `fw`'s
+  native fallback is `grep` seeded with the word — regex+live, to match the fff
+  path — so it differs from `fW`'s `grep_word`). `vim.g.fff_mode = "off"` disables
+  fff everywhere. There is deliberately no "always fff" mode — with no project it
+  would index a possibly-giant cwd (e.g. `$HOME`, `C:\`). `fG/fW/fP` are always
+  native. The root is captured per pick into `opts.fff_root` (survives finder
+  retries and `:resume`) so a mid-pick project switch can't re-root the index out
+  from under the finder. `fff.nvim` is a **single-global-root** index (no multi-root
   support) — `change_indexing_directory` re-roots by replacing + rescanning. RHEL6
   project trees live behind symlinks → `follow_symlinks = true`.
 - **fff is glibc-sensitive — none of upstream's Linux prebuilts run on RHEL6:**
@@ -376,11 +390,13 @@ cargo-zigbuild produce an ELF with max `GLIBC_ 2.17` and no bad undefined refs.
   (`scripts/prebuilt/fff/libfff_nvim.so`). It must match the fff plugin commit —
   rebuild via `scripts/build-fff-rhel6.sh` whenever the plugin is bumped. Never
   ship upstream's gnu (needs 2.31) or musl (dynamic-musl) builds.
-- `fff.rust.health_check()` runs a git discover — it's cached in `fzf.lua`
-  (2 s TTL); don't call it per keystroke.
-- fff's async finder runs in a **fast-event context**: `vim` API calls like
-  `nvim_buf_get_name` (via `project_root`) are forbidden there — hop to the main
-  thread with `async:schedule` (already done in the poll loop).
+- `fff.rust.health_check()` runs a git discover on every call (uncached in Rust);
+  `fzf.lua` caches only the *ready* result (2 s TTL) — while the index is warming
+  up the poll loop calls it each iteration.
+- fff's async finder retries run in a **fast-event context**; `vim.fn`/`uv` calls
+  (`fff_norm`) are unsafe there, so each retry hops back via `async:schedule`
+  (already done in the poll loop). The project root is no longer looked up in the
+  finder — it's captured at pick time into `opts.fff_root`.
 - **Do NOT "optimize" fff to one fixed common root** (`/proj/crane/wa/$USER`).
   That parent is **NFS** (~108k files across ~20 projects); a single root would
   force a full-network rescan on every startup and a watcher over 108k NFS entries
