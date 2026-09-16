@@ -313,7 +313,9 @@ local exclude_patterns = {
 }
 
 local function proj_base_path()
-    return "/proj/crane/wa/" .. vim.fn.expand("$USER")
+    -- Login name from the passwd DB: robust when $USER is unset (csh `set` vs
+    -- `setenv`, sudo, tmux) and works on Windows too ($USERNAME instead).
+    return "/proj/crane/wa/" .. vim.uv.os_get_passwd().username
 end
 
 local function scan_dirs(path)
