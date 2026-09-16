@@ -1,13 +1,9 @@
 return {
     {
         "dnlhc/glance.nvim",
+        -- Bound to gd/grr/gri/grt in config/lsp.lua (glance_jump); :Glance keeps
+        -- this plugin lazy-loaded.
         cmd = "Glance",
-        keys = {
-            { "<leader>ld", "<cmd>Glance definitions<CR>", desc = "Glance definitions" },
-            { "<leader>lr", "<cmd>Glance references<CR>", desc = "Glance references" },
-            { "<leader>lt", "<cmd>Glance type_definitions<CR>", desc = "Glance type definitions" },
-            { "<leader>li", "<cmd>Glance implementations<CR>", desc = "Glance implementations" },
-        },
         opts = function()
             local actions = require("glance").actions
             return {

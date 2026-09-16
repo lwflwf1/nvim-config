@@ -63,69 +63,41 @@ function M.setup()
         ["textDocument/typeDefinition"] = "typeDefinitionProvider",
     }
 
-    local function lsp_jump(method)
-        return function()
-            local word = vim.fn.expand("<cword>")
-            if word == "" then return end
+    local glance_methods = {
+        ["textDocument/definition"] = "definitions",
+        ["textDocument/references"] = "references",
+        ["textDocument/implementation"] = "implementations",
+        ["textDocument/typeDefinition"] = "type_definitions",
+    }
 
-            local clients = vim.lsp.get_clients({ bufnr = 0 })
-            if #clients == 0 then
-                vim.notify((fallback_messages[method] or "No results found") .. ": " .. word, vim.log.levels.INFO)
+    local function glance_jump(method)
+        local word = vim.fn.expand("<cword>")
+        local clients = vim.lsp.get_clients({ bufnr = 0 })
+        local cap = method_to_cap[method]
+        for _, client in ipairs(clients) do
+            if (client.server_capabilities or {})[cap] then
+                -- Glance (dnlhc/glance.nvim): list + preview UI. It is lazy-loaded
+                -- via `cmd`, and this triggers its load + the :Glance command.
+                vim.cmd("Glance " .. glance_methods[method])
                 return
             end
-
-            local cap = method_to_cap[method]
-            if cap then
-                local supported = false
-                for _, client in ipairs(clients) do
-                    if (client.server_capabilities or {})[cap] then
-                        supported = true
-                        break
-                    end
-                end
-                if not supported then
-                    vim.notify((fallback_messages[method] or "No results found") .. ": " .. word, vim.log.levels.INFO)
-                    return
-                end
-            end
-
-            vim.lsp.buf_request_all(0, method, function(client)
-                local params = vim.lsp.util.make_position_params(0, client.offset_encoding)
-                if method == "textDocument/references" then
-                    ---@cast params lsp.ReferenceParams
-                    params.context = { includeDeclaration = true }
-                end
-                return params
-            end, function(results)
-                local all_items = {}
-                for client_id, res in pairs(results) do
-                    local client = assert(vim.lsp.get_client_by_id(client_id))
-                    local locations = (res and res.result) or nil
-                    if locations then
-                        if not vim.islist(locations) then
-                            locations = { locations }
-                        end
-                        local items = vim.lsp.util.locations_to_items(locations, client.offset_encoding)
-                        vim.list_extend(all_items, items)
-                    end
-                end
-                if next(all_items) then
-                    vim.fn.setqflist(all_items)
-                    vim.api.nvim_command("Trouble qflist open")
-                else
-                    vim.notify((fallback_messages[method] or "No results found") .. ": " .. word, vim.log.levels.INFO)
-                end
-            end)
+        end
+        -- No client supports it: gd falls back to the built-in gd (local
+        -- declaration search); the rest notify.
+        if method == "textDocument/definition" then
+            vim.cmd("normal! gd")
+        else
+            vim.notify((fallback_messages[method] or "No results found") .. ": " .. word, vim.log.levels.INFO)
         end
     end
 
-    vim.keymap.set("n", "gd", lsp_jump("textDocument/definition"),
+    vim.keymap.set("n", "gd", function() glance_jump("textDocument/definition") end,
         { silent = true, noremap = true, desc = "Go to definition" })
-    vim.keymap.set("n", "grr", lsp_jump("textDocument/references"),
+    vim.keymap.set("n", "grr", function() glance_jump("textDocument/references") end,
         { silent = true, noremap = true, desc = "Go to references" })
-    vim.keymap.set("n", "gri", lsp_jump("textDocument/implementation"),
+    vim.keymap.set("n", "gri", function() glance_jump("textDocument/implementation") end,
         { silent = true, noremap = true, desc = "Go to implementation" })
-    vim.keymap.set("n", "grt", lsp_jump("textDocument/typeDefinition"),
+    vim.keymap.set("n", "grt", function() glance_jump("textDocument/typeDefinition") end,
         { silent = true, noremap = true, desc = "Go to type definition" })
 
     local on_attach = function(client, bufnr)
