@@ -6,7 +6,7 @@ return {
         priority = 1001,
         opts = {
             highlights = {
-                ["@punctuation.bracket"] = { fg = "#61afef" }, -- brackets same color as function call (blue)
+                ["@punctuation.bracket"] = { fg = "#d19a66" }, -- all brackets orange (SV has no lang-specific group, so it needs the generic one)
                 -- blink.cmp and this theme both omit CmpItemKind*/BlinkCmpKind*
                 -- for these 4 kinds; link them to the theme's own semantic
                 -- groups so both the icon and the kind label stay colored.
