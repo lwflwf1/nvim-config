@@ -3,7 +3,7 @@ return {
     event = "VeryLazy",
     opts = {
         preset = "modern",
-        delay = function(ctx) return ctx.plugin and 0 or 200 end,
+        delay = function(ctx) return ctx.plugin and 0 or 1000 end,
         icons = {
             mappings = false,
             colors = true,
