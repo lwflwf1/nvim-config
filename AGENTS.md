@@ -120,6 +120,22 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
 - Custom SV queries live in `queries/systemverilog/` + `after/queries/systemverilog/`.
 - `:ToolInstall` installs missing mason tools from `config.lsp` + `plugins/formatter`
   and missing parsers; `:ToolUpdate` refreshes mason registry + parsers.
+- **Queries must live under an rtp `queries/<lang>/` dir.** `nvim-treesitter` (main
+  branch) keeps its queries in `<plugin>/runtime/queries`, which is **not** on rtp;
+  `install()`/`:TSUpdate` *links* them into `site/queries/<lang>`. Because
+  `install()` skips already-installed parsers, a parser can exist with **no base
+  query** → treesitter starts, captures nothing, and the regex syntax is off →
+  **no highlighting** (keywords like python `def`, go `func`, rust `fn`). A theme/plugin
+  `after/queries/<lang>/highlights.scm` (`; extends`) does **not** count as a base
+  and can mask the problem: `vim.treesitter.query.get()` returns non-nil while
+  only theme captures exist. Check the *sources*, not just non-nil:
+  `vim.treesitter.query.get_files(lang, "highlights")` must include a file that is
+  not under `after/queries`. Fix locally (offline, no recompile) by copying
+  `lazy/nvim-treesitter/runtime/queries/<lang>` → `data/site/queries/<lang>`
+  (fixes highlights **and** `indents`/`folds`/`locals`); or run
+  `:TSUpdate` / `require("nvim-treesitter").install(require("config.parsers"), { force = true })`.
+  Seen on Windows for python/go/rust and 13 others; RHEL6 is unaffected (its
+  `site/` is built fresh by the offline installer).
 
 ## Verification commands
 
