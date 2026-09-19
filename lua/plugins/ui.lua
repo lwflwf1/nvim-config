@@ -245,6 +245,16 @@ return {
                 sort_by = "id",
             },
         },
+        config = function(_, opts)
+            require("bufferline").setup(opts)
+            -- nvim normalises buffer names to forward slashes on Windows (even
+            -- when opened with `\`), but bufferline derives its separator from
+            -- `has("win32")` and splits on "\\" -> splitting the path fails, the
+            -- duplicate detection bails at depth 1 and the parent-dir prefix
+            -- collapses to a bare "\", so two buffers named `view.lua` both
+            -- render as `\view.lua`. Split on "/" instead (a no-op on Linux).
+            require("bufferline.utils").path_sep = "/"
+        end,
     },
     {
         "folke/noice.nvim",

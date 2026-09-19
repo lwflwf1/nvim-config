@@ -107,6 +107,15 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
 - **Noice suppresses `recording @a`** (`msg_showmode` is `skip`-routed). lualine
   shows a `REC @<reg>` indicator instead, refreshed on `RecordingEnter`/`Leave`
   (`plugins/ui.lua`).
+- **bufferline duplicate prefixes on Windows** (`plugins/ui.lua`, the bufferline
+  `config`): nvim *always* normalises buffer names to `/` (even when opened with
+  `\`), but bufferline derives `utils.path_sep` from `has("win32")` = `\` and
+  splits on it -> the split yields a single component, duplicate detection bails
+  at depth 1, and `Component:__ancestor` returns a bare `\` (its `dir == ""` guard
+  can't fire because the separator is already appended) -> two buffers named
+  `view.lua` both render as `\view.lua`. Fix: after `require("bufferline").setup`
+  set `require("bufferline.utils").path_sep = "/"` (no-op on Linux; `path_sep` is
+  display-only — used in `models.lua` + `duplicates.lua`).
 - **`glibc234` tools** (node/pandoc/clangd/lua-language-server) on RHEL6 are
   patchelf'd to a glibc-2.34 loader and wrapped to `unset LD_LIBRARY_PATH`
   (see `scripts/install-offline.sh`). Never export `LD_LIBRARY_PATH`.
