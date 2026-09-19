@@ -110,6 +110,18 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
 - **`glibc234` tools** (node/pandoc/clangd/lua-language-server) on RHEL6 are
   patchelf'd to a glibc-2.34 loader and wrapped to `unset LD_LIBRARY_PATH`
   (see `scripts/install-offline.sh`). Never export `LD_LIBRARY_PATH`.
+- **Bulk file rename from the picker** (`<a-n>` → action `rename_replace`,
+  `plugins/snacks.lua`): renames the **basenames** of the selected (or cursor)
+  picker items with a **Lua-pattern** search/replace pair (`%1` captures, not
+  `\1`). Reuses `Snacks.rename.rename_file`, which degrades to a plain
+  `vim.fn.rename` when no LSP client supports `workspace/willRenameFiles` (it just
+  skips clients) — so it works on the offline box where LSP may be absent.
+  Targets that already exist are skipped, never overwritten. Deliberately
+  basename-only with a confirm list (no in-picker preview) to stay small.
+  NB: a *named* action is resolved via `Snacks.picker.config.action(picker, name)`
+  from `picker.opts.actions` — **not** `Snacks.picker.actions[name]` — so headless
+  probes must invoke it via
+  `require("snacks.picker.core.actions").resolve(name, picker, name).action(picker)`.
 
 ## Treesitter parsers & the systemverilog fork
 
@@ -199,9 +211,13 @@ GitHub for fff.
 
 ```bash
 unzip nvim-bundle-linux-x86_64-<date>-<type>.zip -d bundle && cd bundle
-./config/scripts/install-offline.sh nvim-bundle-linux-x86_64-<date>-<type>.zip --update
+# NB: the zip is NOT inside bundle/ — pass a path that actually resolves. The
+# script does not depend on cwd (it re-extracts the zip into a temp dir), but it
+# `[ -f "$BUNDLE" ]`s the arg as given, so a bare filename fails with
+# "bundle not found" when the zip sits one level up.
+./config/scripts/install-offline.sh ../nvim-bundle-linux-x86_64-<date>-<type>.zip --update
 # config-only bundle:
-./config/scripts/install-offline.sh nvim-bundle-linux-x86_64-<date>-config.zip --config-only
+./config/scripts/install-offline.sh ../nvim-bundle-linux-x86_64-<date>-config.zip --config-only
 ```
 
 - `install-offline.sh` auto-detects bundle type from contents.

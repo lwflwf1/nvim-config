@@ -78,12 +78,102 @@ return {
                             end,
                         })
                     end,
+                    -- Bulk-rename the basenames of the selected files (or the
+                    -- cursor item) with a Lua-pattern search/replace pair (`%1`
+                    -- for captures). Reuses Snacks.rename.rename_file, which
+                    -- falls back to a plain rename when no LSP client supports
+                    -- workspace/willRenameFiles. Skips directories, unchanged
+                    -- names and targets that already exist (never overwrites).
+                    rename_replace = function(picker)
+                        local uv = vim.uv or vim.loop
+                        local items = picker:selected({ fallback = true })
+                        local search = picker.input and picker.input.filter and picker.input.filter.search or ""
+                        Snacks.input({ prompt = "Rename pattern (lua): ", default = search }, function(pattern)
+                            if not pattern or pattern == "" then
+                                return
+                            end
+                            Snacks.input({ prompt = "Replace with: " }, function(repl)
+                                if not repl then
+                                    return
+                                end
+                                local renames, skipped, seen = {}, {}, {}
+                                for _, item in ipairs(items) do
+                                    local from = Snacks.picker.util.path(item)
+                                    local stat = from and uv.fs_stat(from)
+                                    if not (from and stat and stat.type == "file") then
+                                        skipped[#skipped + 1] = from or "<no file>"
+                                    else
+                                        local base = vim.fn.fnamemodify(from, ":t")
+                                        local newbase = base:gsub(pattern, repl)
+                                        local to = vim.fs.dirname(from) .. "/" .. newbase
+                                        if newbase == "" or newbase == base then
+                                            -- unchanged
+                                        elseif uv.fs_stat(to) or seen[to] then
+                                            skipped[#skipped + 1] = from .. " (target exists)"
+                                        else
+                                            seen[to] = true
+                                            renames[#renames + 1] = { from = from, to = to }
+                                        end
+                                    end
+                                end
+                                if #renames == 0 then
+                                    Snacks.notify.warn("rename: nothing to do (" .. #skipped .. " skipped)")
+                                    return
+                                end
+                                local lines = {}
+                                for i, r in ipairs(renames) do
+                                    if i > 8 then
+                                        lines[#lines + 1] = "  ... and " .. (#renames - 8) .. " more"
+                                        break
+                                    end
+                                    lines[#lines + 1] = "  "
+                                        .. vim.fn.fnamemodify(r.from, ":t")
+                                        .. " -> "
+                                        .. vim.fn.fnamemodify(r.to, ":t")
+                                end
+                                picker:close()
+                                local choice = vim.fn.confirm(
+                                    "Rename " .. #renames .. " file(s)?\n" .. table.concat(lines, "\n"),
+                                    "&Apply\n&Cancel"
+                                )
+                                if choice ~= 1 then
+                                    return
+                                end
+                                local done, failed = 0, {}
+                                for _, r in ipairs(renames) do
+                                    Snacks.rename.rename_file({
+                                        from = r.from,
+                                        to = r.to,
+                                        on_rename = function(_, frm, ok)
+                                            if ok then
+                                                done = done + 1
+                                            else
+                                                failed[#failed + 1] = frm
+                                            end
+                                        end,
+                                    })
+                                end
+                                local msg = ("rename: %d/%d done"):format(done, #renames)
+                                if #skipped > 0 then
+                                    msg = msg .. (", %d skipped"):format(#skipped)
+                                end
+                                if #failed > 0 then
+                                    Snacks.notify.error(
+                                        msg .. (", %d failed:\n"):format(#failed) .. table.concat(failed, "\n")
+                                    )
+                                else
+                                    Snacks.notify.info(msg)
+                                end
+                            end)
+                        end)
+                    end,
                 },
                 win = {
                     input = {
                         keys = {
                             ["<a-t>"] = { "trouble_open", mode = { "n", "i" } },
                             ["<a-s>"] = { "flash", mode = { "n", "i" } },
+                            ["<a-n>"] = { "rename_replace", mode = { "n", "i" } },
                             ["s"] = { "flash" },
                         },
                     },
