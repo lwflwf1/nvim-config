@@ -38,6 +38,11 @@ map("i", "<C-b>", "<Left>", d("Left one char"))
 map("i", "<C-f>", "<Right>", d("Right one char"))
 map("i", "<C-d>", "<Del>", d("Delete char"))
 
+-- <C-v> pastes the clipboard literally and fixes the indent, as its own undo
+-- step (i_CTRL-R_CTRL-P + i_CTRL-G_u). Trade-off: loses built-in literal-insert
+-- (<C-q> still does that). GUI/Neovide only — Windows Terminal eats Ctrl+V.
+map("i", "<C-v>", "<C-g>u<C-r><C-p>+", d("Paste from clipboard (fix indent)"))
+
 map("n", "<leader>qn", ":cnext<CR>", vim.tbl_extend("force", opts, { desc = "Next quickfix" }))
 map("n", "<leader>qp", ":cprevious<CR>", vim.tbl_extend("force", opts, { desc = "Prev quickfix" }))
 
@@ -68,7 +73,9 @@ map("c", "<C-f>", "<Right>", d("Cmdline: right one char"))
 map("c", "<m-b>", "<C-Left>", d("Cmdline: left one word"))
 map("c", "<m-f>", "<C-Right>", d("Cmdline: right one word"))
 map("c", "<C-d>", "<Del>", d("Cmdline: delete char"))
-map("c", "<c-y>", '<C-r>"', d("Cmdline: paste register"))
+-- literal paste from the clipboard (note: in cmdline <C-r><C-p> means "filename
+-- under the cursor", not the insert-mode literal+fix-indent behavior)
+map("c", "<C-v>", "<C-r><C-o>+", d("Cmdline: paste from clipboard (literal)"))
 map("c", "<C-j>", "<down>", d("Cmdline: history down"))
 map("c", "<C-k>", "<up>", d("Cmdline: history up"))
 
