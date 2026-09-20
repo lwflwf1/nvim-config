@@ -195,6 +195,16 @@ return {
         keys = {
             { "<leader>gz", function() Snacks.lazygit() end,                 desc = "Lazygit" },
             { "<M-=>",      function() Snacks.terminal.toggle() end,         desc = "Toggle terminal", mode = { "n", "t" } },
+            { "<M-+>",      function()
+                -- Terminal in its own tab. snacks keys terminals by
+                -- cmd+cwd+env+count, so a distinct count keeps this one separate
+                -- from the <M-=> float; 100+tabnr avoids the user's `N<M-=>`.
+                vim.cmd("tabnew")
+                Snacks.terminal.open(nil, {
+                    count = 100 + vim.api.nvim_tabpage_get_number(0),
+                    win = { position = "current", wo = { winbar = "" } },
+                })
+            end, desc = "Terminal in new tab", mode = { "n", "t" } },
             { "<leader>bd", function() Snacks.bufdelete() end,               desc = "Delete Buffer" },
             { "<leader>z",  function() Snacks.zen() end,                     desc = "Toggle Zen Mode" },
             { "<leader>Z",  function() Snacks.zen.zoom() end,                desc = "Toggle Zoom" },
