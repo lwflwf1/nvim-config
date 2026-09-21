@@ -93,27 +93,36 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   from under the finder. `fff.nvim` is a **single-global-root** index (no multi-root
   support) — `change_indexing_directory` re-roots by replacing + rescanning. RHEL6
   project trees live behind symlinks → `follow_symlinks = true`.
-- **fff grep is paged, not time-boxed** (`plugins/fzf.lua`, fff grep source): fff's
-  grep is a *synchronous* FFI call (`live_grep` behind `content_search`), so a
-  single call = a UI freeze, and letting fff's `grep.time_budget_ms` (default
-  **150ms**, counted *after the first match*; `enforce_time_budget = false` only
-  means zero-match queries scan everything) stop the scan drops matches in files
-  later in the walk order — silently (a `class.*packet` search missed a line a
-  literal search found; raising the budget to 400 only papered over it). Now
-  `fff_grep_finder` **pages** with `file_offset` / `next_file_offset` (`0` = scan
-  finished) and streams each page via `ctx.async`, with `FFF_GREP_CHUNK_MS = 30`
-  (max freeze per call), `FFF_GREP_TOTAL_MS = 1000` (max per run),
-  `FFF_GREP_PAGE = 200` (matches per page, soft — whole files overshoot) and
-  `FFF_GREP_MAX_ITEMS = 1000` (hard cap). The source adds `sort = false` (fff
-  already ordered the hits; snacks' re-sort was O(n log n) per keystroke) and
-  disables only the matcher *bonus* scorers — never `fuzzy`/`regex`/`smartcase`:
-  the matcher also does the regex/fuzzy filtering **and** supplies highlight
-  positions, so a plain substring filter would drop every regex/fuzzy hit.
+- **fff is never used on RHEL6** (`init.lua` + `plugins/fff.lua` + `plugins/fzf.lua`):
+  fff's search API is a *synchronous* FFI call (`live_grep`/`file_search` are mlua C
+  functions bound to the Lua state), so it **cannot be made async** — it must run on
+  the main loop (no `uv.new_thread`/`queue_work`, no callback API). On the big NFS
+  project trees that both froze the UI and silently dropped matches (a
+  `class.*packet` search missed a line a literal search found; fff's
+  `grep.time_budget_ms`, default 150ms and counted *after the first match*, stops the
+  scan wherever it runs out — and raising it to 400 only papered over it). So:
+  - `init.lua` sets `vim.g.fff_mode = vim.g.is_rhel6 and "off" or "on"`; the single
+    dispatch gate `fff_root_enabled()` (`plugins/fzf.lua`) then makes `ff/fz/fw/fn/fo`
+    fall back to snacks' native `files`/`grep` (rg as a **subprocess** → non-blocking
+    and complete).
+  - `plugins/fff.lua` also has `enabled = not vim.g.is_rhel6`, because
+    `lazy/fff/plugin/fff.lua` otherwise calls `ensure_initialized()` on `UIEnter` and
+    would index the NFS tree on its own (`vim.g.fff.lazy_sync` is the plugin-level
+    switch). Disabling the spec means no indexing, no autocmds, no `.so`.
+  - Non-RHEL6 keeps fff (local disks → a single `content_search` call is ~ms), with
+    `page_size = 200` and no `time_budget_ms` override. Do NOT reintroduce the
+    `file_offset` paging/"hot"/chunking experiment that lived here for a while — it
+    was reverted (see git history) as too complex for the win.
+  - `Snacks.picker`'s own matcher is left alone; the fff grep source only adds
+    `sort = false` (fff already ordered the hits) and disables the matcher *bonus*
+    scorers. Never touch `fuzzy`/`regex`/`smartcase`: the matcher also does the
+    regex/fuzzy filtering **and** supplies highlight positions, so a plain substring
+    filter would drop every regex/fuzzy hit.
 - **fff respects `.gitignore`** (like ripgrep's default): files under ignored dirs
-  are invisible to fff grep. Verify with `rg -n "pat" .` vs
-  `rg -n --no-ignore "pat" .` and `git check-ignore -v <f>`; to search ignored
-  files use a native picker with `ignored = true` (`Snacks.picker.smart`) or
-  `vim.g.fff_mode = "off"`.
+  are invisible to fff grep (native rg behaves the same). Verify with
+  `rg -n "pat" .` vs `rg -n --no-ignore "pat" .` and `git check-ignore -v <f>`; to
+  search ignored files use a native picker with `ignored = true`
+  (`Snacks.picker.smart`) or `vim.g.fff_mode = "off"`.
 - **fff is glibc-sensitive — none of upstream's Linux prebuilts run on RHEL6:**
   - `x86_64-unknown-linux-gnu` → linked for glibc **2.31** (upstream CI: "Rust 1.91+
     requires glibc >= 2.31 … earlier targets (2.17) no longer link").

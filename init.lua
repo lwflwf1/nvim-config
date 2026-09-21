@@ -25,6 +25,12 @@ if vim.g.os == "linux" then
     vim.g.is_rhel6 = release:match("^2%.6%.32") ~= nil or (vim.g.glibc_version ~= "" and gv < 2.18)
 end
 
+-- RHEL6: never use fff. Its search API is a synchronous FFI call; on the big NFS
+-- project trees it froze the UI and its time-budgeted scans silently dropped
+-- matches. snacks' native rg runs as a subprocess: non-blocking and complete.
+-- (plugins/fff.lua is also disabled there so it can't index on its own.)
+vim.g.fff_mode = vim.g.is_rhel6 and "off" or "on"
+
 vim.g.data_dir = vim.fn.stdpath("data") .. "/"
 
 vim.g.loaded_netrw = 1
