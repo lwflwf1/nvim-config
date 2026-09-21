@@ -55,6 +55,20 @@ end
 local FFF_POLL_MS = 350
 local FFF_POLL_TRIES = 17
 
+-- fff grep is a *synchronous* FFI call (it must run on the main loop), so we page
+-- through the index in small time-boxed chunks instead of one big call:
+--   * FFF_GREP_CHUNK_MS caps a *single* call  -> worst-case UI freeze
+--   * FFF_GREP_TOTAL_MS caps one finder run (all chunks) -> how much we cover
+--   * FFF_GREP_PAGE     matches collected per page (soft: whole files overshoot)
+--   * FFF_GREP_MAX_ITEMS hard cap on streamed results
+-- The old single call passed no budget, so fff's `grep.time_budget_ms` (default
+-- 150ms) stopped the scan wherever it ran out and silently dropped matches in
+-- files later in the walk order (raising it to 400 only papered over it).
+local FFF_GREP_CHUNK_MS = 30
+local FFF_GREP_TOTAL_MS = 1000
+local FFF_GREP_PAGE = 200
+local FFF_GREP_MAX_ITEMS = 1000
+
 -- Canonical form, for comparing a path with the Rust-side picker root.
 -- Mirrors fff's ensure_indexed.canon: resolve the real path (Windows 8.3 short
 -- names, symlinks) so it matches the Rust side's dunce::canonicalize base_path.
@@ -121,19 +135,26 @@ local function fff_files(q, target)
     return items
 end
 
-local function fff_grep(q, target)
-    if not target or not fff_root_ready(target) then return {} end
+-- One fff grep page. Returns `{ items = ..., next_offset = ... }` (a single table
+-- so it survives ctx.async:schedule's return-value handling). `file_offset` pages
+-- over the indexed files; `next_offset == 0` means the scan finished.
+local function fff_grep_page(q, target, offset)
     local ok, res = pcall(require("fff").content_search, q, {
-        page_size = 200,
+        page_size = FFF_GREP_PAGE,
+        file_offset = offset,
         mode = fff_grep_mode,
         trim_whitespace = false,
         wait_for_index_ms = 0,
         cwd = target,
+        time_budget_ms = FFF_GREP_CHUNK_MS,
+        enforce_time_budget = true,
     })
     local items = {}
-    if ok and res.items then
+    local next_offset = 0
+    if ok and res then
+        next_offset = res.next_file_offset or 0
         local canon = require("fff.utils").canonicalize_fff_path
-        for _, m in ipairs(res.items) do
+        for _, m in ipairs(res.items or {}) do
             local abs = canon(m.relative_path)
             if abs then
                 -- fff match_ranges are 0-based end-exclusive ranges; snacks wants
@@ -157,7 +178,7 @@ local function fff_grep(q, target)
             end
         end
     end
-    return items
+    return { items = items, next_offset = next_offset }
 end
 
 -- Wrap a snapshot query: when it has results, return them as a plain table
@@ -194,11 +215,50 @@ end
 
 local fff_file_finder = fff_polling_finder(fff_files)
 
-local fff_grep_polling = fff_polling_finder(fff_grep)
+-- Streaming fff grep: page through the index in small time-boxed chunks so the UI
+-- never freezes for more than FFF_GREP_CHUNK_MS, and never truncates the scan the
+-- way the old single call did (it stopped wherever `time_budget_ms` ran out and
+-- silently dropped matches in later files). Pages are fetched until the whole
+-- index was scanned (`next_offset == 0`), FFF_GREP_MAX_ITEMS items were emitted,
+-- or FFF_GREP_TOTAL_MS elapsed for this run. snacks aborts the generator (and our
+-- `async:sleep(0)` yields) on the next keystroke / picker close.
 local fff_grep_finder = function(opts, ctx)
-    -- empty query has no grep meaning; don't hand it to fff
-    if ctx.filter.search == "" then return {} end
-    return fff_grep_polling(opts, ctx)
+    local q = ctx.filter.search
+    local root = opts.fff_root
+    -- empty query has no grep meaning; no captured root -> fail fast
+    if q == "" or not root then return {} end
+    return function(cb)
+        local async = ctx.async
+        -- Wait for the index/root to be ready. NB: the generator body runs in a
+        -- fast-event context, where `vim.fn`/uv calls are unsafe, so everything
+        -- that touches fff (incl. this readiness check) must hop back to the main
+        -- loop via `async:schedule` (same reason the polling finder above does).
+        local ready = false
+        for _ = 1, FFF_POLL_TRIES do
+            if not async or not async:running() then return end
+            if async:schedule(function() return fff_root_ready(root) end) then
+                ready = true
+                break
+            end
+            async:sleep(FFF_POLL_MS)
+        end
+        if not ready then return end
+        local t0 = vim.uv.hrtime()
+        local offset, sent = 0, 0
+        while true do
+            if not async or not async:running() then return end
+            local page = async:schedule(function() return fff_grep_page(q, root, offset) end)
+            for _, item in ipairs(page.items) do
+                cb(item)
+                sent = sent + 1
+                if sent >= FFF_GREP_MAX_ITEMS then return end
+            end
+            if page.next_offset == 0 then return end
+            offset = page.next_offset
+            if (vim.uv.hrtime() - t0) / 1e6 > FFF_GREP_TOTAL_MS then return end
+            async:sleep(0) -- yield so keystrokes/rendering stay responsive
+        end
+    end
 end
 
 local function fff_cycle_grep_mode(picker)
@@ -249,6 +309,22 @@ local fff_grep_source = {
     title = "fff grep",
     live = true,
     supports_live = true,
+    -- fff already matched AND ordered the results, so skip snacks' re-sort
+    -- (O(n log n) per keystroke) and keep fff's streaming order.
+    sort = false,
+    -- Only disable the *bonus* scorers (pointless for pre-filtered results).
+    -- Do NOT touch fuzzy/regex/smartcase/ignorecase: the matcher also does the
+    -- regex/fuzzy filtering and supplies highlight positions — turning it into a
+    -- plain substring filter would drop every regex/fuzzy hit (their match text
+    -- does not contain the raw query, e.g. `class.*packet` -> `class dsi_top_packet`).
+    matcher = {
+        sort_empty = false,
+        filename_bonus = false,
+        file_pos = false,
+        cwd_bonus = false,
+        frecency = false,
+        history_bonus = false,
+    },
     actions = {
         fff_mode = function(picker) fff_cycle_grep_mode(picker) end,
         fff_next_file = function(picker, item) fff_jump_file(picker, item, 1) end,

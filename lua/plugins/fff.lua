@@ -7,6 +7,9 @@ return {
     opts = {
         -- RHEL6 / Windows project trees live behind symlinks
         follow_symlinks = true,
+        -- NOTE: no `grep.time_budget_ms` here. fzf.lua pages fff grep in small
+        -- time-boxed chunks and passes `time_budget_ms` per call (FFF_GREP_CHUNK_MS),
+        -- so this global value would be dead config. See AGENTS.md.
     },
     -- The bundled picker UI is intentionally unused: ff/fz/fw/fn/fo go through
     -- snacks.picker sources driven by fff's programmatic API — but only inside a
