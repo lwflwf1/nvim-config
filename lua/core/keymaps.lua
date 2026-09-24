@@ -65,19 +65,24 @@ map("n", "<leader>wk", ":<C-u>leftabove split<CR>", vim.tbl_extend("force", opts
 map("n", "<leader>wj", ":<C-u>rightbelow split<CR>", vim.tbl_extend("force", opts, { desc = "Split below" }))
 
 
--- Command mode editing
-map("c", "<C-a>", "<Home>", d("Cmdline: line start"))
-map("c", "<C-e>", "<End>", d("Cmdline: line end"))
-map("c", "<C-b>", "<Left>", d("Cmdline: left one char"))
-map("c", "<C-f>", "<Right>", d("Cmdline: right one char"))
-map("c", "<m-b>", "<C-Left>", d("Cmdline: left one word"))
-map("c", "<m-f>", "<C-Right>", d("Cmdline: right one word"))
-map("c", "<C-d>", "<Del>", d("Cmdline: delete char"))
+-- Command mode editing. No <silent>: a silent map sets cmd_silent while its
+-- RHS runs, which makes putcmdline()/redrawcmd() early-return, so the pasted
+-- text is in cmdbuff but no cmdline_show is emitted until the next key.
+local cd = function(desc)
+    return vim.tbl_extend("force", { noremap = true }, { desc = desc })
+end
+map("c", "<C-a>", "<Home>", cd("Cmdline: line start"))
+map("c", "<C-e>", "<End>", cd("Cmdline: line end"))
+map("c", "<C-b>", "<Left>", cd("Cmdline: left one char"))
+map("c", "<C-f>", "<Right>", cd("Cmdline: right one char"))
+map("c", "<m-b>", "<C-Left>", cd("Cmdline: left one word"))
+map("c", "<m-f>", "<C-Right>", cd("Cmdline: right one word"))
+map("c", "<C-d>", "<Del>", cd("Cmdline: delete char"))
 -- literal paste from the clipboard (note: in cmdline <C-r><C-p> means "filename
 -- under the cursor", not the insert-mode literal+fix-indent behavior)
-map("c", "<C-v>", "<C-r><C-o>+", d("Cmdline: paste from clipboard (literal)"))
-map("c", "<C-j>", "<down>", d("Cmdline: history down"))
-map("c", "<C-k>", "<up>", d("Cmdline: history up"))
+map("c", "<C-v>", "<C-r><C-o>+", cd("Cmdline: paste from clipboard (literal)"))
+map("c", "<C-j>", "<down>", cd("Cmdline: history down"))
+map("c", "<C-k>", "<up>", cd("Cmdline: history up"))
 
 -- Text objects for brackets/quotes
 map("o", "inb", [[:<C-u>silent execute "normal! /(\r:nohlsearch\rvi("<CR>]], d("Inside next ()"))
