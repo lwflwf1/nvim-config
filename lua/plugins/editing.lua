@@ -130,26 +130,64 @@
             -- saved original and never hit this wrapper.)
             do
                 local fkm = require("multicursor-nvim.feedkeys-manager")
+                local function from_whichkey()
+                    local i = 2
+                    while true do
+                        local info = debug.getinfo(i, "S")
+                        if not info then return false end
+                        if info.source:find("which-key", 1, true) then return true end
+                        i = i + 1
+                    end
+                end
                 local mc_feedkeys = vim.api.nvim_feedkeys
                 vim.api.nvim_feedkeys = function(keys, mode, escape)
-                    if type(mode) == "string" and mode:find("t", 1, true) then
-                        local tb = debug.traceback("", 2)
-                        if tb:find("which-key", 1, true) then
-                            return fkm.nvim_feedkeys(keys, mode, escape)
-                        end
+                    if type(mode) == "string" and mode:find("t", 1, true)
+                        and from_whichkey()
+                    then
+                        return fkm.nvim_feedkeys(keys, mode, escape)
                     end
                     return mc_feedkeys(keys, mode, escape)
                 end
                 local mc_fn_feedkeys = vim.fn.feedkeys
                 vim.fn.feedkeys = function(keys, mode, ...)
-                    if type(mode) == "string" and mode:find("t", 1, true) then
-                        local tb = debug.traceback("", 2)
-                        if tb:find("which-key", 1, true) then
-                            return fkm.nvim_feedkeys(keys, mode, false)
-                        end
+                    if type(mode) == "string" and mode:find("t", 1, true)
+                        and from_whichkey()
+                    then
+                        return fkm.nvim_feedkeys(keys, mode, false)
                     end
                     return mc_fn_feedkeys(keys, mode, ...)
                 end
+            end
+
+            -- yanky's preserve_cursor keeps the main cursor in place after yiw,
+            -- but multicursor's secondary re-feed does not restore reliably
+            -- (global preserve state is consumed by the main yank). Skip
+            -- preserve while any mc cursor exists so main and secondary both
+            -- follow native yiw (move to word start).
+            do
+                local function patch_yanky_preserve()
+                    local ok, pc = pcall(require, "yanky.preserve_cursor")
+                    if not ok or pc._mc_patched then return end
+                    pc._mc_patched = true
+                    local orig_yank, orig_on_yank = pc.yank, pc.on_yank
+                    pc.yank = function(...)
+                        if mc.hasCursors() then return end
+                        return orig_yank(...)
+                    end
+                    pc.on_yank = function(...)
+                        if mc.hasCursors() then return end
+                        return orig_on_yank(...)
+                    end
+                end
+                patch_yanky_preserve()
+                vim.api.nvim_create_autocmd("User", {
+                    pattern = "LazyLoad",
+                    callback = function(ev)
+                        if ev.data == "yanky.nvim" then
+                            patch_yanky_preserve()
+                        end
+                    end,
+                })
             end
 
             local set = vim.keymap.set
