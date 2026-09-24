@@ -120,6 +120,38 @@
             local mc = require("multicursor-nvim")
             mc.setup()
 
+            -- which-key intercepts operator-pending sequences (e.g. "diw") via
+            -- getchar, then re-feeds them with nvim_feedkeys(..., "mit").
+            -- multicursor's feedkeys-manager records every `t`-flag feed into
+            -- _fedKeys and strips matching keys from vim.on_key, so _typed lost
+            -- "iw" (stayed "d") and diw/dd broke with multiple cursors.
+            -- Skip _fedKeys recording only for which-key's re-feeds; other
+            -- `t`-feeds are still recorded. (multicursor's own feeds call the
+            -- saved original and never hit this wrapper.)
+            do
+                local fkm = require("multicursor-nvim.feedkeys-manager")
+                local mc_feedkeys = vim.api.nvim_feedkeys
+                vim.api.nvim_feedkeys = function(keys, mode, escape)
+                    if type(mode) == "string" and mode:find("t", 1, true) then
+                        local tb = debug.traceback("", 2)
+                        if tb:find("which-key", 1, true) then
+                            return fkm.nvim_feedkeys(keys, mode, escape)
+                        end
+                    end
+                    return mc_feedkeys(keys, mode, escape)
+                end
+                local mc_fn_feedkeys = vim.fn.feedkeys
+                vim.fn.feedkeys = function(keys, mode, ...)
+                    if type(mode) == "string" and mode:find("t", 1, true) then
+                        local tb = debug.traceback("", 2)
+                        if tb:find("which-key", 1, true) then
+                            return fkm.nvim_feedkeys(keys, mode, false)
+                        end
+                    end
+                    return mc_fn_feedkeys(keys, mode, ...)
+                end
+            end
+
             local set = vim.keymap.set
 
             -- Add or skip cursor above/below the main cursor.
