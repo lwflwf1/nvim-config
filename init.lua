@@ -119,6 +119,8 @@ require("lazy").setup({
     },
 })
 
+require("config.theme").setup()
+
 require("config.lsp").setup()
 
 require("util.tools")

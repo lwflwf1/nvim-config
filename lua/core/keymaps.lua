@@ -175,6 +175,13 @@ map("n", "<leader>uA", function()
     vim.notify("Project cwd: " .. p .. " (auto off)", vim.log.levels.INFO)
 end, d("Set project cwd (disables auto)"))
 
+-- Colorscheme picker with live preview. Final choice is persisted by
+-- config/theme.lua's VimLeavePre hook, so the picked theme becomes the
+-- default on next start.
+map("n", "<leader>uC", function()
+    Snacks.picker.colorschemes()
+end, d("Colorscheme picker"))
+
 -- Smart GF: open file and jump to line
 local smart_gf_config = {
     -- Characters wrapping the filename (add more, e.g. [[ or `)
