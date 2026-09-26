@@ -117,8 +117,8 @@ return {
             -- Move: start jumps
             vim.keymap.set("n", "]f", function() ts_move.goto_next_start("@function.outer") end, { desc = "next function" })
             vim.keymap.set("n", "[f", function() ts_move.goto_previous_start("@function.outer") end, { desc = "prev function" })
-            vim.keymap.set("n", "]d", function() ts_move.goto_next_start("@conditional.outer") end, { desc = "next conditional" })
-            vim.keymap.set("n", "[d", function() ts_move.goto_previous_start("@conditional.outer") end, { desc = "prev conditional" })
+            vim.keymap.set("n", "]n", function() ts_move.goto_next_start("@conditional.outer") end, { desc = "next conditional" })
+            vim.keymap.set("n", "[n", function() ts_move.goto_previous_start("@conditional.outer") end, { desc = "prev conditional" })
             vim.keymap.set("n", "]l", function() ts_move.goto_next_start("@loop.outer") end, { desc = "next loop" })
             vim.keymap.set("n", "[l", function() ts_move.goto_previous_start("@loop.outer") end, { desc = "prev loop" })
             vim.keymap.set("n", "]k", function() ts_move.goto_next_start("@block.outer") end, { desc = "next block" })
@@ -139,8 +139,8 @@ return {
             -- Move: end jumps
             vim.keymap.set("n", "]F", function() ts_move.goto_next_end("@function.outer") end, { desc = "next function end" })
             vim.keymap.set("n", "[F", function() ts_move.goto_previous_end("@function.outer") end, { desc = "prev function end" })
-            vim.keymap.set("n", "]D", function() ts_move.goto_next_end("@conditional.outer") end, { desc = "next conditional end" })
-            vim.keymap.set("n", "[D", function() ts_move.goto_previous_end("@conditional.outer") end, { desc = "prev conditional end" })
+            vim.keymap.set("n", "]N", function() ts_move.goto_next_end("@conditional.outer") end, { desc = "next conditional end" })
+            vim.keymap.set("n", "[N", function() ts_move.goto_previous_end("@conditional.outer") end, { desc = "prev conditional end" })
             vim.keymap.set("n", "]R", function() ts_move.goto_next_end("@constraint.outer") end, { desc = "next constraint end" })
             vim.keymap.set("n", "[R", function() ts_move.goto_previous_end("@constraint.outer") end, { desc = "prev constraint end" })
             vim.keymap.set("n", "]G", function() ts_move.goto_next_end("@covergroup.outer") end, { desc = "next covergroup end" })

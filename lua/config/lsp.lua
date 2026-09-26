@@ -113,47 +113,14 @@ function M.setup()
         end, bopts("Peek fold or LSP hover"))
         vim.keymap.set("n", "gk", vim.lsp.buf.signature_help, bopts("Signature help"))
         vim.keymap.set("n", "grd", vim.diagnostic.open_float, bopts("Diagnostic float"))
-        -- Jump to next/prev diagnostic and show it in a float.
-        -- vim.diagnostic.jump's on_jump callback is scheduled internally to
-        -- run after the jump's own cursor move, so the float survives the
-        -- jump's CursorMoved. snacks.scroll smooth-scrolling would otherwise
-        -- animate the view across pages and position the float off-screen, so
-        -- it is temporarily disabled for this buffer (vim.buf[buf].snacks_scroll
-        -- filter); with a static view the float opens anchored to the target.
-        -- Rapid presses are safe: each press re-disables the flag, and only
-        -- the last one restores the original value and opens the float.
-        local scroll_gen = {}      -- bufnr -> press generation
-        local scroll_orig = {}     -- bufnr -> original snacks_scroll value
-        local scroll_captured = {} -- bufnr -> original value captured
+        -- Jump to next/prev diagnostic and center the view. jump() opens no
+        -- float by default; the scroll animation settles on the zz'd view.
         local function jump_diag(count)
-            local bufnr = vim.api.nvim_get_current_buf()
-            scroll_gen[bufnr] = (scroll_gen[bufnr] or 0) + 1
-            local gen = scroll_gen[bufnr]
-            if not scroll_captured[bufnr] then
-                scroll_captured[bufnr] = true
-                scroll_orig[bufnr] = vim.b[bufnr].snacks_scroll
-            end
-            vim.b[bufnr].snacks_scroll = false
-            local diag = vim.diagnostic.jump({
-                count = count,
-                on_jump = function(d, b)
-                    if scroll_gen[b] ~= gen then return end -- superseded by a new press
-                    vim.b[b].snacks_scroll = scroll_orig[b]
-                    scroll_captured[b] = nil
-                    scroll_orig[b] = nil
-                    if not d then return end
-                    vim.cmd("normal! zz") -- center cursor line (snacks scroll still disabled, so no animation)
-                    vim.diagnostic.open_float({ bufnr = b, pos = { d.lnum, d.col } })
-                end,
-            })
-            if not diag and scroll_gen[bufnr] == gen then
-                vim.b[bufnr].snacks_scroll = scroll_orig[bufnr]
-                scroll_captured[bufnr] = nil
-                scroll_orig[bufnr] = nil
-            end
+            vim.diagnostic.jump({ count = count })
+            vim.cmd("normal! zz")
         end
-        vim.keymap.set("n", "grj", function() jump_diag(1) end, bopts("Next diagnostic"))
-        vim.keymap.set("n", "grk", function() jump_diag(-1) end, bopts("Prev diagnostic"))
+        vim.keymap.set("n", "]d", function() jump_diag(1) end, bopts("Next diagnostic"))
+        vim.keymap.set("n", "[d", function() jump_diag(-1) end, bopts("Prev diagnostic"))
     end
 
     vim.lsp.config.ty = {
@@ -277,7 +244,7 @@ function M.setup()
     })
 
     vim.diagnostic.config({
-        virtual_text = false,
+        virtual_text = true,
         signs = {
             text = {
                 [vim.diagnostic.severity.ERROR] = "  ",
