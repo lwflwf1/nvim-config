@@ -25,6 +25,7 @@ opt.wrapscan = true
 opt.ignorecase = true
 opt.smartcase = true
 opt.infercase = true
+opt.maxsearchcount = 9999
 opt.fileencodings = "utf-8,gbk,ucs-bom"
 opt.expandtab = true
 opt.smarttab = true
