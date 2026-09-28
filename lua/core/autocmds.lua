@@ -91,9 +91,6 @@ autocmd("BufEnter", {
         if path == "" or vim.bo.buftype ~= "" then
             return
         end
-        if vim.bo.filetype == "oil" then
-            return
-        end
         local dir = vim.fs.dirname(path)
         if cwd_cache[dir] == nil then
             cwd_cache[dir] = project.project_root(0) or dir

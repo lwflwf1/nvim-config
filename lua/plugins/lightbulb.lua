@@ -6,7 +6,7 @@ return {
       autocmd = { enabled = true },
       sign = { text = "󰌶", hl = "DiagnosticWarn" },
       ignore = {
-        ft = { "oil", "neo-tree", "TelescopePrompt" },
+        ft = { "snacks_picker_list", "neo-tree", "TelescopePrompt" },
       },
     },
   },

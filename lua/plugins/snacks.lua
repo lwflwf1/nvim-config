@@ -8,6 +8,7 @@ return {
             bigfile      = { enabled = true, notify = false     },
             dashboard    = { enabled = true                 },
             dim          = { enabled = true                 },
+            explorer     = { replace_netrw = true, trash = true },
             gh           = { enabled = true                 },
             image        = { enabled = true                 },
             lazygit      = { enabled = true                 },
@@ -23,6 +24,12 @@ return {
                     grep  = { follow = true },
                     files = { follow = true, hidden = true },
                     smart = { follow = true, hidden = true, ignored = true },
+                    explorer = {
+                        -- file watcher is unreliable on RHEL6 NFS trees (cf. snacks.scroll)
+                        watch = not vim.g.is_rhel6,
+                        -- grug-far seeded with the current entry's directory
+                        win = { list = { keys = { ["<leader>fx"] = "explorer_grug_far" } } },
+                    },
                     -- `lines` uses preview="main": its preview is a float over the
                     -- current window showing the SAME buffer. Two fixes while keeping
                     -- preview="main":
@@ -167,6 +174,20 @@ return {
                             end)
                         end)
                     end,
+                    explorer_grug_far = function(picker)
+                        local prefills = { paths = picker:dir() }
+                        local grug_far = require("grug-far")
+                        if not grug_far.has_instance("explorer") then
+                            grug_far.open({
+                                instanceName = "explorer",
+                                prefills = prefills,
+                                staticTitle = "Find and Replace from Explorer",
+                            })
+                        else
+                            grug_far.get_instance("explorer"):open()
+                            grug_far.get_instance("explorer"):update_input_values(prefills, false)
+                        end
+                    end,
                 },
                 win = {
                     input = {
@@ -193,6 +214,9 @@ return {
             },
         },
         keys = {
+            { "<leader>ee", function() Snacks.explorer() end,                desc = "Explorer (sidebar)" },
+            { "<leader>ef", function() Snacks.explorer({ layout = { preset = "vertical" } }) end, desc = "Explorer (float)" },
+            { "-",          function() Snacks.explorer.reveal() end,         desc = "Explorer: reveal current file" },
             { "<leader>gz", function() Snacks.lazygit() end,                 desc = "Lazygit" },
             { "<M-=>",      function() Snacks.terminal.toggle() end,         desc = "Toggle terminal", mode = { "n", "t" } },
             { "<M-+>",      function()

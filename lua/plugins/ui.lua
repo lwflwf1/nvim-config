@@ -217,7 +217,6 @@ return {
                 mode = "buffers_and_tabs",
                 numbers = "none",
                 diagnostics = "nvim_lsp",
-                offsets = { { filetype = "oil", text = "File Explorer", highlight = "Directory" } },
                 indicator = { style = "icon", icon = "▎" },
                 buffer_close_icon = "",
                 modified_icon = "",

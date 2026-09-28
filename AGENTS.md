@@ -315,7 +315,7 @@ box); `install-offline.sh` sources it.
    reliable way to see warnings.
 2. Distinguish **real config bugs** from environment-missing (mason tools, AI CLIs,
    graphics) and **headless false positives** (snacks.dashboard "setup did not run",
-   mkdnflow/oil-git "not activated yet", `vim.lsp` "no active clients", provider
+   mkdnflow "not activated yet", `vim.lsp` "no active clients", provider
    warnings) — the latter do not appear in interactive use.
 
 ## Bundle verification (before shipping)
