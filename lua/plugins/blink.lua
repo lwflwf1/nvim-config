@@ -25,8 +25,13 @@ return {
             keymap = {
                 ["<Tab>"] = { "select_next", "fallback" },
                 ["<S-Tab>"] = { "select_prev", "fallback" },
-                ["<C-l>"] = { "snippet_forward", "fallback" },
-                ["<C-h>"] = { "snippet_backward", "fallback" },
+                -- Alt+n / Alt+p for snippet jumps: no `fallback` here — blink's
+                -- fallback replays the raw key (ESC+n) when unmapped, which would
+                -- exit insert mode outside snippets. Also keeps <C-h> free: in
+                -- Windows Terminal Shift+BS/Ctrl+H send 0x08 = <C-h>, which would
+                -- otherwise jump instead of delete.
+                ["<M-n>"] = { "snippet_forward" },
+                ["<M-p>"] = { "snippet_backward" },
                 ["<CR>"] = { "accept", "fallback" },
             },
 
