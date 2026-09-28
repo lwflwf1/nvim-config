@@ -59,14 +59,6 @@ return {
                     return { "lsp", "indent" }
                 end,
                 fold_virt_text_handler = handler,
-                close_fold_kinds_for_ft = {
-                    default = { "imports", "comment" },
-                    json = { "array" },
-                    c = { "comment", "region" },
-                },
-                close_fold_current_line_for_ft = {
-                    default = true,
-                },
                 preview = {
                     win_config = {
                         border = { "", "─", "", "", "", "─", "", "" },
