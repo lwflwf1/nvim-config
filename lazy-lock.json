@@ -59,7 +59,6 @@
   "rustaceanvim": { "branch": "main", "commit": "9cb125de42c0256ed1bc1f9ded8d8f0381317a17" },
   "schemastore.nvim": { "branch": "main", "commit": "01fde7d0be29913dd57ad108139a28ec3efdcd0e" },
   "sidekick.nvim": { "branch": "main", "commit": "3d80a47e6375f6d647c9695d3afea6fa1b3275df" },
-  "smart-splits.nvim": { "branch": "master", "commit": "ec76708f1617ef9e2ac353357fe52d2c997a0f06" },
   "snacks.nvim": { "branch": "main", "commit": "882c996cf28183f4d63640de0b4c02ec886d01f2" },
   "todo-comments.nvim": { "branch": "main", "commit": "31e3c38ce9b29781e4422fc0322eb0a21f4e8668" },
   "treesj": { "branch": "main", "commit": "9f349ba62c524f065d6f43254d731ddf8319b9bf" },

@@ -182,6 +182,24 @@ map("n", "<leader>uC", function()
     Snacks.picker.colorschemes()
 end, d("Colorscheme picker"))
 
+-- Window navigation / resizing (replaces smart-splits.nvim, see util/wins.lua).
+-- Movement works in insert/terminal too; plain arrows move the right/bottom
+-- boundary, Shift+arrows the left/top one.
+local wins = require("util.wins")
+map({ "n", "i", "t" }, "<M-h>", function() wins.move("left") end, d("Move to split left"))
+map({ "n", "i", "t" }, "<M-j>", function() wins.move("down") end, d("Move to split down"))
+map({ "n", "i", "t" }, "<M-k>", function() wins.move("up") end, d("Move to split up"))
+map({ "n", "i", "t" }, "<M-l>", function() wins.move("right") end, d("Move to split right"))
+map("n", "<Left>", function() wins.resize("left") end, d("Resize right boundary left"))
+map("n", "<Right>", function() wins.resize("right") end, d("Resize right boundary right"))
+map("n", "<Up>", function() wins.resize("up") end, d("Resize bottom boundary up"))
+map("n", "<Down>", function() wins.resize("down") end, d("Resize bottom boundary down"))
+map("n", "<S-Left>", function() wins.resize("left", true) end, d("Resize left boundary left"))
+map("n", "<S-Right>", function() wins.resize("right", true) end, d("Resize left boundary right"))
+map("n", "<S-Up>", function() wins.resize("up", true) end, d("Resize top boundary up"))
+map("n", "<S-Down>", function() wins.resize("down", true) end, d("Resize top boundary down"))
+map("n", "<leader>wp", "<C-w>p", d("Previous window"))
+
 -- Smart GF: open file and jump to line
 local smart_gf_config = {
     -- Characters wrapping the filename (add more, e.g. [[ or `)
