@@ -41,6 +41,82 @@ local function yaml_schemas()
     return ok2 and schemas or {}
 end
 
+-- Self-made replacement for nvim-lightbulb (sign mode only): show a bulb in
+-- the signcolumn when code actions are available at the cursor. Mirrors the
+-- plugin's behavior: probe on CursorHold/CursorHoldI via buf_request_all,
+-- passing the current line's diagnostics as context (per-client params with
+-- the client's offset encoding, like the built-in vim.lsp.buf.code_action).
+-- The previous in-flight request is cancelled before each new probe.
+local function setup_code_action_bulb()
+    local ns = vim.api.nvim_create_namespace("code_action_bulb")
+    local marks = {} -- bufnr -> extmark id
+    local cancels = {} -- bufnr -> cancel fn of the in-flight request
+
+    local function clear(bufnr)
+        if marks[bufnr] then
+            pcall(vim.api.nvim_buf_del_extmark, bufnr, ns, marks[bufnr])
+            marks[bufnr] = nil
+        end
+    end
+
+    local function cancel_pending(bufnr)
+        if cancels[bufnr] then
+            pcall(cancels[bufnr])
+            cancels[bufnr] = nil
+        end
+    end
+
+    local function probe()
+        local bufnr = vim.api.nvim_get_current_buf()
+        local win = vim.api.nvim_get_current_win()
+        cancel_pending(bufnr)
+        if #vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/codeAction" }) == 0 then
+            clear(bufnr)
+            return
+        end
+        local lnum = vim.api.nvim_win_get_cursor(win)[1] - 1
+        local ok, diags = pcall(function()
+            return vim.lsp.diagnostic.from(vim.diagnostic.get(bufnr, { lnum = lnum }))
+        end)
+        local ok_req, cancel = pcall(vim.lsp.buf_request_all, bufnr, "textDocument/codeAction", function(client)
+            local params = vim.lsp.util.make_range_params(win, client.offset_encoding)
+            params.context = {
+                diagnostics = ok and diags or {},
+                triggerKind = vim.lsp.protocol.CodeActionTriggerKind.Invoked,
+            }
+            return params
+        end, function(results)
+            if not vim.api.nvim_buf_is_valid(bufnr) then
+                return
+            end
+            clear(bufnr)
+            -- Ignore stale responses: only draw if the cursor is still on the
+            -- probed line (CursorHold re-probes after any move anyway).
+            if vim.api.nvim_get_current_buf() ~= bufnr
+                or not vim.api.nvim_win_is_valid(win)
+                or vim.api.nvim_win_get_cursor(win)[1] - 1 ~= lnum
+            then
+                return
+            end
+            for _, r in pairs(results) do
+                if r.result and not vim.tbl_isempty(r.result) then
+                    marks[bufnr] = vim.api.nvim_buf_set_extmark(bufnr, ns, lnum, 0, {
+                        priority = 10,
+                        strict = false,
+                        sign_text = "󰌶",
+                        sign_hl_group = "DiagnosticWarn",
+                    })
+                    return
+                end
+            end
+        end)
+        cancels[bufnr] = ok_req and cancel or nil
+    end
+
+    local aug = vim.api.nvim_create_augroup("code_action_bulb", { clear = true })
+    vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI" }, { group = aug, callback = probe })
+end
+
 function M.setup()
     local capabilities = vim.lsp.protocol.make_client_capabilities()
     capabilities = require("blink.cmp").get_lsp_capabilities(capabilities)
@@ -266,6 +342,8 @@ function M.setup()
         },
     })
     vim.diagnostic.enable(false)
+
+    setup_code_action_bulb()
 
     vim.api.nvim_create_user_command("LspStatus", function()
         local clients = vim.lsp.get_clients()
