@@ -274,9 +274,11 @@ $dataCopy = Join-Path $BundleRoot "data"
 New-Item -ItemType Directory -Force -Path $dataCopy | Out-Null
 Copy-Item -Recurse -Force (Join-Path $script:DataDir "lazy") (Join-Path $dataCopy "lazy")
 # Belt-and-suspenders: drop any Windows binaries that may have slipped into
-# plugin trees (plugins are Lua, but be safe). mason/ and site/ are intentionally
-# NOT bundled - the offline installer provides the Linux tool binaries.
-foreach ($ext in @("*.exe","*.dll","*.cmd","*.bat")) {
+# plugin trees (plugins are Lua, but be safe). *.dll.tmp/*.so.tmp/*.dylib.tmp
+# cover staged update binaries (fff's updater leaves libfff_nvim.dll.tmp on
+# Windows after a rename over a loaded DLL fails). mason/ and site/ are
+# intentionally NOT bundled - the offline installer provides the Linux tools.
+foreach ($ext in @("*.exe","*.dll","*.cmd","*.bat","*.dll.tmp","*.so.tmp","*.dylib.tmp")) {
     Get-ChildItem -Path (Join-Path $dataCopy "lazy") -Recurse -Force -Include $ext -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 }
 # Strip plugin .git dirs: they bloat the bundle and their read-only pack files
