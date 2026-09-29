@@ -487,13 +487,8 @@ port_name: (simple_identifier) @variable
   name: (simple_identifier) @function.call
   "(")
 
-; static_method_call_body always has parens (arguments are required by the
-; grammar), so any name here is a call — including zero-arg create().
-(static_method_call_body
-  (simple_identifier) @variable.member)
-
-(static_method_call_body
-  name: (simple_identifier) @function.call)
+; static method calls (`Class::method(...)`) are aliased to method_call_body,
+; so the patterns above also cover them, including zero-arg create().
 
 ; trailing anchor: only matches the LAST simple_identifier of the path.
 ; Requires tree-sitter >= 0.26.12 (tree-sitter/tree-sitter#5818); nvim 0.13+ bundles it.
