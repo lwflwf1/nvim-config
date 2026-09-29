@@ -48,7 +48,7 @@ opt.completeopt = "menu,menuone,noselect"
 opt.pumheight = 15
 opt.shortmess:append("c")
 opt.hidden = true
-opt.updatetime = 100
+opt.updatetime = 200
 opt.showtabline = 2
 opt.autoread = true
 opt.undofile = true
