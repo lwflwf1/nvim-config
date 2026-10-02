@@ -3,6 +3,21 @@ return {
     lazy = false,
     config = function()
       local configs = require('dropbar.configs')
+
+      -- Don't attach dropbar's winbar to terminal buffers (sidekick CLI panes
+      -- included). sidekick keeps winbar="" to avoid terminal reflow, while
+      -- dropbar's default enable() returns true for buftype=terminal; the
+      -- resulting winbar flip-flop changes the window's text height (42<->41),
+      -- so Neovim resizes the terminal PTY and reflows the CLI content up by a
+      -- line on every focus change.
+      local default_bar_enable = configs.opts.bar.enable
+      configs.opts.bar.enable = function(buf, win, info)
+        if vim.bo[buf].buftype == 'terminal' then
+          return false
+        end
+        return default_bar_enable(buf, win, info)
+      end
+
       local ts_config = configs.opts.sources.treesitter
       table.insert(ts_config.valid_types, 'task')
       table.insert(ts_config.valid_types, 'module')
@@ -115,7 +130,7 @@ return {
 
       -- For multi-variable declarations (e.g. `bit [31:0] hw_val, mask;`),
       -- return the variable_decl_assignment child nodes when there are ≥ 2.
-      local function sv_multi_vars(node, buf)
+      local function sv_multi_vars(node, _)
         local t = node:type()
         if t ~= 'data_declaration' and t ~= 'class_property' then
           return nil
@@ -196,9 +211,9 @@ return {
         current = node:next_sibling()
         while current do
           if sv_valid(current, buf) then
-            local vars = sv_multi_vars(current, buf)
-            if vars then
-              for _, v in ipairs(vars) do
+            local mvars = sv_multi_vars(current, buf)
+            if mvars then
+              for _, v in ipairs(mvars) do
                 siblings[#siblings + 1] = v
               end
             else
@@ -395,7 +410,7 @@ return {
             end
           end
 
-          node = sv_resolve(pos_node, buf)
+          local node = sv_resolve(pos_node, buf)
 
           while node and #symbols < ts_config.max_depth do
             local sym = sv_convert(node, buf, win, col)

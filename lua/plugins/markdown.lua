@@ -59,6 +59,11 @@ return {
         ft = { "markdown", "quarto", "rmd", "typst", "yaml", "Avante" },
         dependencies = { "nvim-treesitter/nvim-treesitter" },
         config = function()
+            -- markview merges partial configs with its defaults, and
+            -- `scope_hl = false` disables the scope highlight at runtime, but
+            -- its type annotations model neither; silence those two codes for
+            -- this call only.
+            ---@diagnostic disable: missing-fields, assign-type-mismatch
             require("markview").setup({
                 preview = {
                     enable_hybrid_mode = true,
@@ -75,6 +80,7 @@ return {
                     },
                 },
             })
+            ---@diagnostic enable: missing-fields, assign-type-mismatch
             vim.keymap.set("n", "<leader>mm", "<cmd>Markview<CR>", { desc = "Toggle markview preview" })
             vim.keymap.set("n", "<leader>mh", "<cmd>Markview HybridToggle<CR>", { desc = "Toggle markview hybrid mode" })
         end,

@@ -162,6 +162,9 @@ config = function(_, opts)
           concealcursor = true,
           symbols = {
             list = "•",
+            -- `false` is valid (disables headline bullets) per org-bullets'
+            -- own annotation, but LuaLS drops the literal from its union type.
+            ---@diagnostic disable-next-line: assign-type-mismatch
             headlines = false,
             checkboxes = {
               todo = { " " },

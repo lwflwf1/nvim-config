@@ -15,6 +15,9 @@ return {
             -- Override systemverilog parser to use personal fork (dynamic branch tracking)
             local parsers = require("nvim-treesitter.parsers")
             parsers.systemverilog = {
+                -- `revision` is optional at runtime (install.lua falls back to
+                -- branch tracking when nil) but is typed as required.
+                ---@diagnostic disable-next-line: missing-fields
                 install_info = {
                     url = "https://github.com/lwflwf1/tree-sitter-systemverilog",
                     branch = "master",
@@ -29,6 +32,7 @@ return {
                 callback = function()
                     local p = require("nvim-treesitter.parsers")
                     p.systemverilog = {
+                        ---@diagnostic disable-next-line: missing-fields
                         install_info = {
                             url = "https://github.com/lwflwf1/tree-sitter-systemverilog",
                             branch = "master",
@@ -48,7 +52,6 @@ return {
                     if ft == "tc" or ft == "mako" or ft == "ralf" then return end
                     local ok = pcall(vim.treesitter.start, args.buf)
                     if ok then
-                        local ft = vim.bo[args.buf].filetype
                         local has_query, query = pcall(vim.treesitter.query.get, ft, "indents")
                         if has_query and query then
                             vim.bo[args.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"

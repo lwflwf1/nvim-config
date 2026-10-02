@@ -1,4 +1,4 @@
-﻿return {
+return {
     {
         "echasnovski/mini.nvim",
         event = "VeryLazy",
@@ -140,6 +140,7 @@
                     end
                 end
                 local mc_feedkeys = vim.api.nvim_feedkeys
+                ---@diagnostic disable-next-line: duplicate-set-field
                 vim.api.nvim_feedkeys = function(keys, mode, escape)
                     if type(mode) == "string" and mode:find("t", 1, true)
                         and from_whichkey()
@@ -149,6 +150,7 @@
                     return mc_feedkeys(keys, mode, escape)
                 end
                 local mc_fn_feedkeys = vim.fn.feedkeys
+                ---@diagnostic disable-next-line: duplicate-set-field
                 vim.fn.feedkeys = function(keys, mode, ...)
                     if type(mode) == "string" and mode:find("t", 1, true)
                         and from_whichkey()
@@ -170,10 +172,12 @@
                     if not ok or pc._mc_patched then return end
                     pc._mc_patched = true
                     local orig_yank, orig_on_yank = pc.yank, pc.on_yank
+                    ---@diagnostic disable-next-line: duplicate-set-field
                     pc.yank = function(...)
                         if mc.hasCursors() then return end
                         return orig_yank(...)
                     end
+                    ---@diagnostic disable-next-line: duplicate-set-field
                     pc.on_yank = function(...)
                         if mc.hasCursors() then return end
                         return orig_on_yank(...)

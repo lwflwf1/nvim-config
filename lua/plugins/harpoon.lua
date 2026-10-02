@@ -20,6 +20,9 @@ return {
             { "<leader>hn", function() require("harpoon"):list():next() end,                                   desc = "Harpoon next" },
         },
         config = function()
+            -- The `Harpoon` class type describes the resolved instance, not the
+            -- partial setup() opts it accepts at runtime.
+            ---@diagnostic disable-next-line: missing-fields
             require("harpoon").setup({
                 settings = {
                     key = function()

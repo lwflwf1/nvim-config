@@ -13,6 +13,7 @@ return {
 
         -- Patch is_supported
         local orig_is_supported = util.is_supported
+        ---@diagnostic disable-next-line: duplicate-set-field
         util.is_supported = function(lang)
             if lang == "systemverilog" then return true end
             return orig_is_supported(lang)
@@ -28,9 +29,7 @@ return {
                 local orig_func = val
                 debug.setupvalue(util.get_first_function_parent, i, function(filetype, node)
                     if filetype == "systemverilog" then
-                        local node_type = node:type()
-                        return node_type == "function_body_declaration"
-                            or node_type == "task_body_declaration"
+                        return vim.tbl_contains(sv_func_nodes, node:type())
                     end
                     return orig_func(filetype, node)
                 end)

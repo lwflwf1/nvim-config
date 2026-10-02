@@ -79,10 +79,17 @@ local function setup_code_action_bulb()
             return vim.lsp.diagnostic.from(vim.diagnostic.get(bufnr, { lnum = lnum }))
         end)
         local ok_req, cancel = pcall(vim.lsp.buf_request_all, bufnr, "textDocument/codeAction", function(client)
-            local params = vim.lsp.util.make_range_params(win, client.offset_encoding)
-            params.context = {
-                diagnostics = ok and diags or {},
-                triggerKind = vim.lsp.protocol.CodeActionTriggerKind.Invoked,
+            local base = vim.lsp.util.make_range_params(win, client.offset_encoding)
+            -- Build the full CodeActionParams explicitly; assigning `context`
+            -- onto the make_range_params() return value is flagged by LuaLS
+            -- (inject-field).
+            local params = {
+                textDocument = base.textDocument,
+                range = base.range,
+                context = {
+                    diagnostics = ok and diags or {},
+                    triggerKind = vim.lsp.protocol.CodeActionTriggerKind.Invoked,
+                },
             }
             return params
         end, function(results)
@@ -176,7 +183,7 @@ function M.setup()
     vim.keymap.set("n", "grt", function() glance_jump("textDocument/typeDefinition") end,
         { silent = true, noremap = true, desc = "Go to type definition" })
 
-    local on_attach = function(client, bufnr)
+    local on_attach = function(_, bufnr)
         local bopts = function(desc)
             return { buffer = bufnr, silent = true, noremap = true, desc = desc }
         end
