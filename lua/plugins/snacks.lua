@@ -209,10 +209,38 @@ return {
             words        = { enabled = true                 },
             zen          = { enabled = true                 },
             styles       = {
-                notification = { wo = { wrap = true, winblend = 0 } },
-                input        = { row = 0.5 },
+                notification         = { wo = { wrap = true, winblend = 0 } },
+                notification_history = {
+                    border = "none",
+                    wo = { winbar = "%=%#SnacksNotifierHistoryTitle# Notification History %=" },
+                },
+                input                = { row = 0.5 },
             },
         },
+        config = function(_, opts)
+            require("snacks").setup(opts)
+            local function resolved(group, attr)
+                local h = vim.api.nvim_get_hl(0, { name = group })
+                return h[attr] and ("#%06x"):format(h[attr]) or nil
+            end
+            local function fix_picker_hl()
+                local float_bg = resolved("NormalFloat", "bg")
+                local title_fg = resolved("Title", "fg")
+                Snacks.util.set_hl({
+                    Title  = { fg = title_fg, bg = float_bg },
+                    Footer = { fg = title_fg, bg = float_bg },
+                    Toggle = { fg = resolved("DiagnosticVirtualTextInfo", "fg"), bg = float_bg },
+                    Tree   = { fg = resolved("LineNr", "fg"), bg = "NONE" },
+                    Totals = { fg = resolved("NonText", "fg"), bg = "NONE" },
+                }, { prefix = "SnacksPicker", managed = false })
+                Snacks.util.set_hl({
+                    SnacksTitle  = { fg = title_fg, bg = float_bg },
+                    SnacksFooter = { fg = title_fg, bg = float_bg },
+                }, { managed = false })
+            end
+            vim.api.nvim_create_autocmd("ColorScheme", { callback = function() vim.schedule(fix_picker_hl) end })
+            fix_picker_hl()
+        end,
         keys = {
             { "<leader>ee", function() Snacks.explorer() end,                desc = "Explorer (sidebar)" },
             { "<leader>ef", function() Snacks.explorer({ layout = { preset = "vertical" } }) end, desc = "Explorer (float)" },
@@ -243,9 +271,13 @@ return {
             { "<leader>uP", function() Snacks.profiler.scratch() end,        desc = "Profiler Scratch" },
         },
         init = function()
+            -- Same globals are declared in snacks' bundled docs/example files
+            -- (indexed as a LuaLS library), hence duplicate-set-field.
+            ---@diagnostic disable-next-line: duplicate-set-field
             _G.dd = function(...)
                 Snacks.debug.inspect(...)
             end
+            ---@diagnostic disable-next-line: duplicate-set-field
             _G.bt = function()
                 Snacks.debug.backtrace()
             end

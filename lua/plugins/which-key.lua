@@ -52,7 +52,7 @@ return {
             },
         },
         win = {
-            border = "rounded",
+            border = "none",
             wo = { winblend = 10 },
         },
         sort = { "local", "order", "group", "alphanum", "mod" },
