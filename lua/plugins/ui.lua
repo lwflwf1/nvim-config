@@ -32,14 +32,15 @@ return {
         },
         config = function(_, opts)
             require("onedarkpro").setup(opts)
-            -- colorscheme 由 config/theme.lua 统一应用（默认值的单一来源）
+            -- colorscheme is applied centrally by config/theme.lua (single source of truth for the default)
         end,
     },
     {
         "sainnhe/everforest",
         name = "everforest",
-        -- 不 lazy：colorscheme picker（<leader>uC）需要它在 rtp 上；
-        -- 无 lua 模块，不能带 opts（lazy 会自动 require(...).setup 而报错）
+        -- not lazy: the colorscheme picker (<leader>uC) needs it on the rtp;
+        -- no Lua module, so it must not get opts (lazy would auto-require and
+        -- error on setup)
         lazy = false,
         priority = 1000,
         init = function()

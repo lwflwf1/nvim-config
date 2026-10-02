@@ -1,21 +1,26 @@
--- 右侧滚动条：视口位置 + 可鼠标拖拽 + signs（诊断/搜索/gitsigns）
--- 选 scrollview 而非 nvim-scrollbar：后者是 virt_text 纯视觉，无法拖拽
+-- Right-side scrollbar: viewport position + mouse-draggable + signs
+-- (diagnostics/search/gitsigns).
+-- Chose scrollview over nvim-scrollbar: the latter is virt_text-only visuals
+-- and cannot be dragged.
 return {
   "dstein64/nvim-scrollview",
   event = "VeryLazy",
   opts = {
-    -- sign（诊断/搜索/gitsigns）画进滚动条同一列，盖在 handle 之上；
-    -- 默认 'off' 会把 sign 推到条外
+    -- draw signs (diagnostics/search/gitsigns) in the scrollbar's column, on
+    -- top of the handle; the default 'off' pushes signs out of the bar
     signs_scrollbar_overlap = "over",
-    -- 诊断符号默认取自 vim.diagnostic signs.text，本配置为两空格（宽 2），
-    -- 会越出 1 宽的条 → 显式改成单宽；条内显示 E/W/I/H（严重度高亮）
+    -- diagnostic symbols default to vim.diagnostic signs.text, which is two
+    -- spaces (width 2) here and would overflow the 1-wide bar -> force
+    -- single-width; E/W/I/H shown inside the bar (highlighted by severity)
     diagnostics_error_symbol = "E",
     diagnostics_warn_symbol = "W",
     diagnostics_info_symbol = "I",
     diagnostics_hint_symbol = "H",
-    -- 默认仅 diagnostics/marks/search；补上 merge 冲突标记 + TODO/FIXME 类注释
+    -- defaults are diagnostics/marks/search only; add merge-conflict markers
+    -- and TODO/FIXME-style keyword comments
     signs_on_startup = { "diagnostics", "marks", "search", "conflicts", "keywords" },
-    -- 短文件也显示，保持视觉一致（scrollview 默认同此行为）
+    -- show for short files too, keeping visuals consistent (scrollview's
+    -- default behavior)
     excluded_filetypes = {
       "blink-cmp-menu",
       "dropbar_menu",
@@ -30,7 +35,8 @@ return {
   },
   config = function(_, opts)
     require("scrollview").setup(opts)
-    -- gitsigns hunk 标记；符号/高亮自动取自 gitsigns 配置，
-    -- 在 git.lua 的 gitsigns config 里调用（须在 gitsigns.setup 之后）
+    -- gitsigns hunk markers; symbols/highlights auto-derive from the gitsigns
+    -- config. Wired from the gitsigns config in git.lua (must run after
+    -- gitsigns.setup)
   end,
 }

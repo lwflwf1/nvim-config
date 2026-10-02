@@ -37,8 +37,9 @@ return {
         },
         config = function(_, opts)
             require("gitsigns").setup(opts)
-            -- scrollview 的 gitsigns sign 组（须在 gitsigns.setup 之后）；
-            -- pcall：RHEL6 打包裁剪或未装 scrollview 时静默跳过
+            -- scrollview's gitsigns sign group (must run after gitsigns.setup);
+            -- pcall: silently skip on RHEL6-packaged (stripped) builds or when
+            -- scrollview is not installed
             pcall(function() require("scrollview.contrib.gitsigns").setup() end)
             local hl = vim.api.nvim_set_hl
             hl(0, 'GitSignsStagedAdd',    { link = 'GitSignsAdd' })

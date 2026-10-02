@@ -1,7 +1,8 @@
--- 默认主题的单一事实来源（方案 A）+ 记住上次选择（方案 B 的持久化）。
--- 启动：状态文件 > default；退出：VimLeavePre 把最终 colors_name 写回状态
--- 文件（picker 预览会临时换主题、取消时恢复，取退出时真值即可，
--- 不需要 hook picker 内部动作）。
+-- Single source of truth for the default theme (option A) + persistence of the
+-- last choice (option B). Startup: state file > default; exit: VimLeavePre
+-- writes the final colors_name back to the state file (picker preview switches
+-- themes temporarily and restores on cancel, so the value at exit is the real
+-- one -- no need to hook picker internals).
 local M = {}
 
 M.default = "onedark"
@@ -9,7 +10,7 @@ M.statefile = vim.fn.stdpath("state") .. "/colorscheme"
 
 function M.set(name)
     pcall(vim.cmd.colorscheme, name)
-    -- 状态里的主题已失效（如插件被删）时回退默认
+    -- fall back to default when the saved theme no longer exists (e.g. plugin removed)
     if vim.g.colors_name == nil and name ~= M.default then
         pcall(vim.cmd.colorscheme, M.default)
     end
