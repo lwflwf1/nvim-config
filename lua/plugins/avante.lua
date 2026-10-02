@@ -11,6 +11,8 @@ return {
             "nvim-treesitter/nvim-treesitter",
             "nvim-lua/plenary.nvim",
             "MunifTanjim/nui.nvim",
+            "ColinKennedy/mega.cmdparse",
+            "ColinKennedy/mega.logging",
             "echasnovski/mini.nvim",
             "HakonHarnes/img-clip.nvim",
         },
