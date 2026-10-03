@@ -1,7 +1,61 @@
-local function hl_fg(name)
-    return function()
-        local fg = vim.api.nvim_get_hl(0, { name = name }).fg
-        return fg and { fg = ("#%06x"):format(fg) } or {}
+-- Mode component: just a glyph table keyed by vim.fn.mode(). The per-mode
+-- color comes from the lualine theme preset (see the theme function below,
+-- which moves each mode's a-section color from bg to fg).
+local mode_icons = {
+    n = "",
+    i = "",
+    v = "",
+    V = "",
+    ["\22"] = "",
+    R = "",
+    c = "",
+    t = "",
+    s = "",
+    S = "",
+    ["\19"] = "",
+    no = "",
+    ic = "",
+    ix = "",
+    Rv = "",
+    cv = "",
+    cr = "",
+}
+
+local function group_fg(name)
+    local fg = vim.api.nvim_get_hl(0, { name = name }).fg
+    return fg and { fg = ("#%06x"):format(fg) } or {}
+end
+
+local function mode_component()
+    return mode_icons[vim.fn.mode()] or vim.fn.mode()
+end
+
+local function in_visual_select()
+    return vim.tbl_contains({ "v", "V", "\22", "s", "S", "\19" }, vim.fn.mode(true))
+end
+
+-- Auto-cwd indicator: yellow while auto, Comment tint when pinned manually.
+local function cwd_color()
+    return group_fg(vim.g.auto_cwd == false and "Comment" or "DiagnosticWarn")
+end
+
+local function toggle_auto_cwd()
+    require("core.keymaps").toggle_auto_cwd()
+    require("lualine").refresh()
+end
+
+local function branch_click()
+    vim.cmd("Neogit")
+end
+
+local function diff_click(_, button)
+    local file = vim.fn.expand("%:.")
+    if file == "" then return end
+    file = vim.fn.fnameescape(file)
+    if button == "r" then
+        vim.cmd("DiffviewFileHistory " .. file)
+    else
+        vim.cmd("DiffviewOpen -- " .. file)
     end
 end
 
@@ -15,7 +69,7 @@ return {
             highlights = {
                 CursorLine = { link = "ColorColumn" },
                 FloatTitle = { fg = "${green}", bg = "${float_bg}" },
-                ["@punctuation.bracket"] = { fg = "#d19a66" }, -- all brackets orange (SV has no lang-specific group, so it needs the generic one)
+                ["@punctuation.bracket"] = { link = "Constant" }, -- all brackets take the theme's Constant color (SV has no lang-specific group, so it needs the generic one)
                 -- blink.cmp and this theme both omit CmpItemKind*/BlinkCmpKind*
                 -- for these 4 kinds; link them to the theme's own semantic
                 -- groups so both the icon and the kind label stay colored.
@@ -116,12 +170,30 @@ return {
                     if not ok or type(theme) ~= "table" then
                         return "auto"
                     end
-                    local b_bg = vim.api.nvim_get_hl(0, { name = "NormalFloat" }).bg
-                    local c_bg = vim.api.nvim_get_hl(0, { name = "Normal" }).bg
+                    -- Every section shares the editor background (Normal). With
+                    -- kitty's transparent_background_colors the cells carry the
+                    -- exact Normal hex, so they get the same transparency
+                    -- treatment as the editor body. Each mode's a-section color
+                    -- from the preset (green/blue/purple/...) is moved from bg
+                    -- to fg, so the mode icon keeps lualine's per-mode colors
+                    -- on the unified editor background.
+                    local normal = vim.api.nvim_get_hl(0, { name = "Normal" })
+                    if not normal.bg then
+                        return theme
+                    end
+                    local bg = ("#%06x"):format(normal.bg)
+                    local fg = normal.fg and ("#%06x"):format(normal.fg) or nil
                     for mode, sections in pairs(theme) do
                         if mode ~= "inactive" and type(sections) == "table" then
-                            if sections.b and b_bg then sections.b.bg = ("#%06x"):format(b_bg) end
-                            if sections.c and c_bg then sections.c.bg = ("#%06x"):format(c_bg) end
+                            local accent = type(sections.a) == "table" and sections.a.bg or nil
+                            for _, section in pairs(sections) do
+                                if type(section) == "table" then
+                                    section.bg = bg
+                                end
+                            end
+                            if type(sections.a) == "table" then
+                                sections.a.fg = accent or fg
+                            end
                         end
                     end
                     return theme
@@ -136,30 +208,41 @@ return {
             },
             sections = {
                 lualine_a = {
-                    { "mode", separator = { left = "" }, right_padding = 2 },
+                    {
+                        mode_component,
+                        separator = { left = "" },
+                        right_padding = 2,
+                    },
                     -- Macro recording indicator. noice suppresses the native
                     -- "recording @a" msg_showmode message and lualine's mode
                     -- component can't distinguish recording from insert/visual,
                     -- so show only while recording via reg_recording().
+                    -- Left-click stops the recording.
                     {
                         function() return vim.fn.reg_recording() end,
                         cond = function() return vim.fn.reg_recording() ~= "" end,
                         fmt = function(reg) return "REC @" .. reg end,
                         padding = { left = 1, right = 1 },
+                        on_click = function()
+                            if vim.fn.reg_recording() ~= "" then
+                                vim.api.nvim_feedkeys("q", "n", false)
+                            end
+                        end,
                     },
                 },
                 lualine_b = {
-                    { "branch", icon = "", separator = { right = "" },},
-                    { "diff", colored = true, symbols = { added = " ", modified = " ", removed = " " } },
+                    { "branch", icon = "", separator = { right = "" }, on_click = branch_click },
+                    { "diff", colored = true, symbols = { added = " ", modified = " ", removed = " " }, on_click = diff_click },
                 },
                 lualine_c = {
                     {
                         function()
-                            return " "..vim.fn.fnamemodify(vim.fn.getcwd(), ":~")
+                            return "󰋜 "..vim.fn.fnamemodify(vim.fn.getcwd(), ":~")
                         end,
                         separator = "",
-                        color = hl_fg("Comment"),
+                        color = cwd_color,
                         padding = { left = 1, right = 1 },
+                        on_click = toggle_auto_cwd,
                     },
                     { "filetype", icon_only = true, separator = "", padding = { left = 0, right = 0 } },
                     { "filename", path = 1, separator = "", padding = { left = 0, right = 1 }, symbols = {
@@ -167,8 +250,23 @@ return {
                         readonly = "",
                         unnamed  = "[No Name]",
                         newfile  = "[New]",
-                    } },
-                    { "diagnostics", separator = "", padding = { left = 0, right = 1 } },
+                    }, on_click = function(_, button)
+                        if button == "r" then
+                            local path = vim.fn.expand("%:p")
+                            if path == "" then return end
+                            local ok = pcall(vim.fn.setreg, "+", path)
+                            vim.notify(ok and ("Copied: " .. path) or "Clipboard unavailable",
+                                ok and vim.log.levels.INFO or vim.log.levels.WARN)
+                        else
+                            require("snacks").picker.files()
+                        end
+                    end },
+                    {
+                        "diagnostics",
+                        separator = "",
+                        padding = { left = 0, right = 1 },
+                        on_click = function() vim.cmd("Trouble diagnostics toggle") end,
+                    },
                 },
                 lualine_x = {
                     {
@@ -177,7 +275,15 @@ return {
                             return ff == "dos" and "CRLF" or "LF"
                         end,
                         padding = { left = 1, right = 1 },
+                        separator = "",
+                        color = "Operator",
+                        on_click = function()
+                            vim.bo.fileformat = vim.bo.fileformat == "dos" and "unix" or "dos"
+                            vim.notify("fileformat: " .. vim.bo.fileformat, vim.log.levels.INFO)
+                            require("lualine").refresh()
+                        end,
                     },
+                    { "lsp_status", icon = "{}", separator = "", padding = { left = 1, right = 1 }, color = function() return group_fg("String") end },
                     -- {
                     --     function() return require("noice").api.status.command.get() end,
                     --     cond = function() return package.loaded["noice"] and require("noice").api.status.command.has() end,
@@ -194,6 +300,13 @@ return {
                 lualine_y = {},
                 lualine_z = {
                     {
+                        "selectioncount",
+                        separator = { right = "" },
+                        left_padding = 2,
+                        color = function() return group_fg("Keyword") end,
+                        cond = in_visual_select,
+                    },
+                    {
                         function()
                             local line = vim.fn.line(".")
                             local total = vim.fn.line("$")
@@ -202,6 +315,8 @@ return {
                         end,
                         separator = { right = "" },
                         left_padding = 2,
+                        color = function() return group_fg("Keyword") end,
+                        cond = function() return not in_visual_select() end,
                     },
                 },
             },
