@@ -15,13 +15,15 @@ return {
 
       org_todo_keywords = { "TODO(t)", "NEXT(n)", "WAIT(w)", "HOLD(h)", "|", "DONE(d)", "CANC(c)" },
       org_todo_repeat_to_state = "NEXT",
+      -- Faces only register the keywords with orgmode; the actual colors are
+      -- applied from theme highlight groups in apply_theme_hl (config below).
       org_todo_keyword_faces = {
-        TODO = ":foreground #f38ba8 :weight bold",
-        NEXT = ":foreground #a6e3a1 :weight bold",
-        WAIT = ":foreground #f9e2af :weight bold",
-        HOLD = ":foreground #6c7086 :slant italic",
-        CANC = ":foreground #6c7086 :strike through",
-        DONE = ":foreground #a6e3a1",
+        TODO = ":weight bold",
+        NEXT = ":weight bold",
+        WAIT = ":weight bold",
+        HOLD = ":slant italic",
+        CANC = ":weight bold",
+        DONE = ":weight bold",
       },
 
       org_log_done = "time",
@@ -197,31 +199,35 @@ config = function(_, opts)
         require("org-link").setup({ auto_link_completion = true })
       end)
 
-      -- Agenda highlight enhancements
-      vim.api.nvim_create_autocmd("ColorScheme", {
-        pattern = "*",
-        callback = function()
-          -- Day headers (Monday, Tuesday, etc.)
-          vim.api.nvim_set_hl(0, "@org.agenda.day", { bold = true, fg = "#89b4fa" })
-          -- Scheduled items
-          vim.api.nvim_set_hl(0, "@org.agenda.scheduled", { fg = "#a6e3a1" })
-          -- Deadline items
-          vim.api.nvim_set_hl(0, "@org.agenda.deadline", { fg = "#f38ba8" })
-          -- Time grid labels
-          vim.api.nvim_set_hl(0, "@org.agenda.time_grid", { fg = "#585b70" })
-          -- Today marker
-          vim.api.nvim_set_hl(0, "@org.agenda.current_time", { fg = "#f9e2af", bold = true })
-          -- Today's date header — orgmode already applies @org.agenda.today via extmarks
-          vim.api.nvim_set_hl(0, "@org.agenda.today", { bold = true, fg = "#cba6f7", bg = "#6c3f99" })
-        end,
-      })
-      -- Apply highlights immediately
-      vim.api.nvim_set_hl(0, "@org.agenda.day", { bold = true, fg = "#89b4fa" })
-      vim.api.nvim_set_hl(0, "@org.agenda.scheduled", { fg = "#a6e3a1" })
-      vim.api.nvim_set_hl(0, "@org.agenda.deadline", { fg = "#f38ba8" })
-      vim.api.nvim_set_hl(0, "@org.agenda.time_grid", { fg = "#585b70" })
-      vim.api.nvim_set_hl(0, "@org.agenda.current_time", { fg = "#f9e2af", bold = true })
-      vim.api.nvim_set_hl(0, "@org.agenda.today", { bold = true, fg = "#cba6f7", bg = "#6c3f99" })
+      -- Todo-keyword faces and agenda highlights are resolved from theme
+      -- highlight groups and re-applied on ColorScheme (no hardcoded colors).
+      local function apply_theme_hl()
+        local function fg(name)
+          return vim.api.nvim_get_hl(0, { name = name }).fg
+        end
+        -- orgmode defines the face groups with `hi default`, so these win no
+        -- matter whether they run before or after orgmode.setup.
+        vim.api.nvim_set_hl(0, "@org.keyword.face.TODO", { fg = fg("DiagnosticError"), bold = true })
+        vim.api.nvim_set_hl(0, "@org.keyword.face.NEXT", { fg = fg("String"), bold = true })
+        vim.api.nvim_set_hl(0, "@org.keyword.face.WAIT", { fg = fg("DiagnosticWarn"), bold = true })
+        vim.api.nvim_set_hl(0, "@org.keyword.face.HOLD", { fg = fg("Comment"), italic = true })
+        vim.api.nvim_set_hl(0, "@org.keyword.face.CANC", { fg = fg("Comment"), strikethrough = true })
+        vim.api.nvim_set_hl(0, "@org.keyword.face.DONE", { fg = fg("String") })
+        -- Agenda: day headers, scheduled, deadline, time grid, current time,
+        -- and the today chip (fg purple, bg = the theme's Visual background).
+        vim.api.nvim_set_hl(0, "@org.agenda.day", { bold = true, fg = fg("Function") })
+        vim.api.nvim_set_hl(0, "@org.agenda.scheduled", { fg = fg("String") })
+        vim.api.nvim_set_hl(0, "@org.agenda.deadline", { fg = fg("DiagnosticError") })
+        vim.api.nvim_set_hl(0, "@org.agenda.time_grid", { fg = fg("Comment") })
+        vim.api.nvim_set_hl(0, "@org.agenda.current_time", { fg = fg("DiagnosticWarn"), bold = true })
+        vim.api.nvim_set_hl(0, "@org.agenda.today", {
+          bold = true,
+          fg = fg("Statement"),
+          bg = vim.api.nvim_get_hl(0, { name = "Visual" }).bg,
+        })
+      end
+      vim.api.nvim_create_autocmd("ColorScheme", { pattern = "*", callback = apply_theme_hl })
+      apply_theme_hl()
 
       local function org_map(mode, lhs, rhs, desc)
         vim.keymap.set(mode, lhs, rhs, { buffer = 0, silent = true, desc = desc })
