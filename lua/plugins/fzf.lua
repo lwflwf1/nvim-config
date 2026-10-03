@@ -451,6 +451,7 @@ return {
             { "<leader>fz", function() pick_grep(nil) end, desc = "Live grep" },
             { "<leader>fw", pick_grep_word, mode = { "n", "x" }, desc = "Search current word/selection" },
             { "<leader>fg", function() Snacks.picker.git_files() end, desc = "Find git files" },
+            { "<leader>fG", function() Snacks.picker.git_grep() end, desc = "Grep in git files" },
             { "<leader>fm", function() Snacks.picker.recent() end, desc = "Recent files" },
             { "<leader>fu", function() Snacks.picker.lsp_symbols() end, desc = "LSP document symbols" },
             { "<leader>fS", function() Snacks.picker.lsp_symbols({ workspace = true }) end, desc = "LSP workspace symbols" },
