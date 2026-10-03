@@ -69,7 +69,7 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
 
 ## Non-obvious design decisions (do not "fix" without reading the comment)
 
-- **RHEL6 guards:** `vim.g.is_rhel6` disables avante, minuet, snacks.scroll, and
+- **RHEL6 guards:** `vim.g.is_rhel6` disables avante, minuet, snacks.scroll, yazi.nvim, and
   forces blink.cmp's fuzzy to the pure-Lua implementation (the prebuilt Rust fuzzy
   lib needs glibc ≥ 2.18). **RHEL6 nvim is kept on the same version as Windows
   (both 0.13-dev)** — do NOT add version-branch shims for "older nvim"; only branch
