@@ -39,9 +39,8 @@ return {
         { "]y", "<Plug>(YankyNextEntry)", desc = "Next yank entry" },
         { "]p", "<Plug>(YankyPutIndentAfterLinewise)", desc = "Put indented after (linewise)" },
         { "[p", "<Plug>(YankyPutIndentBeforeLinewise)", desc = "Put indented before (linewise)" },
-        { "]P", "<Plug>(YankyPutIndentAfterLinewise)", desc = "Put indented after (linewise)" },
-        { "[P", "<Plug>(YankyPutIndentBeforeLinewise)", desc = "Put indented before (linewise)" },
         { "=p", "<Plug>(YankyPutAfterFilter)", desc = "Put after and reindent" },
         { "=P", "<Plug>(YankyPutBeforeFilter)", desc = "Put before and reindent" },
+        { "<leader>fy", function() Snacks.picker.yanky() end, desc = "Yank history" },
     },
 }
