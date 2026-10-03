@@ -2,6 +2,8 @@ local map = vim.keymap.set
 local opts = { noremap = true, silent = true }
 local d = function(desc) return vim.tbl_extend("force", opts, { desc = desc }) end
 
+local M = {}
+
 vim.g.mapleader = " "
 vim.g.maplocalleader = " "
 
@@ -153,13 +155,19 @@ end
 map("n", "<leader>sw", toggle_value, vim.tbl_extend("force", opts, { desc = "Toggle value" }))
 
 -- Auto project cwd: <leader>ua toggles it, <leader>uA sets a manual root (which
--- turns auto off). core/autocmds.lua's BufEnter honours both.
-map("n", "<leader>ua", function()
+-- turns auto off). core/autocmds.lua's BufEnter honours both. The toggle is
+-- shared with the lualine cwd click (plugins/ui.lua).
+function M.toggle_auto_cwd()
+    -- nil/true = currently on; only `false` means off (see core/autocmds.lua)
     local on = vim.g.auto_cwd == false
+    if on then
+        vim.g.project_cwd = nil
+    end
     vim.g.auto_cwd = on
-    if on then vim.g.project_cwd = nil end
     vim.notify("Auto cwd: " .. (on and "ON" or "OFF"), vim.log.levels.INFO)
-end, d("Toggle auto project cwd"))
+end
+
+map("n", "<leader>ua", M.toggle_auto_cwd, d("Toggle auto project cwd"))
 
 map("n", "<leader>uA", function()
     local v = vim.fn.input("Project cwd: ", vim.fn.getcwd(), "dir")
@@ -309,3 +317,5 @@ end
 
 map("n", "gf", function() smart_gf("edit") end, vim.tbl_extend("force", opts, { desc = "Smart gf (file:line)" }))
 map("n", "gF", function() smart_gf("split") end, vim.tbl_extend("force", opts, { desc = "Smart gf (split)" }))
+
+return M
