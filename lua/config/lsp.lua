@@ -375,4 +375,37 @@ function M.setup()
     M.on_attach = on_attach
 end
 
+--- Snacks picker of the LSP configs (all known servers by default; pass
+--- `attached = 0` for only the current buffer's servers, matching what the
+--- lualine lsp_status component shows). Adds restart/stop/log actions.
+---@param opts? table extra snacks.picker.lsp_config opts
+function M.pick_config(opts)
+    opts = vim.tbl_deep_extend("force", {
+        actions = {
+            lsp_restart = function(_, item)
+                vim.lsp.enable(item.name, false)
+                vim.lsp.enable(item.name, true)
+                vim.notify("LSP restarted: " .. item.name, vim.log.levels.INFO)
+            end,
+            lsp_stop = function(_, item)
+                vim.lsp.enable(item.name, false)
+                vim.notify("LSP stopped: " .. item.name, vim.log.levels.INFO)
+            end,
+            lsp_log = function()
+                vim.cmd.edit(vim.lsp.get_log_path())
+            end,
+        },
+        win = {
+            input = {
+                keys = {
+                    ["<a-r>"] = { "lsp_restart", mode = { "n", "i" }, desc = "Restart server" },
+                    ["<a-x>"] = { "lsp_stop", mode = { "n", "i" }, desc = "Stop server" },
+                    ["<a-l>"] = { "lsp_log", mode = { "n", "i" }, desc = "Open LSP log" },
+                },
+            },
+        },
+    }, opts or {})
+    require("snacks").picker.lsp_config(opts)
+end
+
 return M

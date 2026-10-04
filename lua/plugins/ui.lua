@@ -7,7 +7,7 @@ local mode_icons = {
     v = "",
     V = "",
     ["\22"] = "",
-    R = "",
+    R = "",
     c = "",
     t = "",
     s = "",
@@ -16,7 +16,7 @@ local mode_icons = {
     no = "",
     ic = "",
     ix = "",
-    Rv = "",
+    Rv = "",
     cv = "",
     cr = "",
 }
@@ -57,6 +57,36 @@ local function diff_click(_, button)
     else
         vim.cmd("DiffviewOpen -- " .. file)
     end
+end
+
+-- lualine theme: the preset's per-mode colors with every section flattened to
+-- the editor background (kitty's transparent_background_colors keys off the
+-- exact Normal hex). Each mode's a-section color moves from bg to fg, so the
+-- mode icon keeps its preset color on the unified background.
+local function theme_unified()
+    local ok, theme = pcall(require("lualine.utils.loader").load_theme, "auto")
+    if not ok or type(theme) ~= "table" then
+        return "auto"
+    end
+    local normal = vim.api.nvim_get_hl(0, { name = "Normal" })
+    if not normal.bg then
+        return theme
+    end
+    local bg = ("#%06x"):format(normal.bg)
+    local fg = normal.fg and ("#%06x"):format(normal.fg) or nil
+    for mode, sections in pairs(theme) do
+        if mode ~= "inactive" and type(sections) == "table" then
+            if type(sections.a) == "table" then
+                sections.a.fg = sections.a.bg or fg
+            end
+            for _, section in pairs(sections) do
+                if type(section) == "table" then
+                    section.bg = bg
+                end
+            end
+        end
+    end
+    return theme
 end
 
 return {
@@ -164,41 +194,8 @@ return {
         dependencies = { "nvim-tree/nvim-web-devicons" },
         opts = {
             options = {
-                theme = function()
-                    local loader = require("lualine.utils.loader")
-                    local ok, theme = pcall(loader.load_theme, "auto")
-                    if not ok or type(theme) ~= "table" then
-                        return "auto"
-                    end
-                    -- Every section shares the editor background (Normal). With
-                    -- kitty's transparent_background_colors the cells carry the
-                    -- exact Normal hex, so they get the same transparency
-                    -- treatment as the editor body. Each mode's a-section color
-                    -- from the preset (green/blue/purple/...) is moved from bg
-                    -- to fg, so the mode icon keeps lualine's per-mode colors
-                    -- on the unified editor background.
-                    local normal = vim.api.nvim_get_hl(0, { name = "Normal" })
-                    if not normal.bg then
-                        return theme
-                    end
-                    local bg = ("#%06x"):format(normal.bg)
-                    local fg = normal.fg and ("#%06x"):format(normal.fg) or nil
-                    for mode, sections in pairs(theme) do
-                        if mode ~= "inactive" and type(sections) == "table" then
-                            local accent = type(sections.a) == "table" and sections.a.bg or nil
-                            for _, section in pairs(sections) do
-                                if type(section) == "table" then
-                                    section.bg = bg
-                                end
-                            end
-                            if type(sections.a) == "table" then
-                                sections.a.fg = accent or fg
-                            end
-                        end
-                    end
-                    return theme
-                end,
-                component_separators = { left = "|", right = "|" },
+                theme = theme_unified,
+                component_separators = { left = "", right = "" },
                 section_separators = { left = "", right = "" },
                 disabled_filetypes = {
                     statusline = { "help", "qf" },
@@ -210,18 +207,18 @@ return {
                 lualine_a = {
                     {
                         mode_component,
-                        separator = { left = "" },
                         right_padding = 2,
                     },
                     -- Macro recording indicator. noice suppresses the native
                     -- "recording @a" msg_showmode message and lualine's mode
                     -- component can't distinguish recording from insert/visual,
-                    -- so show only while recording via reg_recording().
-                    -- Left-click stops the recording.
+                    -- so return the label only while recording (an empty string
+                    -- hides the component). Left-click stops the recording.
                     {
-                        function() return vim.fn.reg_recording() end,
-                        cond = function() return vim.fn.reg_recording() ~= "" end,
-                        fmt = function(reg) return "REC @" .. reg end,
+                        function()
+                            local reg = vim.fn.reg_recording()
+                            return reg ~= "" and ("REC @" .. reg) or ""
+                        end,
                         padding = { left = 1, right = 1 },
                         on_click = function()
                             if vim.fn.reg_recording() ~= "" then
@@ -231,21 +228,21 @@ return {
                     },
                 },
                 lualine_b = {
-                    { "branch", icon = "", separator = { right = "" }, on_click = branch_click },
+                    { "branch", icon = "", on_click = branch_click },
                     { "diff", colored = true, symbols = { added = " ", modified = " ", removed = " " }, on_click = diff_click },
                 },
                 lualine_c = {
                     {
                         function()
-                            return "󰋜 "..vim.fn.fnamemodify(vim.fn.getcwd(), ":~")
+                            return vim.fn.fnamemodify(vim.fn.getcwd(), ":~")
                         end,
-                        separator = "",
                         color = cwd_color,
                         padding = { left = 1, right = 1 },
                         on_click = toggle_auto_cwd,
+                        icon = "󰋜"
                     },
-                    { "filetype", icon_only = true, separator = "", padding = { left = 0, right = 0 } },
-                    { "filename", path = 1, separator = "", padding = { left = 0, right = 1 }, symbols = {
+                    { "filetype", icon_only = true, padding = { left = 0, right = 0 } },
+                    { "filename", path = 1, padding = { left = 0, right = 1 }, symbols = {
                         modified = " ",
                         readonly = "",
                         unnamed  = "[No Name]",
@@ -263,7 +260,6 @@ return {
                     end },
                     {
                         "diagnostics",
-                        separator = "",
                         padding = { left = 0, right = 1 },
                         on_click = function() vim.cmd("Trouble diagnostics toggle") end,
                     },
@@ -275,7 +271,6 @@ return {
                             return ff == "dos" and "CRLF" or "LF"
                         end,
                         padding = { left = 1, right = 1 },
-                        separator = "",
                         color = "Operator",
                         on_click = function()
                             vim.bo.fileformat = vim.bo.fileformat == "dos" and "unix" or "dos"
@@ -283,7 +278,13 @@ return {
                             require("lualine").refresh()
                         end,
                     },
-                    { "lsp_status", icon = "{}", separator = "", padding = { left = 1, right = 1 }, color = function() return group_fg("String") end },
+                    {
+                        "lsp_status",
+                        icon = "{}",
+                        padding = { left = 1, right = 1 },
+                        color = function() return group_fg("String") end,
+                        on_click = function() require("config.lsp").pick_config({ attached = 0 }) end,
+                    },
                     -- {
                     --     function() return require("noice").api.status.command.get() end,
                     --     cond = function() return package.loaded["noice"] and require("noice").api.status.command.has() end,
@@ -301,10 +302,10 @@ return {
                 lualine_z = {
                     {
                         "selectioncount",
-                        separator = { right = "" },
                         left_padding = 2,
                         color = function() return group_fg("Keyword") end,
                         cond = in_visual_select,
+                        icon = "",
                     },
                     {
                         function()
@@ -313,7 +314,7 @@ return {
                             local col = vim.fn.virtcol(".")
                             return string.format("%d/%d:%d", line, total, col)
                         end,
-                        separator = { right = "" },
+                        icon = "",
                         left_padding = 2,
                         color = function() return group_fg("Keyword") end,
                         cond = function() return not in_visual_select() end,
