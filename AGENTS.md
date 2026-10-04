@@ -78,12 +78,12 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   (the old window-local `lcd` in `config/project.lua` was removed, so all windows
   share one cwd that follows the current buffer's project). `<leader>ua` toggles
   it (`vim.g.auto_cwd`); `<leader>uA` prompts for a manual root
-  (`vim.g.project_cwd`), chdir's there, and turns auto off. `fzf.lua` treats
+  (`vim.g.project_cwd`), chdir's there, and turns auto off. `snacks.lua` treats
   `vim.g.project_cwd` as the fff root / project-gate override.
-- **FFF engine** (`plugins/fff.lua` + `plugins/fzf.lua`): `ff/fz/fw/fn/fo` are
+- **FFF engine** (`plugins/fff.lua` + `plugins/snacks.lua`): `ff/fz/fw/fn/fo` are
   snacks.picker sources backed by fff's Rust index (programmatic API), **but only
   inside a project** (`project_root(0) ~= nil`); outside one they fall back to
-  snacks' native `files`/`grep` (the `pick_*` dispatchers in `fzf.lua`; `fw`'s
+  snacks' native `files`/`grep` (the `pick_*` dispatchers in `snacks.lua`; `fw`'s
   native fallback is `grep` seeded with the word — regex+live, to match the fff
   path — so it differs from `fW`'s `grep_word`). `vim.g.fff_mode = "off"` disables
   fff everywhere. There is deliberately no "always fff" mode — with no project it
@@ -93,7 +93,7 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   from under the finder. `fff.nvim` is a **single-global-root** index (no multi-root
   support) — `change_indexing_directory` re-roots by replacing + rescanning. RHEL6
   project trees live behind symlinks → `follow_symlinks = true`.
-- **fff is never used on RHEL6** (`init.lua` + `plugins/fff.lua` + `plugins/fzf.lua`):
+- **fff is never used on RHEL6** (`init.lua` + `plugins/fff.lua` + `plugins/snacks.lua`):
   fff's search API is a *synchronous* FFI call (`live_grep`/`file_search` are mlua C
   functions bound to the Lua state), so it **cannot be made async** — it must run on
   the main loop (no `uv.new_thread`/`queue_work`, no callback API). On the big NFS
@@ -102,7 +102,7 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   `grep.time_budget_ms`, default 150ms and counted *after the first match*, stops the
   scan wherever it runs out — and raising it to 400 only papered over it). So:
   - `init.lua` sets `vim.g.fff_mode = vim.g.is_rhel6 and "off" or "on"`; the single
-    dispatch gate `fff_root_enabled()` (`plugins/fzf.lua`) then makes `ff/fz/fw/fn/fo`
+    dispatch gate `fff_root_enabled()` (`plugins/snacks.lua`) then makes `ff/fz/fw/fn/fo`
     fall back to snacks' native `files`/`grep` (rg as a **subprocess** → non-blocking
     and complete).
   - `plugins/fff.lua` also has `enabled = not vim.g.is_rhel6`, because
@@ -462,7 +462,7 @@ cargo-zigbuild produce an ELF with max `GLIBC_ 2.17` and no bad undefined refs.
   rebuild via `scripts/build-fff-rhel6.sh` whenever the plugin is bumped. Never
   ship upstream's gnu (needs 2.31) or musl (dynamic-musl) builds.
 - `fff.rust.health_check()` runs a git discover on every call (uncached in Rust);
-  `fzf.lua` caches only the *ready* result (2 s TTL) — while the index is warming
+  `snacks.lua` caches only the *ready* result (2 s TTL) — while the index is warming
   up the poll loop calls it each iteration.
 - fff's async finder retries run in a **fast-event context**; `vim.fn`/`uv` calls
   (`fff_norm`) are unsafe there, so each retry hops back via `async:schedule`
