@@ -49,7 +49,6 @@ return {
             vim.api.nvim_create_autocmd("FileType", {
                 callback = function(args)
                     local ft = vim.bo[args.buf].filetype
-                    if ft == "tc" or ft == "mako" or ft == "ralf" then return end
                     local ok = pcall(vim.treesitter.start, args.buf)
                     if ok then
                         local has_query, query = pcall(vim.treesitter.query.get, ft, "indents")
@@ -126,8 +125,6 @@ return {
             vim.keymap.set("n", "[l", function() ts_move.goto_previous_start("@loop.outer") end, { desc = "prev loop" })
             vim.keymap.set("n", "]k", function() ts_move.goto_next_start("@block.outer") end, { desc = "next block" })
             vim.keymap.set("n", "[k", function() ts_move.goto_previous_start("@block.outer") end, { desc = "prev block" })
-            vim.keymap.set("n", "]C", function() ts_move.goto_next_start("@call.outer") end, { desc = "next call" })
-            vim.keymap.set("n", "[C", function() ts_move.goto_previous_start("@call.outer") end, { desc = "prev call" })
             vim.keymap.set("n", "]a", function() ts_move.goto_next_start("@parameter.outer") end, { desc = "next parameter" })
             vim.keymap.set("n", "[a", function() ts_move.goto_previous_start("@parameter.outer") end, { desc = "prev parameter" })
             vim.keymap.set("n", "]A", function() ts_move.goto_next_start("@assignment.outer") end, { desc = "next assignment" })

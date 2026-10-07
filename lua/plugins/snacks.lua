@@ -448,7 +448,7 @@ return {
         priority = 1000,
         lazy = false,
         opts = {
-            animate      = { enabled = true                 },
+            animate      = { enabled = true, fps = 120      },
             bigfile      = { enabled = true, notify = false     },
             dashboard    = { enabled = true                 },
             dim          = { enabled = true                 },
@@ -646,7 +646,7 @@ return {
             },
             quickfile    = { enabled = true                 },
             scope        = { enabled = true                 },
-            scroll       = { enabled = not vim.g.is_rhel6      },
+            scroll       = { enabled = not vim.g.is_rhel6 and not vim.g.neovide, animate = { easing = "outCubic" } },
             statuscolumn = { enabled = true                 },
             terminal     = { enabled = true                 },
             toggle       = { enabled = true                 },

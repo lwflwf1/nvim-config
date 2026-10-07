@@ -2,13 +2,13 @@
 -- color comes from the lualine theme preset (see the theme function below,
 -- which moves each mode's a-section color from bg to fg).
 local mode_icons = {
-    n = "",
-    i = "",
+    n = "",
+    i = "󰞇",
     v = "",
     V = "",
     ["\22"] = "",
-    R = "",
-    c = "",
+    R = "󰈸",
+    c = "",
     t = "",
     s = "",
     S = "",
@@ -25,6 +25,8 @@ local function group_fg(name)
     local fg = vim.api.nvim_get_hl(0, { name = name }).fg
     return fg and { fg = ("#%06x"):format(fg) } or {}
 end
+
+local battery = require("util.battery")
 
 local function mode_component()
     return mode_icons[vim.fn.mode()] or vim.fn.mode()
@@ -149,6 +151,11 @@ return {
                 return defaults.highlights
             end,
             options = {
+                hover = {
+                    enabled = true,
+                    delay = 200,
+                    reveal = {'close'}
+                },
                 mode = "buffers_and_tabs",
                 numbers = "none",
                 diagnostics = "nvim_lsp",
@@ -209,26 +216,9 @@ return {
                         mode_component,
                         right_padding = 2,
                     },
-                    -- Macro recording indicator. noice suppresses the native
-                    -- "recording @a" msg_showmode message and lualine's mode
-                    -- component can't distinguish recording from insert/visual,
-                    -- so return the label only while recording (an empty string
-                    -- hides the component). Left-click stops the recording.
-                    {
-                        function()
-                            local reg = vim.fn.reg_recording()
-                            return reg ~= "" and ("REC @" .. reg) or ""
-                        end,
-                        padding = { left = 1, right = 1 },
-                        on_click = function()
-                            if vim.fn.reg_recording() ~= "" then
-                                vim.api.nvim_feedkeys("q", "n", false)
-                            end
-                        end,
-                    },
                 },
                 lualine_b = {
-                    { "branch", icon = "", on_click = branch_click },
+                    { "branch", icon = "", on_click = branch_click },
                     { "diff", colored = true, symbols = { added = " ", modified = " ", removed = " " }, on_click = diff_click },
                 },
                 lualine_c = {
@@ -236,10 +226,15 @@ return {
                         function()
                             return vim.fn.fnamemodify(vim.fn.getcwd(), ":~")
                         end,
+                        icon = "󰋜",
                         color = cwd_color,
                         padding = { left = 1, right = 1 },
-                        on_click = toggle_auto_cwd,
-                        icon = "󰋜"
+                        on_click = function (_, button)
+                            if button == "r" then
+                                toggle_auto_cwd()
+                            else
+                            end
+                        end,
                     },
                     { "filetype", icon_only = true, padding = { left = 0, right = 0 } },
                     { "filename", path = 1, padding = { left = 0, right = 1 }, symbols = {
@@ -267,36 +262,45 @@ return {
                 lualine_x = {
                     {
                         function()
+                            local reg = vim.fn.reg_recording()
+                            return reg ~= "" and ("@" .. reg) or ""
+                        end,
+                        icon = "󰑋",
+                        padding = { left = 1, right = 0 },
+                        color = function() return group_fg("Identifier") end,
+                        on_click = function()
+                            if vim.fn.reg_recording() ~= "" then
+                                vim.api.nvim_feedkeys("q", "n", false)
+                            end
+                        end,
+                    },
+                    {
+                        function()
                             local ff = vim.bo.fileformat
                             return ff == "dos" and "CRLF" or "LF"
                         end,
                         padding = { left = 1, right = 1 },
-                        color = "Operator",
+                        color = function() return group_fg("Operator") end,
                         on_click = function()
                             vim.bo.fileformat = vim.bo.fileformat == "dos" and "unix" or "dos"
                             vim.notify("fileformat: " .. vim.bo.fileformat, vim.log.levels.INFO)
                             require("lualine").refresh()
                         end,
                     },
-                    {
-                        "lsp_status",
-                        icon = "{}",
+                    {   "filetype",
                         padding = { left = 1, right = 1 },
-                        color = function() return group_fg("String") end,
-                        on_click = function() require("config.lsp").pick_config({ attached = 0 }) end,
+                        on_click = function(_, button)
+                            if button == "l" then
+                                vim.ui.select(vim.fn.getcompletion("", "filetype"), { prompt = "Filetype" }, function(choice)
+                                    if choice then
+                                        vim.bo.filetype = choice
+                                    end
+                                end)
+                            else
+                                require("config.lsp").pick_config({ attached = 0 })
+                            end
+                        end
                     },
-                    -- {
-                    --     function() return require("noice").api.status.command.get() end,
-                    --     cond = function() return package.loaded["noice"] and require("noice").api.status.command.has() end,
-                    -- },
-                    -- {
-                    --     function() return require("noice").api.status.mode.get() end,
-                    --     cond = function() return package.loaded["noice"] and require("noice").api.status.mode.has() end,
-                    -- },
-                    -- {
-                    --     function() return require("noice").api.status.search.get() end,
-                    --     cond = function() return package.loaded["noice"] and require("noice").api.status.search.has() end,
-                    -- },
                 },
                 lualine_y = {},
                 lualine_z = {
@@ -318,6 +322,18 @@ return {
                         left_padding = 2,
                         color = function() return group_fg("Keyword") end,
                         cond = function() return not in_visual_select() end,
+                    },
+                    {
+                        function()
+                            if not battery.pct then return "" end
+                            return battery.get_icon() .. " " .. battery.get() .. "%%"
+                        end,
+                        color = function()
+                            if battery.charging or battery.pct and battery.pct >= 50 then return group_fg("DiagnosticOk")
+                            elseif battery.pct and battery.pct >= 20 then return group_fg("DiagnosticWarn")
+                            else return group_fg("DiagnosticError") end
+                        end,
+                        padding = { left = 1, right = 1 },
                     },
                 },
             },

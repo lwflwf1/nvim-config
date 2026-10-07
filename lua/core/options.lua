@@ -15,6 +15,7 @@ opt.termguicolors = true
 opt.autoindent = true
 opt.smartindent = true
 opt.mouse = "a"
+opt.mousemoveevent = true
 opt.number = true
 opt.relativenumber = true
 opt.wildmenu = true

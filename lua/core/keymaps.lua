@@ -190,6 +190,8 @@ map("n", "<leader>uC", function()
     Snacks.picker.colorschemes()
 end, d("Colorscheme picker"))
 
+map("n", "<leader>ue", function() require("mini.trailspace").trim() end, d("Trim trailing whitespace"))
+
 -- Window navigation / resizing (replaces smart-splits.nvim, see util/wins.lua).
 -- Movement works in insert/terminal too; plain arrows move the right/bottom
 -- boundary, Shift+arrows the left/top one.
@@ -317,5 +319,38 @@ end
 
 map("n", "gf", function() smart_gf("edit") end, vim.tbl_extend("force", opts, { desc = "Smart gf (file:line)" }))
 map("n", "gF", function() smart_gf("split") end, vim.tbl_extend("force", opts, { desc = "Smart gf (split)" }))
+
+
+local nohl = vim.keycode("<Cmd>nohlsearch<CR>")
+local mc_ns = vim.api.nvim_create_namespace("nvim.multicursor")
+
+local function mc_feed(keys)
+    return function ()
+        vim.api.nvim_feedkeys(keys:rep(vim.v.count1), "nxi", false)
+    end
+end
+
+local function mc_match(direction)
+    return function ()
+        local seq = "1Q"..direction
+        seq = seq:rep(vim.v.count1)..nohl
+        if #vim.api.nvim_buf_get_extmarks(0, mc_ns, 0, -1) == 0 then
+            seq = '"_yiw'..seq
+        end
+        vim.api.nvim_feedkeys(seq, "nxi", false)
+    end
+end
+
+map("n", "<Esc>", function ()
+    if #vim.api.nvim_buf_get_extmarks(0, mc_ns, 0, -1) > 0 then
+        vim.api.nvim_buf_clear_namespace(0, mc_ns, 0, -1)
+    else
+        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+    end
+end, d("Clear all cursor"))
+map("n", "<C-j>", mc_feed("1Qj"), d("Add cursor below"))
+map("n", "<C-k>", mc_feed("1Qk"), d("Add cursor above"))
+map("n", "<C-n>", mc_match("*"), d("Add cursor at next match"))
+map("n", "<C-p>", mc_match("#"), d("Add cursor at prev match"))
 
 return M

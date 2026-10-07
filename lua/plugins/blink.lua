@@ -15,11 +15,10 @@ return {
             -- implementation there only.
             fuzzy = vim.g.is_rhel6 and { implementation = "lua" } or nil,
             appearance = {
-                -- ginit.vim uses the proportional "JetBrainsMono NF" variant,
-                -- whose NF icon glyphs render 2 cells wide while nvim measures
-                -- them as 1, clipping the icon. 'normal' makes blink append
-                -- ctx.icon_gap (a space) after the icon; the kind_icon text
-                -- below must include it (the default component did).
+                -- The kitty/Neovide font is the "JetBrainsMono Nerd Font Mono"
+                -- variant (NF icons render single-width). 'normal' makes blink
+                -- append ctx.icon_gap (a space) after the icon; the kind_icon
+                -- text below must include it (the default component did).
                 nerd_font_variant = "normal",
             },
             keymap = {

@@ -502,3 +502,17 @@ cargo-zigbuild produce an ELF with max `GLIBC_ 2.17` and no bad undefined refs.
   (`fix:` / `feat:` / `chore:` / `refactor:` prefixes are used).
 - Commit `lazy-lock.json` with plugin changes.
 - Keep generated/bundle artifacts out of the repo (they live in `Downloads`/out dirs).
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles, using their default names. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
