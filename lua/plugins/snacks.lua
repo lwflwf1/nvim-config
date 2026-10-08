@@ -471,8 +471,26 @@ return {
                     explorer = {
                         -- file watcher is unreliable on RHEL6 NFS trees (cf. snacks.scroll)
                         watch = not vim.g.is_rhel6,
-                        -- grug-far seeded with the current entry's directory
-                        win = { list = { keys = { ["<leader>fx"] = "explorer_grug_far" } } },
+                        -- <CR> on a file asks which window to open in first; dirs
+                        -- still toggle. A keymap chain can't be conditional, and
+                        -- `confirm` can't be overridden: the explorer source's
+                        -- setup force-merges its own actions.confirm after the
+                        -- config is resolved (snacks/picker/source/explorer.lua).
+                        actions = {
+                            pick_win_confirm = function(picker, item, action)
+                                if item and not item.dir and not picker.input.filter.meta.searching then
+                                    if require("snacks.picker.actions").pick_win(picker, item, action) then
+                                        return true -- cancelled at the window prompt
+                                    end
+                                end
+                                return require("snacks.explorer.actions").actions.confirm(picker, item, action)
+                            end,
+                        },
+                        win = { list = { keys = {
+                            -- grug-far seeded with the current entry's directory
+                            ["<leader>fx"] = "explorer_grug_far",
+                            ["<CR>"] = "pick_win_confirm",
+                        } } },
                     },
                     -- `lines` uses preview="main": its preview is a float over the
                     -- current window showing the SAME buffer. Two fixes while keeping
