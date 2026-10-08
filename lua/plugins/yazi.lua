@@ -1,7 +1,7 @@
 return {
     "mikavilpas/yazi.nvim",
     version = "*",
-    enabled = not vim.g.is_rhel6,
+    enabled = vim.fn.executable("yazi") == 1,
     cmd = { "Yazi" },
     keys = {
         { "<leader>ey", mode = { "n", "v" }, "<cmd>Yazi<cr>", desc = "Yazi (current file)" },
