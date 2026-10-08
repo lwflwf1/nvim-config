@@ -147,7 +147,7 @@ return {
         },
         opts = {
             highlights = function(defaults)
-                defaults.highlights.fill.bg = defaults.highlights.buffer_selected.bg
+                defaults.highlights.fill.bg = defaults.highlights.background.bg
                 return defaults.highlights
             end,
             options = {
