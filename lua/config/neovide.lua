@@ -19,10 +19,6 @@ vim.g.neovide_cursor_animate_command_line = true
 -- kitty-like translucent + blurred look
 vim.g.neovide_opacity = 0.9
 vim.g.neovide_window_blurred = true
--- a translucent float always gets the backdrop blur
--- (need_blur = has_transparency || floating_blur), so tune the amount instead
-vim.g.neovide_floating_blur_amount_x = 3.0
-vim.g.neovide_floating_blur_amount_y = 3.0
 
 -- simple fullscreen keeps the window on the desktop space, so transparency/blur
 -- survive; native fullscreen (green button / cmd+ctrl+f) has nothing behind it

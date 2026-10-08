@@ -671,7 +671,7 @@ return {
             words        = { enabled = true                 },
             zen          = { enabled = true                 },
             styles       = {
-                notification         = { wo = { wrap = true, winblend = 0 } },
+                notification         = { border = "solid", wo = { wrap = true, winblend = 0 } },
                 notification_history = {
                     border = "none",
                     wo = { winbar = "%=%#SnacksNotifierHistoryTitle# Notification History %=" },
