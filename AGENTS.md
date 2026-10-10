@@ -164,6 +164,39 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   from `picker.opts.actions` — **not** `Snacks.picker.actions[name]` — so headless
   probes must invoke it via
   `require("snacks.picker.core.actions").resolve(name, picker, name).action(picker)`.
+- **Notifier enter/exit animation** (`plugins/snacks.lua`, hooked via
+  `styles.notification.on_win` = `notifier_animate_in`): the width unfolds from 2
+  cells to full with a fixed right edge (nvim clamps floats on-screen, so an
+  off-screen slide is impossible); the exit shrinks to 2 then really closes (an
+  instance-level `close` override animates before the close lands). Driven by
+  `Snacks.animate` at 120fps with a closed-form critically-damped spring as the
+  easing (`spring_easing`); the fade alpha is derived from the width progress, so
+  enter = unfold+fade-in and exit = shrink+fade-out with no second animation. The
+  target is re-read live via `win:win_opts()` and the animation restarts (same id)
+  through the `update` wrapper, because the notifier re-lays-out asynchronously
+  (VimResized / same-id replace) and a captured target would be written back stale.
+- **Fade needs BOTH winhl and a highlight namespace** (`plugins/snacks.lua`): winhl
+  remaps to per-window private groups for the window groups (body, border glyphs,
+  title/footer and `NormalFloat` — the float background/border ring follows ONLY
+  winhl, verified with screen-attr probes), plus a window-local namespace for the
+  style's extmark groups (the fancy style draws icon/title/separator with extmarks,
+  which winhl cannot reach). Private groups live in a 64-slot pool; the namespace is
+  named `fade2_*` because namespaces can't be deleted — never reuse a namespace name
+  that ever held different group definitions (stale definitions take precedence over
+  winhl and silently break colors).
+- **nvim winhl/ns quirks (verified with screen-attr probes — do not "simplify")**
+  (`plugins/snacks.lua`): (a) a winhl applied while the window is still hidden is
+  never picked up — `on_win` re-asserts it once visible; this is why the notifier's
+  own winhl (incl. the config's `SnacksNotifier<Level> → NormalFloat` link) had
+  silently never been effective; (b) `nvim_win_set_hl_ns` resets the winhl
+  effectiveness — hence ns-attach BEFORE setting winhl (fade setup) and ns-detach
+  BEFORE restoring winhl (fade clear); (c) `nvim_win_set_config` does not reset it,
+  and re-setting an identical winhl does take effect.
+- **Windows timer resolution caps the animation** (`plugins/snacks.lua`): the
+  default ~15.6ms quantizes uv timers (an 8ms interval fires at ~15.6ms; 16ms rounds
+  up to 31ms) → ~64fps. `timeBeginPeriod(1)` (winmm via LuaJIT ffi, Windows-gated,
+  auto-released on exit) unlocks ~8.5ms ticks so `notif_anim_opts` can run at
+  120fps. fps / `duration = {step,total}` / easing knobs live in `notif_anim_opts`.
 
 ## Treesitter parsers & the systemverilog fork
 
