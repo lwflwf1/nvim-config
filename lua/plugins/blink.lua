@@ -82,9 +82,7 @@ return {
                 },
             },
 
-            cmdline = {
-                enabled = true,
-            },
+            -- cmdline completions are on by default (blink auto-detects noice)
         },
         config = function(_, opts)
             require("blink.cmp").setup(opts)

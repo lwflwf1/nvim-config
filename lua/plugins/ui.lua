@@ -402,15 +402,20 @@ return {
         },
         opts = {
             views = {
+                -- default places confirm at row 3; keep it centered instead
                 confirm = {
-                    backend = "popup",
                     position = { row = "50%", col = "50%" },
                 },
-            },
-            cmdline = {
-                view = "cmdline",
-                opts = {
-                    zindex = 200,
+                -- solid = space-filled border: reads as a padding ring around the
+                -- cmdline, filled with the float bg (border bg falls back to Normal)
+                cmdline_popup = {
+                    border = { style = "solid", padding = { 0, 0 } },
+                    win_options = { winhighlight = { Normal = "NormalFloat" } },
+                },
+                -- only shown for native completions (blink draws its own menu)
+                cmdline_popupmenu = {
+                    border = { style = "solid", padding = { 0, 0 } },
+                    win_options = { winhighlight = { Normal = "NormalFloat" } },
                 },
             },
             lsp = {
@@ -420,10 +425,10 @@ return {
                 },
             },
             presets = {
-                bottom_search = true,
+                -- cmdline popup at top center; blink's menu stacks below it (it
+                -- anchors to noice's ui_cmdline_pos)
+                command_palette = true,
                 long_message_to_split = true,
-                inc_rename = false,
-                lsp_doc_border = false,
             },
         },
     },
