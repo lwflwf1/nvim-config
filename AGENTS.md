@@ -70,11 +70,21 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
 
 ## Non-obvious design decisions (do not "fix" without reading the comment)
 
-- **RHEL6 guards:** `vim.g.is_rhel6` disables avante, minuet, snacks.scroll, yazi.nvim, and
+- **RHEL6 guards:** `vim.g.is_rhel6` disables avante, minuet, snacks.scroll, and
   forces blink.cmp's fuzzy to the pure-Lua implementation (the prebuilt Rust fuzzy
   lib needs glibc ≥ 2.18). **RHEL6 nvim is kept on the same version as Windows
   (both 0.13-dev)** — do NOT add version-branch shims for "older nvim"; only branch
-  on `is_rhel6` for real glibc/tooling matters.
+  on `is_rhel6` for real glibc/tooling matters. (yazi.nvim is **not** `is_rhel6`-gated
+  anymore — see the yazi bullet below.)
+- **yazi on RHEL6** (`plugins/yazi.lua`): the plugin enables wherever
+  `vim.fn.executable("yazi") == 1` (no `is_rhel6` check). The upstream **musl
+  static-pie** build (`yazi-*-unknown-linux-musl.zip`) runs on the RHEL6 2.6.32
+  kernel — verified on the real machine (2026-10); install it manually to
+  `~/.local/bin` (`yazi`, optional `ya`), no glibc/patchelf involved. Do NOT use
+  the GNU build: it needs glibc ≥ 2.39 (verified: fails on a 2.35 loader with
+  `GLIBC_2.39`/`GLIBC_ABI_DT_RELR` not found). Caveat: the musl build sits below
+  musl's 2.6.39 / Rust std's 3.2 official baselines — after bumping yazi,
+  re-scan for post-2.6.32 syscalls (`mov eax,imm; syscall` pattern) before trusting it.
 - **Auto cwd:** the only auto-cwd is the global `chdir` in `lua/project/init.lua`
   (the old window-local `lcd` in the former config/project.lua was removed, so all
   windows share one cwd that follows the current buffer's project). `<leader>pa`
@@ -472,6 +482,13 @@ cargo-zigbuild produce an ELF with max `GLIBC_ 2.17` and no bad undefined refs.
 - **`Lazy load all` / `:Lazy` opens the UI and can hang headless** — never use it in
   probes. Use the loader API:
   `require("lazy.core.loader").load(vim.tbl_keys(require("lazy.core.config").plugins), { cmd="..." }, { force=true })`.
+- **`:Lazy clean` on this box removes `yazi.nvim`** — its spec is
+  `enabled = vim.fn.executable("yazi") == 1` and yazi isn't installed on Windows, so
+  lazy treats it as unused; but the RHEL6 bundle ships `data/lazy/`, so restore it at
+  the locked commit before packaging:
+  `git clone --filter=blob:none https://github.com/mikavilpas/yazi.nvim "$env:LOCALAPPDATA\nvim-data\lazy\yazi.nvim"`
+  (add `-c http.proxy=http://127.0.0.1:7897` if needed) then
+  `git -C <dir> checkout <commit from lazy-lock.json>`.
 - **`nvim --headless` doesn't fire `VeryLazy`/`VimEnter`** — call
   `vim.cmd.doautocmd("User VeryLazy")` and `vim.cmd.doautocmd("VimEnter")` in probes.
   Some probes (esp. `:normal! <C-i>`) can hang headless — always add a hard
@@ -497,6 +514,9 @@ cargo-zigbuild produce an ELF with max `GLIBC_ 2.17` and no bad undefined refs.
   unreleased) — don't bump casually.
 - **Never branch on nvim version for RHEL6** — same 0.13-dev. Only branch on
   `vim.g.is_rhel6` for genuine glibc/tool availability.
+- **`lua/util/sticky.lua` is broken and unreferenced** (pre-existing syntax errors;
+  LuaLS reports them on every check). Nothing requires it — fix or delete it rather
+  than treating those diagnostics as new.
 
 ### Terminal key handling
 
