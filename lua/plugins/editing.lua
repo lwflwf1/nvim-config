@@ -109,18 +109,8 @@ return {
             require("mini.sessions").setup({ autowrite = true })
 
             local sessions = require("mini.sessions")
-            vim.keymap.set("n", "<leader>ps", function()
-                if vim.v.this_session ~= "" then
-                    sessions.write(nil)
-                else
-                    vim.ui.input({ prompt = "Session name: " }, function(name)
-                        if name and name ~= "" then
-                            sessions.write(name)
-                        end
-                    end)
-                end
-                vim.notify("Session saved", vim.log.levels.INFO)
-            end, { desc = "Save Session" })
+            vim.keymap.set("n", "<leader>ps", function() require("box.sessions").save() end,
+                { desc = "Save Session" })
             vim.keymap.set("n", "<leader>pl", function()
                 sessions.write(sessions.config.file)
             end, { desc = "Save Local Session" })
@@ -132,11 +122,12 @@ return {
                     vim.notify("No session available", vim.log.levels.INFO)
                 end
             end, { desc = "Restore Latest Session" })
-            vim.keymap.set("n", "<leader>pc", function()
-                sessions.select("read")
-            end, { desc = "Select Session" })
+            vim.keymap.set("n", "<leader>pc", function() require("box.sessions").pick_read() end,
+                { desc = "Select Session" })
             vim.keymap.set("n", "<leader>pd", function()
-                sessions.select("delete")
+                -- force: allow deleting the currently loaded session (mini clears
+                -- v:this_session, so autowrite won't recreate it on exit)
+                sessions.select("delete", { force = true })
             end, { desc = "Delete Session" })
         end,
     },

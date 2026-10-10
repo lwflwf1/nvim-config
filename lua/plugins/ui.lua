@@ -215,6 +215,31 @@ return {
                 },
                 lualine_c = {
                     {
+                        function ()
+                            local session = require("box.sessions")
+                            local name = session.name()
+                            local kind = session.kind()
+                            if kind == nil then return "󱙀" end
+                            if kind == "local" then return "󱘻" end
+                            if kind == "global" then return "󰪩 "..name end
+                        end,
+                        padding = { left = 1, right = 1 },
+                        color = function ()
+                            if require("box.sessions").active() then
+                                return group_fg("DiagnosticOk")
+                            else
+                                return group_fg("Comment")
+                            end
+                        end,
+                        on_click = function (_, button)
+                            if button == "l" then
+                                require("box.sessions").save()
+                            else
+                                require("box.sessions").pick_read()
+                            end
+                        end
+                    },
+                    {
                         function()
                             return vim.fn.fnamemodify(vim.fn.getcwd(), ":~")
                         end,
