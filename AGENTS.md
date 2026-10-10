@@ -197,6 +197,21 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   up to 31ms) → ~64fps. `timeBeginPeriod(1)` (winmm via LuaJIT ffi, Windows-gated,
   auto-released on exit) unlocks ~8.5ms ticks so `notif_anim_opts` can run at
   120fps. fps / `duration = {step,total}` / easing knobs live in `notif_anim_opts`.
+- **Sessions are `mini.sessions`** (`plugins/editing.lua`; persistence.nvim was
+  removed and its old per-cwd session files deleted): named global sessions under
+  `stdpath("data")/session/`, `<leader>ps` smart-saves (prompts for a name only when
+  no session is active — `v:this_session` is set by BOTH read and write, so the
+  first save activates autowrite), `<leader>pl` writes the project-local
+  `Session.vim`, `<leader>pr` restores the latest, `<leader>pc` selects, `<leader>pd`
+  deletes. `autowrite = true` writes back only the current
+  session on exit — it never creates sessions for other directories.
+- **mini.animate** (`plugins/editing.lua`): split-resize only, 150ms cubic. `cursor`
+  off — it draws a **buffer-wide extmark**, so with the same buffer in two windows
+  the flying mark shows in both ("two cursors"; mini's own guard only compares the
+  buffer id, missing same-buffer window switches). `scroll` off (snacks.scroll
+  already animates scrolling), `open`/`close` off (their default predicate matches
+  ALL windows incl. floats, which would fight the picker/notifier animations).
+  Gated off on `vim.g.is_rhel6`.
 
 ## Treesitter parsers & the systemverilog fork
 

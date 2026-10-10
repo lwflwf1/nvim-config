@@ -84,6 +84,60 @@ return {
             })
 
             require("mini.trailspace").setup()
+
+            -- split-resize animation only: snacks.scroll already animates
+            -- scrolling (mini's would double up), open/close animate *all*
+            -- windows by default (floats included, fighting the picker/notifier
+            -- animations), and the cursor animation draws a buffer-wide extmark
+            -- (with the same buffer in two windows the flying mark shows in
+            -- both -- "two cursors"). RHEL6 skips animations repo-wide.
+            require("mini.animate").setup({
+                cursor = { enable = false },
+                scroll = { enable = false },
+                resize = {
+                    enable = not vim.g.is_rhel6,
+                    timing = require("mini.animate").gen_timing.cubic({ duration = 150, unit = "total" }),
+                },
+                open = { enable = false },
+                close = { enable = false },
+            })
+
+            -- named sessions, manual-first: <leader>ps prompts for a name on
+            -- the first save, then writes back silently (v:this_session is set
+            -- by both read and write); autowrite keeps that one session
+            -- updated on exit -- it never creates sessions for other dirs
+            require("mini.sessions").setup({ autowrite = true })
+
+            local sessions = require("mini.sessions")
+            vim.keymap.set("n", "<leader>ps", function()
+                if vim.v.this_session ~= "" then
+                    sessions.write(nil)
+                else
+                    vim.ui.input({ prompt = "Session name: " }, function(name)
+                        if name and name ~= "" then
+                            sessions.write(name)
+                        end
+                    end)
+                end
+                vim.notify("Session saved", vim.log.levels.INFO)
+            end, { desc = "Save Session" })
+            vim.keymap.set("n", "<leader>pl", function()
+                sessions.write(sessions.config.file)
+            end, { desc = "Save Local Session" })
+            vim.keymap.set("n", "<leader>pr", function()
+                local latest = sessions.get_latest()
+                if latest then
+                    sessions.read(latest)
+                else
+                    vim.notify("No session available", vim.log.levels.INFO)
+                end
+            end, { desc = "Restore Latest Session" })
+            vim.keymap.set("n", "<leader>pc", function()
+                sessions.select("read")
+            end, { desc = "Select Session" })
+            vim.keymap.set("n", "<leader>pd", function()
+                sessions.select("delete")
+            end, { desc = "Delete Session" })
         end,
     },
     {
