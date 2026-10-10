@@ -7,10 +7,14 @@ local multicursor = require("box.multicursor")
 --- @param plug string yanky plug mapping to run otherwise
 local function put_key(native, plug)
     return function()
+        -- The mapping invocation consumes the typed count before this callback
+        -- runs; feedkeys starts a fresh typeahead, so re-prepend it or 4p
+        -- degrades to a single put (yanky reads vim.v.count itself).
+        local prefix = vim.v.count1 > 1 and tostring(vim.v.count1) or ""
         if multicursor.is_active() then
-            vim.api.nvim_feedkeys(native, "n", false)
+            vim.api.nvim_feedkeys(prefix .. native, "n", false)
         else
-            vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(plug, true, false, true), "m", false)
+            vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(prefix .. plug, true, false, true), "m", false)
         end
     end
 end

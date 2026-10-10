@@ -18,7 +18,7 @@ end
 function M.setup()
     local function mc_feed(keys)
         return function()
-            vim.api.nvim_feedkeys(keys:rep(vim.v.count1), "nxi", false)
+            vim.api.nvim_feedkeys("2q="..keys:rep(vim.v.count1).."1q=", "nxi", false)
         end
     end
 
@@ -29,7 +29,7 @@ function M.setup()
             if not M.is_active() then
                 seq = '"_yiw' .. seq
             end
-            vim.api.nvim_feedkeys(seq, "nxi", false)
+            vim.api.nvim_feedkeys("2q="..seq.."1q=", "nxi", false)
         end
     end
 
