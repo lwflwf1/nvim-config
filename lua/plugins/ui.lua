@@ -61,10 +61,30 @@ local function diff_click(_, button)
     end
 end
 
--- lualine theme: the preset's per-mode colors with every section flattened to
--- the editor background (kitty's transparent_background_colors keys off the
--- exact Normal hex). Each mode's a-section color moves from bg to fg, so the
--- mode icon keeps its preset color on the unified background.
+-- Same shading bufferline applies to its bar: Normal bg tinted -25% (dark
+-- themes) or -12% (bright themes), see bufferline/colors.lua color_is_bright +
+-- shade_color. Kept in sync with the resulting BufferLineFill/BufferLineBuffer.
+local function shaded_normal_bg()
+    local normal_bg = vim.api.nvim_get_hl(0, { name = "Normal" }).bg
+    if not normal_bg then
+        return nil
+    end
+    local r = math.floor(normal_bg / 0x10000) % 0x100
+    local g = math.floor(normal_bg / 0x100) % 0x100
+    local b = normal_bg % 0x100
+    local bright = (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5
+    local pct = bright and 88 or 75
+    return ("#%02x%02x%02x"):format(
+        math.floor(r * pct / 100),
+        math.floor(g * pct / 100),
+        math.floor(b * pct / 100)
+    )
+end
+
+-- lualine theme: the preset's per-mode colors with every section background
+-- darkened to match the bufferline bar (see shaded_normal_bg). Each mode's
+-- a-section color moves from bg to fg, so the mode icon keeps its preset color
+-- on the unified background.
 local function theme_unified()
     local ok, theme = pcall(require("lualine.utils.loader").load_theme, "auto")
     if not ok or type(theme) ~= "table" then
@@ -74,7 +94,7 @@ local function theme_unified()
     if not normal.bg then
         return theme
     end
-    local bg = ("#%06x"):format(normal.bg)
+    local bg = shaded_normal_bg()
     local fg = normal.fg and ("#%06x"):format(normal.fg) or nil
     for mode, sections in pairs(theme) do
         if mode ~= "inactive" and type(sections) == "table" then
@@ -133,6 +153,22 @@ return {
             vim.g.everforest_enable_italic = true
             vim.g.everforest_disable_italic_comment = false
         end,
+    },
+    {
+        "catppuccin/nvim",
+        name = "catppuccin",
+        -- not lazy: the colorscheme picker (<leader>uC) needs it on the rtp
+        lazy = false,
+        priority = 1000,
+        opts = {}, -- defaults: flavour "auto" (mocha on dark)
+    },
+    {
+        "rebelot/kanagawa.nvim",
+        name = "kanagawa",
+        -- not lazy: the colorscheme picker (<leader>uC) needs it on the rtp
+        lazy = false,
+        priority = 1000,
+        opts = {},
     },
     {
         "akinsho/bufferline.nvim",
