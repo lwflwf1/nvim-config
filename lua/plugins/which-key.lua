@@ -24,6 +24,7 @@ return {
             { "<leader>d",  group = "Debug",          },
             { "<leader>t",  group = "TODO/Tab/Table", },
             { "<leader>u",  group = "UI Toggle",      },
+            { "<leader>i",  group = "Icons",          },
             { "<leader>s",  group = "SOS/Sidekick",   },
             { "<leader>b",  group = "Buffer",         },
             { "<leader>q",  group = "Quickfix",       },
