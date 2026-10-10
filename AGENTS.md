@@ -30,8 +30,10 @@ lua/
                           has setup() (early: keymaps/autocmds/commands) and
                           setup_late() (after lazy: theme/lsp/tools). Submodules:
                           project (root/auto-cwd/pin, <leader>p*), sos (SOS +
-                          generators, <leader>s*), toggle_value (<leader>sw), trim
-                          (<leader>ue), wins, multicursor, smart_gf, lsp, parsers,
+                          generators, <leader>s*), sessions (mini.sessions helpers,
+                          shared by editing keymaps + lualine), toggle_value (<leader>sw), trim
+                          (<leader>ue), wins, multicursor, smart_gf, winpick, lsp, parsers,
+                          terminals (<leader>fe / :Terminals picker over snacks terminals),
                           theme (+<leader>uC), tools (:ToolInstall), neovide, battery,
                           fff_picker (snacks patch), notifier_anim (snacks patch),
                           sticky (WIP), orgmode_profiles

@@ -8,11 +8,14 @@
 -- Submodules (lua/box/):
 --   project          root detection + auto-cwd + root picker (<leader>p*)
 --   sos              SOS source control + generator commands (<leader>s*)
+--   sessions         mini.sessions name/save/pick helpers (keymaps + lualine)
+--   terminals        picker over live snacks terminals (<leader>fe / :Terminals)
 --   toggle_value     SystemVerilog value toggling (<leader>sw)
 --   trim             trim trailing whitespace / CRs (<leader>ue)
 --   wins             window move/resize (<M-hjkl>, arrows)
 --   multicursor      nvim 0.13 multicursor glue (<C-j/k/n/p>, <Esc>)
 --   smart_gf         file:line-aware gf/gF
+--   winpick          press-a-letter window picker (terminal gf flow)
 --   lsp              LSP server config + pick_config
 --   parsers          treesitter parser list (data)
 --   theme            colorscheme persistence + <leader>uC + lualine theme
@@ -31,6 +34,7 @@ function M.setup()
     require("box.wins").setup()
     require("box.trim").setup()
     require("box.toggle_value").setup()
+    require("box.terminals").setup()
     require("box.project").setup()
     require("box.sos").setup()
 end
