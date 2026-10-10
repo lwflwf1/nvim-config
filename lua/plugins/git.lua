@@ -91,10 +91,10 @@ return {
                         vim.cmd("DiffviewOpen")
                     end
                 end,
-                desc = "Diffview toggle",
+                desc = "Toggle Diffview",
             },
             { "<leader>gf", "<cmd>DiffviewFileHistory<CR>", desc = "Diffview history" },
-            { "<leader>gt", "<cmd>DiffviewToggleFiles<CR>", desc = "Diffview toggle files" },
+            { "<leader>gt", "<cmd>DiffviewToggleFiles<CR>", desc = "Toggle Diffview files" },
         },
         opts = {
             keymaps = {

@@ -3,8 +3,8 @@ return {
         "stevearc/aerial.nvim",
         cmd = { "AerialToggle", "AerialOpen", "AerialNavToggle" },
         keys = {
-            { "<leader>lo", "<cmd>AerialToggle!<CR>", desc = "Aerial outline" },
-            { "<leader>lO", "<cmd>AerialNavToggle<CR>", desc = "Aerial nav window" },
+            { "<leader>lo", "<cmd>AerialToggle!<CR>", desc = "Toggle aerial outline" },
+            { "<leader>lO", "<cmd>AerialNavToggle<CR>", desc = "Toggle aerial nav window" },
             { "<leader>fs", function() require("aerial").snacks_picker() end, desc = "Aerial symbols (snacks)" },
             { "]s", function() require("aerial").next() end, desc = "Next symbol" },
             { "[s", function() require("aerial").prev() end, desc = "Prev symbol" },

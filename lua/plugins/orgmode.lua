@@ -250,12 +250,12 @@ config = function(_, opts)
           org_map("i", "<C-;>", " :", "Insert tag prefix")
 
           -- Normal mode extras
-          org_map("n", "<Leader>ov", ":OrgColumns toggle<CR>", "Column view")
+          org_map("n", "<Leader>ov", ":OrgColumns toggle<CR>", "Toggle Column view")
           org_map("n", "<Leader>ow", ":!wc -w %<CR>", "Word count")
           org_map("n", "<Leader>os", '<Cmd>lua require("orgmode").action("org_mappings.org_schedule")<CR>', "Schedule (SCHEDULED)")
           org_map("n", "<Leader>oD", '<Cmd>lua require("orgmode").action("org_mappings.org_deadline")<CR>', "Deadline (DEADLINE)")
 
-          org_map("n", "<Leader>oTt", ":OrgTableToggle<CR>", "Table editor")
+          org_map("n", "<Leader>oTt", ":OrgTableToggle<CR>", "Toggle Table editor")
           org_map("n", "<Leader>oTf", ":OrgTableFormula<CR>", "Table formula")
           org_map("n", "<Leader>oTa", ":OrgTableAlign<CR>", "Table align")
           org_map("n", "<Leader>oTr", ":OrgTableInsertRow<CR>", "Insert row")

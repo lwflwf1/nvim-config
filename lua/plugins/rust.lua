@@ -136,7 +136,7 @@ return {
             { "<leader>rs", function() require("crates").open_repository() end, desc = "Open repo", ft = "toml" },
             { "<leader>rh", function() require("crates").open_documentation() end, desc = "Open docs", ft = "toml" },
             { "<leader>ri", function() require("crates").open_crates_io() end, desc = "Open crates.io", ft = "toml" },
-            { "<leader>rt", function() require("crates").toggle() end, desc = "Toggle UI", ft = "toml" },
+            { "<leader>rt", function() require("crates").toggle() end, desc = "Toggle crates UI", ft = "toml" },
             { "<leader>re", function() require("crates").reload() end, desc = "Reload", ft = "toml" },
             { "<leader>rx", function() require("crates").expand_plain_crate_to_inline_table() end, desc = "Expand to inline table", ft = "toml" },
             { "<leader>rq", function() require("crates").extract_crate_into_table() end, desc = "Extract to table", ft = "toml" },

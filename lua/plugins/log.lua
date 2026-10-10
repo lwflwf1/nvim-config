@@ -3,7 +3,7 @@ return {
         "kicanter/candela.nvim",
         opts = {},
         keys = {
-            { "<leader>cs", "<Plug>CandelaUi",       desc = "Candela: Toggle UI" },
+            { "<leader>cs", "<Plug>CandelaUi",       desc = "Toggle Candela UI" },
             { "<leader>cr", "<Plug>CandelaRefresh",  desc = "Candela: Refresh" },
             { "<leader>cc", "<Plug>CandelaClear",    desc = "Candela: Clear all" },
             { "<leader>cl", "<Plug>CandelaLightbox", desc = "Candela: Lightbox" },
