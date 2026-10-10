@@ -161,7 +161,21 @@ map("n", "<leader>uC", function()
     Snacks.picker.colorschemes()
 end, d("Colorscheme picker"))
 
-map("n", "<leader>ue", function() require("mini.trailspace").trim() end, d("Trim trailing whitespace"))
+-- <leader>ue: strip CRs first -- mini's \s\+$ does not match \r, so "word \r"
+-- would otherwise keep both the space and the CR. Also used by the lualine
+-- fileformat click (plugins/ui.lua). winsaveview: :s jumps to the last changed
+-- line.
+function M.trim_trailing()
+    if not vim.bo.modifiable then
+        return
+    end
+    local view = vim.fn.winsaveview()
+    vim.cmd([[silent keepjumps keeppatterns %s/\r\+$//e]])
+    vim.fn.winrestview(view)
+    require("mini.trailspace").trim()
+end
+
+map("n", "<leader>ue", M.trim_trailing, d("Trim trailing whitespace and ^M"))
 
 -- Window navigation / resizing (replaces smart-splits.nvim, see util/wins.lua).
 -- Movement works in insert/terminal too; plain arrows move the right/bottom

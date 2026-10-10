@@ -61,6 +61,12 @@ local function diff_click(_, button)
     end
 end
 
+-- 'fileformat' only, no buffer scan. Under fileformats=unix (core/options.lua)
+-- CRLF files read as LF with visible ^M, which <leader>ue / the click strips.
+local function eol_label()
+    return vim.bo.fileformat == "dos" and "CRLF" or "LF"
+end
+
 -- Same shading bufferline applies to its bar: Normal bg tinted -25% (dark
 -- themes) or -12% (bright themes), see bufferline/colors.lua color_is_bright +
 -- shade_color. Kept in sync with the resulting BufferLineFill/BufferLineBuffer.
@@ -313,17 +319,11 @@ return {
                         end,
                     },
                     {
-                        function()
-                            local ff = vim.bo.fileformat
-                            return ff == "dos" and "CRLF" or "LF"
-                        end,
+                        eol_label,
                         padding = { left = 1, right = 1 },
                         color = function() return group_fg("Operator") end,
-                        on_click = function()
-                            vim.bo.fileformat = vim.bo.fileformat == "dos" and "unix" or "dos"
-                            vim.notify("fileformat: " .. vim.bo.fileformat, vim.log.levels.INFO)
-                            require("lualine").refresh()
-                        end,
+                        -- same action as <leader>ue
+                        on_click = function() require("core.keymaps").trim_trailing() end,
                     },
                     {   "filetype",
                         padding = { left = 1, right = 1 },
