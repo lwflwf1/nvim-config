@@ -24,13 +24,18 @@ init.lua                  entry point: platform detect, lazy bootstrap, module r
 ginit.vim                 GUI (Neovide) settings
 lazy-lock.json            plugin lockfile (committed; pins every plugin)
 lua/
-  core/                   options.lua, keymaps.lua, autocmds.lua   (plain vim config)
-  project/                root detection + auto-cwd + root picker (internal module)
-  config/                 lsp.lua, parsers.lua                     (infrastructure)
-  util/                   tools.lua  (:ToolInstall / :ToolUpdate)
-  plugins/                one file per plugin (lazy spec) — THE import dir
+  core/                   options.lua, keymaps.lua, autocmds.lua   (block 1: plain vim config)
+  plugins/                one file per plugin (lazy spec) — THE import dir (block 2)
+  box/                    the personal module (block 3, mini/snacks style). init.lua
+                          has setup() (early: keymaps/autocmds/commands) and
+                          setup_late() (after lazy: theme/lsp/tools). Submodules:
+                          project (root/auto-cwd/pin, <leader>p*), sos (SOS +
+                          generators, <leader>s*), toggle_value (<leader>sw), trim
+                          (<leader>ue), wins, multicursor, smart_gf, lsp, parsers,
+                          theme (+<leader>uC), tools (:ToolInstall), neovide, battery,
+                          fff_picker (snacks patch), notifier_anim (snacks patch),
+                          sticky (WIP), orgmode_profiles
   async.lua               compat shim: async.lua -> promise-async -> async.nvim
-  orgmode-profiles.lua    personal/work org profile switcher
   snippets/               LuaSnip snippets
 after/
   ftplugin/               per-filetype overrides (systemverilog, log, markdown, ralf, tc, bigfile)
@@ -48,13 +53,18 @@ scripts/                  installers + packagers + tools.json
 1. Set `vim.g.os` from `vim.uv.os_uname()`; on Linux compute `vim.g.is_rhel6`
    (kernel `2.6.32` or glibc `< 2.18`) and `vim.g.glibc_version`.
 2. Windows: set clipboard to `win32yank`, set proxy env (`127.0.0.1:7897`), extend PATH.
-3. `require("core.options")`, `core.keymaps`, `core.autocmds`, `project.setup()`.
-4. Bootstrap `lazy.nvim` (clones if missing) and `require("lazy").setup({ spec = { { import = "plugins" } } })`.
-5. `require("config.lsp").setup()` and `require("util.tools")`.
+3. Neovim core: `require("core.options")`, `core.keymaps`, `core.autocmds`.
+4. `require("box").setup()` — personal module, early phase (keymaps/autocmds/commands).
+5. Bootstrap `lazy.nvim` (clones if missing) and `require("lazy").setup({ spec = { { import = "plugins" } } })`.
+6. `require("box").setup_late()` — theme/LSP/tools, once plugins are on the rtp.
+
+**Architecture (3 blocks):** (1) `core/` = plain vim config; (2) `plugins/` = lazy specs;
+(3) `box/` = everything custom (features, plugin patches, misc). Specs may
+`require("box.*")` (patch nature); `core/` must stay dependency-free.
 
 **Important:** `lazy.setup` uses `spec = { import = "plugins" }` — every Lua file
 under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
-(e.g. `async.lua`, `orgmode-profiles.lua`) are NOT plugin specs.
+(e.g. `async.lua`) are NOT plugin specs.
 
 ## Conventions
 
@@ -66,7 +76,7 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   `pcall(require, ...)`.
 - Keep comments concise and explain *why* (non-obvious decisions), not *what*.
 - LuaLS is configured with `diagnostics.globals = { "vim", "Snacks" }`
-  (`config/lsp.lua`); keep `lua_ls` clean (`lua-language-server --check`, see below).
+  (`box/lsp.lua`); keep `lua_ls` clean (`lua-language-server --check`, see below).
 
 ## Non-obvious design decisions (do not "fix" without reading the comment)
 
@@ -85,18 +95,18 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   `GLIBC_2.39`/`GLIBC_ABI_DT_RELR` not found). Caveat: the musl build sits below
   musl's 2.6.39 / Rust std's 3.2 official baselines — after bumping yazi,
   re-scan for post-2.6.32 syscalls (`mov eax,imm; syscall` pattern) before trusting it.
-- **Auto cwd:** the only auto-cwd is the global `chdir` in `lua/project/init.lua`
+- **Auto cwd:** the only auto-cwd is the global `chdir` in `lua/box/project.lua`
   (the old window-local `lcd` in the former config/project.lua was removed, so all
   windows share one cwd that follows the current buffer's project). `<leader>pa`
   toggles it (`project.auto_enabled()`); `<leader>pp` prompts for a manual root
   (input + fd-backed picker, `--max-depth 3 --follow`, over that directory's
   subdirs; also the lualine cwd left-click), pins that root, chdir's
   there, and turns auto off.
-  `snacks.lua` uses `project.get_root(0)` (pin when set, else the detected root) as the fff root / project gate.
-- **FFF engine** (`plugins/fff.lua` + `plugins/snacks.lua`): `ff/fz/fw/fn/fo` are
+  `box/fff_picker.lua` uses `project.get_root(0)` (pin when set, else the detected root) as the fff root / project gate.
+- **FFF engine** (`plugins/fff.lua` + `box/fff_picker.lua`): `ff/fz/fw/fn/fo` are
   snacks.picker sources backed by fff's Rust index (programmatic API), **but only
   inside a project** (`project.get_root(0) ~= nil`); outside one they fall back to
-  snacks' native `files`/`grep` (the `pick_*` dispatchers in `snacks.lua`; `fw`'s
+  snacks' native `files`/`grep` (the `pick_*` dispatchers in `box/fff_picker.lua`; `fw`'s
   native fallback is `grep` seeded with the word — regex+live, to match the fff
   path — so it differs from `pw`'s `grep_word`). `vim.g.fff_mode = "off"` disables
   fff everywhere. There is deliberately no "always fff" mode — with no project it
@@ -106,7 +116,7 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   from under the finder. `fff.nvim` is a **single-global-root** index (no multi-root
   support) — `change_indexing_directory` re-roots by replacing + rescanning. RHEL6
   project trees live behind symlinks → `follow_symlinks = true`.
-- **fff is never used on RHEL6** (`init.lua` + `plugins/fff.lua` + `plugins/snacks.lua`):
+- **fff is never used on RHEL6** (`init.lua` + `plugins/fff.lua` + `box/fff_picker.lua`):
   fff's search API is a *synchronous* FFI call (`live_grep`/`file_search` are mlua C
   functions bound to the Lua state), so it **cannot be made async** — it must run on
   the main loop (no `uv.new_thread`/`queue_work`, no callback API). On the big NFS
@@ -115,7 +125,7 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   `grep.time_budget_ms`, default 150ms and counted *after the first match*, stops the
   scan wherever it runs out — and raising it to 400 only papered over it). So:
   - `init.lua` sets `vim.g.fff_mode = vim.g.is_rhel6 and "off" or "on"`; the single
-    dispatch gate `fff_root_enabled()` (`plugins/snacks.lua`) then makes `ff/fz/fw/fn/fo`
+    dispatch gate `fff_root_enabled()` (`box/fff_picker.lua`) then makes `ff/fz/fw/fn/fo`
     fall back to snacks' native `files`/`grep` (rg as a **subprocess** → non-blocking
     and complete).
   - `plugins/fff.lua` also has `enabled = not vim.g.is_rhel6`, because
@@ -174,8 +184,8 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   from `picker.opts.actions` — **not** `Snacks.picker.actions[name]` — so headless
   probes must invoke it via
   `require("snacks.picker.core.actions").resolve(name, picker, name).action(picker)`.
-- **Notifier enter/exit animation** (`plugins/snacks.lua`, hooked via
-  `styles.notification.on_win` = `notifier_animate_in`): the width unfolds from 2
+- **Notifier enter/exit animation** (`box/notifier_anim.lua`, hooked from
+  `plugins/snacks.lua` via `styles.notification.on_win` = `notifier_animate_in`): the width unfolds from 2
   cells to full with a fixed right edge (nvim clamps floats on-screen, so an
   off-screen slide is impossible); the exit shrinks to 2 then really closes (an
   instance-level `close` override animates before the close lands). Driven by
@@ -185,7 +195,7 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   target is re-read live via `win:win_opts()` and the animation restarts (same id)
   through the `update` wrapper, because the notifier re-lays-out asynchronously
   (VimResized / same-id replace) and a captured target would be written back stale.
-- **Fade needs BOTH winhl and a highlight namespace** (`plugins/snacks.lua`): winhl
+- **Fade needs BOTH winhl and a highlight namespace** (`box/notifier_anim.lua`): winhl
   remaps to per-window private groups for the window groups (body, border glyphs,
   title/footer and `NormalFloat` — the float background/border ring follows ONLY
   winhl, verified with screen-attr probes), plus a window-local namespace for the
@@ -195,14 +205,14 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   that ever held different group definitions (stale definitions take precedence over
   winhl and silently break colors).
 - **nvim winhl/ns quirks (verified with screen-attr probes — do not "simplify")**
-  (`plugins/snacks.lua`): (a) a winhl applied while the window is still hidden is
+  (`box/notifier_anim.lua`): (a) a winhl applied while the window is still hidden is
   never picked up — `on_win` re-asserts it once visible; this is why the notifier's
   own winhl (incl. the config's `SnacksNotifier<Level> → NormalFloat` link) had
   silently never been effective; (b) `nvim_win_set_hl_ns` resets the winhl
   effectiveness — hence ns-attach BEFORE setting winhl (fade setup) and ns-detach
   BEFORE restoring winhl (fade clear); (c) `nvim_win_set_config` does not reset it,
   and re-setting an identical winhl does take effect.
-- **Windows timer resolution caps the animation** (`plugins/snacks.lua`): the
+- **Windows timer resolution caps the animation** (`box/notifier_anim.lua`): the
   default ~15.6ms quantizes uv timers (an 8ms interval fires at ~15.6ms; 16ms rounds
   up to 31ms) → ~64fps. `timeBeginPeriod(1)` (winmm via LuaJIT ffi, Windows-gated,
   auto-released on exit) unlocks ~8.5ms ticks so `notif_anim_opts` can run at
@@ -225,12 +235,12 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
 
 ## Treesitter parsers & the systemverilog fork
 
-- Parser list: `lua/config/parsers.lua` (27 langs).
+- Parser list: `lua/box/parsers.lua` (27 langs).
 - `systemverilog` is overridden to the personal fork
   `https://github.com/lwflwf1/tree-sitter-systemverilog` (dynamic `master` tracking)
   in `plugins/treesitter.lua`.
 - Custom SV queries live in `queries/systemverilog/` + `after/queries/systemverilog/`.
-- `:ToolInstall` installs missing mason tools from `config.lsp` + `plugins/formatter`
+- `:ToolInstall` installs missing mason tools from `box.lsp` + `plugins/formatter`
   and missing parsers; `:ToolUpdate` refreshes mason registry + parsers.
 - **Queries must live under an rtp `queries/<lang>/` dir.** `nvim-treesitter` (main
   branch) keeps its queries in `<plugin>/runtime/queries`, which is **not** on rtp;
@@ -245,7 +255,7 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   not under `after/queries`. Fix locally (offline, no recompile) by copying
   `lazy/nvim-treesitter/runtime/queries/<lang>` → `data/site/queries/<lang>`
   (fixes highlights **and** `indents`/`folds`/`locals`); or run
-  `:TSUpdate` / `require("nvim-treesitter").install(require("config.parsers"), { force = true })`.
+  `:TSUpdate` / `require("nvim-treesitter").install(require("box.parsers"), { force = true })`.
   Seen on Windows for python/go/rust and 13 others; RHEL6 is unaffected (its
   `site/` is built fresh by the offline installer).
 
@@ -258,7 +268,7 @@ nvim --headless -c "luafile <file>" -c "qa!"     # exit 0 = ok
 # Headless startup sanity (plugins load)
 nvim --headless -u "$env:LOCALAPPDATA\nvim\init.lua" -c "lua vim.defer_fn(function() print('ok', require('lazy').stats().loaded); vim.cmd('qa!') end, 4000)"
 
-# LuaLS static check (config aligned with config/lsp.lua globals)
+# LuaLS static check (config aligned with box/lsp.lua globals)
 lua-language-server --check="$env:LOCALAPPDATA\nvim" --configpath=<luarc> --check_format=json --check_out_path=<out>
 ```
 
@@ -340,8 +350,8 @@ box); `install-offline.sh` sources it.
 ### A. Making a config change (local)
 
 1. Identify the file. Plugin behavior → `lua/plugins/<name>.lua`; core vim behavior
-   → `lua/core/*.lua`; project root/auto-cwd → `lua/project/init.lua`; LSP → `lua/config/lsp.lua`;
-   shared helpers → `lua/config/` or `lua/util/`.
+   → `lua/core/*.lua`; custom features/patches → `lua/box/*.lua`; LSP → `lua/box/lsp.lua`;
+   shared helpers → `lua/box/`.
 2. Edit.
 3. **Syntax check:** run `luafile <file>` with the Windows nvim (exit 0 = ok). See
    "Verification commands".
@@ -508,13 +518,13 @@ cargo-zigbuild produce an ELF with max `GLIBC_ 2.17` and no bad undefined refs.
 - **`vim.g.fff` is fff's setup OUTPUT, not config** — configure fff via
   `opts = { ... }` in `plugins/fff.lua` (`require("fff").setup(opts)`).
 - **Adding a new global** used in Lua (e.g. `Snacks`) → add it to
-  `Lua.diagnostics.globals` in `config/lsp.lua`; otherwise LuaLS reports
+  `Lua.diagnostics.globals` in `box/lsp.lua`; otherwise LuaLS reports
   `Undefined global`.
 - **Blink/lualine/etc. `version` pins**: blink is pinned `1.*` (v2.0 is on `main`,
   unreleased) — don't bump casually.
 - **Never branch on nvim version for RHEL6** — same 0.13-dev. Only branch on
   `vim.g.is_rhel6` for genuine glibc/tool availability.
-- **`lua/util/sticky.lua` is broken and unreferenced** (pre-existing syntax errors;
+- **`lua/box/sticky.lua` is broken and unreferenced** (pre-existing syntax errors;
   LuaLS reports them on every check). Nothing requires it — fix or delete it rather
   than treating those diagnostics as new.
 
