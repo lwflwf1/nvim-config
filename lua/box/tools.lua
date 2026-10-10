@@ -1,11 +1,11 @@
 local M = {}
 
---- Collect mason package names for every LSP server declared in config.lsp
+--- Collect mason package names for every LSP server declared in box.lsp
 --- and present in M.tool_mapping (servers without a mapping, e.g. the
 --- manually-installed `perl-lsp`, are skipped as they are not mason packages).
 local function collect_lsp_packages()
     local packages = {}
-    local ok, lsp = pcall(require, "config.lsp")
+    local ok, lsp = pcall(require, "box.lsp")
     if not ok then
         return packages
     end
@@ -140,8 +140,8 @@ function M.install()
         vim.notify("ToolInstall: skipped unknowns", vim.log.levels.WARN)
     end
 
-    -- 2) Treesitter parsers declared in config.parsers
-    local ok_parsers, parsers = pcall(require, "config.parsers")
+    -- 2) Treesitter parsers declared in box.parsers
+    local ok_parsers, parsers = pcall(require, "box.parsers")
     if ok_parsers then
         local need = {}
         for _, lang in ipairs(parsers) do

@@ -1,2 +1,2 @@
-" Neovide GUI settings live in lua/config/neovide.lua
-lua require("config.neovide")
+" Neovide GUI settings live in lua/box/neovide.lua
+lua require("box.neovide")

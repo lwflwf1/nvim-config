@@ -44,7 +44,7 @@ return {
                 end,
             })
 
-            require("nvim-treesitter").install(require("config.parsers"))
+            require("nvim-treesitter").install(require("box.parsers"))
 
             vim.api.nvim_create_autocmd("FileType", {
                 callback = function(args)

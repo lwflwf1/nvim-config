@@ -26,7 +26,7 @@ local function group_fg(name)
     return fg and { fg = ("#%06x"):format(fg) } or {}
 end
 
-local battery = require("util.battery")
+local battery = require("box.battery")
 
 local function mode_component()
     return mode_icons[vim.fn.mode()] or vim.fn.mode()
@@ -38,11 +38,11 @@ end
 
 -- Auto-cwd indicator: yellow while auto, Comment tint when pinned manually.
 local function cwd_color()
-    return group_fg(require("project").auto_enabled() and "DiagnosticWarn" or "Comment")
+    return group_fg(require("box.project").auto_enabled() and "DiagnosticWarn" or "Comment")
 end
 
 local function toggle_auto_cwd()
-    require("project").toggle_auto()
+    require("box.project").toggle_auto()
     require("lualine").refresh()
 end
 
@@ -65,56 +65,6 @@ end
 -- CRLF files read as LF with visible ^M, which <leader>ue / the click strips.
 local function eol_label()
     return vim.bo.fileformat == "dos" and "CRLF" or "LF"
-end
-
--- Same shading bufferline applies to its bar: Normal bg tinted -25% (dark
--- themes) or -12% (bright themes), see bufferline/colors.lua color_is_bright +
--- shade_color. Kept in sync with the resulting BufferLineFill/BufferLineBuffer.
-local function shaded_normal_bg()
-    local normal_bg = vim.api.nvim_get_hl(0, { name = "Normal" }).bg
-    if not normal_bg then
-        return nil
-    end
-    local r = math.floor(normal_bg / 0x10000) % 0x100
-    local g = math.floor(normal_bg / 0x100) % 0x100
-    local b = normal_bg % 0x100
-    local bright = (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5
-    local pct = bright and 88 or 75
-    return ("#%02x%02x%02x"):format(
-        math.floor(r * pct / 100),
-        math.floor(g * pct / 100),
-        math.floor(b * pct / 100)
-    )
-end
-
--- lualine theme: the preset's per-mode colors with every section background
--- darkened to match the bufferline bar (see shaded_normal_bg). Each mode's
--- a-section color moves from bg to fg, so the mode icon keeps its preset color
--- on the unified background.
-local function theme_unified()
-    local ok, theme = pcall(require("lualine.utils.loader").load_theme, "auto")
-    if not ok or type(theme) ~= "table" then
-        return "auto"
-    end
-    local normal = vim.api.nvim_get_hl(0, { name = "Normal" })
-    if not normal.bg then
-        return theme
-    end
-    local bg = shaded_normal_bg()
-    local fg = normal.fg and ("#%06x"):format(normal.fg) or nil
-    for mode, sections in pairs(theme) do
-        if mode ~= "inactive" and type(sections) == "table" then
-            if type(sections.a) == "table" then
-                sections.a.fg = sections.a.bg or fg
-            end
-            for _, section in pairs(sections) do
-                if type(section) == "table" then
-                    section.bg = bg
-                end
-            end
-        end
-    end
-    return theme
 end
 
 return {
@@ -243,7 +193,7 @@ return {
         dependencies = { "nvim-tree/nvim-web-devicons" },
         opts = {
             options = {
-                theme = theme_unified,
+                theme = require("box.theme").theme_unified,
                 component_separators = { left = "", right = "" },
                 section_separators = { left = "", right = "" },
                 disabled_filetypes = {
@@ -276,7 +226,7 @@ return {
                                 toggle_auto_cwd()
                             elseif button == "l" then
                                 -- same as <leader>pp
-                                require("project").pick()
+                                require("box.project").pick()
                             end
                         end,
                     },
@@ -323,7 +273,7 @@ return {
                         padding = { left = 1, right = 1 },
                         color = function() return group_fg("Operator") end,
                         -- same action as <leader>ue
-                        on_click = function() require("core.keymaps").trim_trailing() end,
+                        on_click = function() require("box.trim").trim_trailing() end,
                     },
                     {   "filetype",
                         padding = { left = 1, right = 1 },
@@ -335,7 +285,7 @@ return {
                                     end
                                 end)
                             else
-                                require("config.lsp").pick_config({ attached = 0 })
+                                require("box.lsp").pick_config({ attached = 0 })
                             end
                         end
                     },

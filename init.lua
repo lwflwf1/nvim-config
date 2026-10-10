@@ -77,7 +77,9 @@ end
 require("core.options")
 require("core.keymaps")
 require("core.autocmds")
-require("project").setup()
+
+-- Personal module (box), early phase: keymaps / autocmds / commands.
+require("box").setup()
 
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 if not vim.uv.fs_stat(lazypath .. "/lua/lazy/init.lua") then
@@ -119,8 +121,5 @@ require("lazy").setup({
     },
 })
 
-require("config.theme").setup()
-
-require("config.lsp").setup()
-
-require("util.tools")
+-- Personal module (box), late phase: needs plugin rtp / post-lazy state.
+require("box").setup_late()

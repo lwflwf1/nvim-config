@@ -1,16 +1,13 @@
 -- Neovim 0.13 multicursor keeps per-cursor registers, but yanky's put reads
 -- the global ring and would paste the same text at every cursor. While
 -- multicursors exist in the buffer, fall back to the built-in put.
-local mc_ns = vim.api.nvim_create_namespace("nvim.multicursor")
-local function mc_active()
-    return #vim.api.nvim_buf_get_extmarks(0, mc_ns, 0, -1, { limit = 1 }) > 0
-end
+local multicursor = require("box.multicursor")
 
 --- @param native string built-in key ("p"/"P")
 --- @param plug string yanky plug mapping to run otherwise
 local function put_key(native, plug)
     return function()
-        if mc_active() then
+        if multicursor.is_active() then
             vim.api.nvim_feedkeys(native, "n", false)
         else
             vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(plug, true, false, true), "m", false)

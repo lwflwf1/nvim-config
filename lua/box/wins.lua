@@ -71,4 +71,24 @@ function M.resize(dir, leading)
     vim.cmd(size_cmd .. (bigger and "+" or "-") .. amount)
 end
 
+function M.setup()
+    local map = function(modes, lhs, rhs, desc)
+        vim.keymap.set(modes, lhs, rhs, { noremap = true, silent = true, desc = desc })
+    end
+    -- Movement works in insert/terminal too; plain arrows move the right/bottom
+    -- boundary, Shift+arrows the left/top one.
+    map({ "n", "i", "t" }, "<M-h>", function() M.move("left") end, "Move to split left")
+    map({ "n", "i", "t" }, "<M-j>", function() M.move("down") end, "Move to split down")
+    map({ "n", "i", "t" }, "<M-k>", function() M.move("up") end, "Move to split up")
+    map({ "n", "i", "t" }, "<M-l>", function() M.move("right") end, "Move to split right")
+    map("n", "<Left>", function() M.resize("left") end, "Resize right boundary left")
+    map("n", "<Right>", function() M.resize("right") end, "Resize right boundary right")
+    map("n", "<Up>", function() M.resize("up") end, "Resize bottom boundary up")
+    map("n", "<Down>", function() M.resize("down") end, "Resize bottom boundary down")
+    map("n", "<S-Left>", function() M.resize("left", true) end, "Resize left boundary left")
+    map("n", "<S-Right>", function() M.resize("right", true) end, "Resize left boundary right")
+    map("n", "<S-Up>", function() M.resize("up", true) end, "Resize top boundary up")
+    map("n", "<S-Down>", function() M.resize("down", true) end, "Resize top boundary down")
+end
+
 return M

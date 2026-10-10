@@ -23,7 +23,7 @@ return {
                             return { buffer = bufnr, silent = true, noremap = true, desc = desc }
                         end
 
-                        require("config.lsp").on_attach(client, bufnr)
+                        require("box.lsp").on_attach(client, bufnr)
 
                         vim.keymap.set("n", "K", function()
                             local winid = require("ufo").peekFoldedLinesUnderCursor()
