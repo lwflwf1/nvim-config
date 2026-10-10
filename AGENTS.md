@@ -25,7 +25,8 @@ ginit.vim                 GUI (Neovide) settings
 lazy-lock.json            plugin lockfile (committed; pins every plugin)
 lua/
   core/                   options.lua, keymaps.lua, autocmds.lua   (plain vim config)
-  config/                 lsp.lua, project.lua, parsers.lua       (infrastructure)
+  project/                root detection + auto-cwd + root picker (internal module)
+  config/                 lsp.lua, parsers.lua                     (infrastructure)
   util/                   tools.lua  (:ToolInstall / :ToolUpdate)
   plugins/                one file per plugin (lazy spec) — THE import dir
   async.lua               compat shim: async.lua -> promise-async -> async.nvim
@@ -47,7 +48,7 @@ scripts/                  installers + packagers + tools.json
 1. Set `vim.g.os` from `vim.uv.os_uname()`; on Linux compute `vim.g.is_rhel6`
    (kernel `2.6.32` or glibc `< 2.18`) and `vim.g.glibc_version`.
 2. Windows: set clipboard to `win32yank`, set proxy env (`127.0.0.1:7897`), extend PATH.
-3. `require("core.options")`, `core.keymaps`, `core.autocmds`, `config.project`.
+3. `require("core.options")`, `core.keymaps`, `core.autocmds`, `project.setup()`.
 4. Bootstrap `lazy.nvim` (clones if missing) and `require("lazy").setup({ spec = { { import = "plugins" } } })`.
 5. `require("config.lsp").setup()` and `require("util.tools")`.
 
@@ -74,21 +75,23 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   lib needs glibc ≥ 2.18). **RHEL6 nvim is kept on the same version as Windows
   (both 0.13-dev)** — do NOT add version-branch shims for "older nvim"; only branch
   on `is_rhel6` for real glibc/tooling matters.
-- **Auto cwd:** the only auto-cwd is the global `chdir` in `core/autocmds.lua`
-  (the old window-local `lcd` in `config/project.lua` was removed, so all windows
-  share one cwd that follows the current buffer's project). `<leader>ua` toggles
-  it (`vim.g.auto_cwd`); `<leader>uA` prompts for a manual root
-  (`vim.g.project_cwd`), chdir's there, and turns auto off. `snacks.lua` treats
-  `vim.g.project_cwd` as the fff root / project-gate override.
+- **Auto cwd:** the only auto-cwd is the global `chdir` in `lua/project/init.lua`
+  (the old window-local `lcd` in the former config/project.lua was removed, so all
+  windows share one cwd that follows the current buffer's project). `<leader>pa`
+  toggles it (`project.auto_enabled()`); `<leader>pp` prompts for a manual root
+  (input + fd-backed picker, `--max-depth 3 --follow`, over that directory's
+  subdirs; also the lualine cwd left-click), pins that root, chdir's
+  there, and turns auto off.
+  `snacks.lua` uses `project.get_root(0)` (pin when set, else the detected root) as the fff root / project gate.
 - **FFF engine** (`plugins/fff.lua` + `plugins/snacks.lua`): `ff/fz/fw/fn/fo` are
   snacks.picker sources backed by fff's Rust index (programmatic API), **but only
-  inside a project** (`project_root(0) ~= nil`); outside one they fall back to
+  inside a project** (`project.get_root(0) ~= nil`); outside one they fall back to
   snacks' native `files`/`grep` (the `pick_*` dispatchers in `snacks.lua`; `fw`'s
   native fallback is `grep` seeded with the word — regex+live, to match the fff
-  path — so it differs from `fW`'s `grep_word`). `vim.g.fff_mode = "off"` disables
+  path — so it differs from `pw`'s `grep_word`). `vim.g.fff_mode = "off"` disables
   fff everywhere. There is deliberately no "always fff" mode — with no project it
-  would index a possibly-giant cwd (e.g. `$HOME`, `C:\`). `fG/fW/fP` are always
-  native. The root is captured per pick into `opts.fff_root` (survives finder
+  would index a possibly-giant cwd (e.g. `$HOME`, `C:\`). `pf/pg/pW` (the picked-root
+  pickers) are always native. The root is captured per pick into `opts.fff_root` (survives finder
   retries and `:resume`) so a mid-pick project switch can't re-root the index out
   from under the finder. `fff.nvim` is a **single-global-root** index (no multi-root
   support) — `change_indexing_directory` re-roots by replacing + rescanning. RHEL6
@@ -279,7 +282,8 @@ box); `install-offline.sh` sources it.
 ### A. Making a config change (local)
 
 1. Identify the file. Plugin behavior → `lua/plugins/<name>.lua`; core vim behavior
-   → `lua/core/*.lua`; LSP → `lua/config/lsp.lua`; shared helpers → `lua/config/` or `lua/util/`.
+   → `lua/core/*.lua`; project root/auto-cwd → `lua/project/init.lua`; LSP → `lua/config/lsp.lua`;
+   shared helpers → `lua/config/` or `lua/util/`.
 2. Edit.
 3. **Syntax check:** run `luafile <file>` with the Windows nvim (exit 0 = ok). See
    "Verification commands".

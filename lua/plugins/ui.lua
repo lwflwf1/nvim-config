@@ -38,11 +38,11 @@ end
 
 -- Auto-cwd indicator: yellow while auto, Comment tint when pinned manually.
 local function cwd_color()
-    return group_fg(vim.g.auto_cwd == false and "Comment" or "DiagnosticWarn")
+    return group_fg(require("project").auto_enabled() and "DiagnosticWarn" or "Comment")
 end
 
 local function toggle_auto_cwd()
-    require("core.keymaps").toggle_auto_cwd()
+    require("project").toggle_auto()
     require("lualine").refresh()
 end
 
@@ -232,7 +232,9 @@ return {
                         on_click = function (_, button)
                             if button == "r" then
                                 toggle_auto_cwd()
-                            else
+                            elseif button == "l" then
+                                -- same as <leader>pp
+                                require("project").pick()
                             end
                         end,
                     },

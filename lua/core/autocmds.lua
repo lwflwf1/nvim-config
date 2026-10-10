@@ -75,33 +75,6 @@ autocmd("FileType", {
     end,
 })
 
-local project = require("config.project")
-
--- Single auto-cwd implementation (global chdir). Disabled by vim.g.auto_cwd ==
--- false, and by a manual root set via <leader>uA (see core/keymaps.lua).
-local auto_cwd_aug = augroup("auto_cwd", { clear = true })
-local cwd_cache = {}
-autocmd("BufEnter", {
-    group = auto_cwd_aug,
-    callback = function()
-        if vim.g.auto_cwd == false then
-            return
-        end
-        local path = vim.api.nvim_buf_get_name(0)
-        if path == "" or vim.bo.buftype ~= "" then
-            return
-        end
-        local dir = vim.fs.dirname(path)
-        if cwd_cache[dir] == nil then
-            cwd_cache[dir] = project.project_root(0) or dir
-        end
-        local target = cwd_cache[dir]
-        if vim.fn.getcwd() ~= target then
-            vim.fn.chdir(target)
-        end
-    end,
-})
-
 -- SOS source control commands.
 -- Run the SOS CLI (/tools/SOS/gold/bin/soscmd) asynchronously and report
 -- success/failure through the notifier.

@@ -77,7 +77,7 @@ end
 require("core.options")
 require("core.keymaps")
 require("core.autocmds")
-require("config.project")
+require("project").setup()
 
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 if not vim.uv.fs_stat(lazypath .. "/lua/lazy/init.lua") then

@@ -154,35 +154,6 @@ end
 
 map("n", "<leader>sw", toggle_value, vim.tbl_extend("force", opts, { desc = "Toggle value" }))
 
--- Auto project cwd: <leader>ua toggles it, <leader>uA sets a manual root (which
--- turns auto off). core/autocmds.lua's BufEnter honours both. The toggle is
--- shared with the lualine cwd click (plugins/ui.lua).
-function M.toggle_auto_cwd()
-    -- nil/true = currently on; only `false` means off (see core/autocmds.lua)
-    local on = vim.g.auto_cwd == false
-    if on then
-        vim.g.project_cwd = nil
-    end
-    vim.g.auto_cwd = on
-    vim.notify("Auto cwd: " .. (on and "ON" or "OFF"), vim.log.levels.INFO)
-end
-
-map("n", "<leader>ua", M.toggle_auto_cwd, d("Toggle auto project cwd"))
-
-map("n", "<leader>uA", function()
-    local v = vim.fn.input("Project cwd: ", vim.fn.getcwd(), "dir")
-    if v == "" then return end
-    local p = vim.fn.fnamemodify(vim.fn.expand(v), ":p"):gsub("[/\\]+$", "")
-    if vim.fn.isdirectory(p) == 0 then
-        vim.notify("Not a directory: " .. v, vim.log.levels.WARN)
-        return
-    end
-    vim.fn.chdir(p)
-    vim.g.project_cwd = p
-    vim.g.auto_cwd = false
-    vim.notify("Project cwd: " .. p .. " (auto off)", vim.log.levels.INFO)
-end, d("Set project cwd (disables auto)"))
-
 -- Colorscheme picker with live preview. Final choice is persisted by
 -- config/theme.lua's VimLeavePre hook, so the picked theme becomes the
 -- default on next start.
