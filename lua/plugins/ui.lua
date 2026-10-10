@@ -41,11 +41,6 @@ local function cwd_color()
     return group_fg(require("box.project").auto_enabled() and "DiagnosticWarn" or "Comment")
 end
 
-local function toggle_auto_cwd()
-    require("box.project").toggle_auto()
-    require("lualine").refresh()
-end
-
 local function branch_click()
     vim.cmd("Neogit")
 end
@@ -125,6 +120,24 @@ return {
         lazy = false,
         priority = 1000,
         opts = {},
+    },
+    {
+        "AlexvZyl/nordic.nvim",
+        name = "nordic",
+        -- not lazy: the colorscheme picker (<leader>uC) needs it on the rtp
+        lazy = false,
+        priority = 1000,
+        opts = {},
+    },
+    {
+        "rmehri01/onenord.nvim",
+        name = "onenord",
+        -- not lazy: the colorscheme picker (<leader>uC) needs it on the rtp
+        -- (two schemes: `onenord` dark / `onenord-light`)
+        -- no opts: setup() force-applies the theme, which would hijack startup;
+        -- `colorscheme onenord` loads the colors file directly
+        lazy = false,
+        priority = 1000,
     },
     {
         "akinsho/bufferline.nvim",
@@ -243,12 +256,12 @@ return {
                         function()
                             return vim.fn.fnamemodify(vim.fn.getcwd(), ":~")
                         end,
-                        icon = "󰋜",
+                        icon = "",
                         color = cwd_color,
                         padding = { left = 1, right = 1 },
                         on_click = function (_, button)
                             if button == "r" then
-                                toggle_auto_cwd()
+                                require("box.project").toggle_cwd()
                             elseif button == "l" then
                                 -- same as <leader>pp
                                 require("box.project").pick()
@@ -286,7 +299,7 @@ return {
                         end,
                         icon = "󰑋",
                         padding = { left = 1, right = 0 },
-                        color = function() return group_fg("Identifier") end,
+                        color = function() return group_fg("DiagnosticError") end,
                         on_click = function()
                             if vim.fn.reg_recording() ~= "" then
                                 vim.api.nvim_feedkeys("q", "n", false)
@@ -295,7 +308,7 @@ return {
                     },
                     {
                         eol_label,
-                        padding = { left = 1, right = 1 },
+                        padding = { left = 1, right = 0 },
                         color = function() return group_fg("Operator") end,
                         -- same action as <leader>ue
                         on_click = function() require("box.trim").trim_trailing() end,

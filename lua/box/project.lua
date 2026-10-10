@@ -80,14 +80,35 @@ function M.get_root(source)
     return pinned_root or find_root(source)
 end
 
--- Auto project cwd: <leader>pa toggles it (default on; see the BufEnter in
--- setup). Shared with the lualine cwd click (ui.lua).
+-- Pure state flip (no feedback). M.toggle_cwd below is the user-facing entry
+-- for both <leader>pa and the lualine cwd click (ui.lua).
 function M.toggle_auto()
     auto_enabled = not auto_enabled
     if auto_enabled then
         pinned_root = nil
     end
-    vim.notify("Auto cwd: " .. (auto_enabled and "ON" or "OFF"), vim.log.levels.INFO)
+end
+
+-- One Snacks.toggle behind <leader>pa and the lualine cwd click, so both paths
+-- share the status / which-key entry / "Enabled/Disabled Auto cwd" notification.
+-- Created on first use: box.setup() runs before lazy.setup() (no Snacks yet),
+-- and the toggle's own :map then replaces the plain keymap set in setup().
+local auto_toggle
+function M.toggle_cwd()
+    if not auto_toggle then
+        auto_toggle = Snacks.toggle.new({
+            id = "auto_cwd",
+            name = "Auto cwd",
+            get = M.auto_enabled,
+            set = function(state)
+                if state ~= auto_enabled then
+                    M.toggle_auto()
+                end
+                pcall(function() require("lualine").refresh() end)
+            end,
+        }):map("<leader>pa")
+    end
+    auto_toggle:toggle()
 end
 
 -- fd args for the root picker: bound the walk (NFS!), follow symlinks (the
@@ -187,7 +208,7 @@ end
 
 function M.setup()
     -- Single auto-cwd implementation (global chdir). Disabled by <leader>pa
-    -- (M.toggle_auto) and by a manual root set via <leader>pp (M.pick).
+    -- (M.toggle_cwd) and by a manual root set via <leader>pp (M.pick).
     local auto_cwd_aug = vim.api.nvim_create_augroup("auto_cwd", { clear = true })
     local cwd_cache = {}
     vim.api.nvim_create_autocmd("BufEnter", {
@@ -214,7 +235,7 @@ function M.setup()
     local map = function(lhs, rhs, desc)
         vim.keymap.set("n", lhs, rhs, { noremap = true, silent = true, desc = desc })
     end
-    map("<leader>pa", M.toggle_auto, "Toggle auto project cwd")
+    map("<leader>pa", M.toggle_cwd, "Toggle auto project cwd")
     map("<leader>pp", M.pick, "Set project cwd (disables auto)")
     map("<leader>pf", function()
         pick_root(function(root)
