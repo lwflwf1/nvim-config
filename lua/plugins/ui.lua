@@ -2,11 +2,11 @@
 -- color comes from the lualine theme preset (see the theme function below,
 -- which moves each mode's a-section color from bg to fg).
 local mode_icons = {
-    n = "",
-    i = "󰞇",
-    v = "",
-    V = "",
-    ["\22"] = "",
+    n = "󱍀",
+    i = "",
+    v = "󰒅",
+    V = "󰜩",
+    ["\22"] = "󰕰",
     R = "󰈸",
     c = "",
     t = "",
