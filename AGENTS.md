@@ -36,6 +36,8 @@ lua/
                           terminals (<leader>fe / :Terminals picker over snacks terminals),
                           theme (+<leader>uC), tools (:ToolInstall), neovide, battery,
                           fff_picker (snacks patch), notifier_anim (snacks patch),
+                          tabout (TabOut-rules engine for the smart multistep
+                          Tab/S-Tab; chains declared in plugins/editing.lua),
                           sticky (WIP), orgmode_profiles
   async.lua               compat shim: async.lua -> promise-async -> async.nvim
   snippets/               LuaSnip snippets

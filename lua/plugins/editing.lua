@@ -70,9 +70,94 @@ return {
             local keymap = require("mini.keymap")
             keymap.map_combo("i", "jj", "<BS><BS><Esc>", { delay = 500 })
             keymap.map_combo("t", "jj", "<BS><BS><C-\\><C-n>", { delay = 500 })
-            keymap.map_combo({ "n", "x" }, "<Esc><Esc>", function()
-                if vim.v.hlsearch == 1 then vim.cmd("nohlsearch") end
-            end)
+
+            -- Smart multistep keys: the rule engine lives in box/tabout.lua
+            -- (imports nothing), the chains are declared HERE against mini.
+            -- Priority: minuet ghost text > blink menu > tab-out > raw keys.
+            local tabout = require("box.tabout")
+            -- minuet steps shared by the <Tab> and <Esc> chains
+            local function minuet_visible()
+                local ok, vt = pcall(require, "minuet.virtualtext")
+                return ok and vt.action.is_visible()
+            end
+            local function minuet_accept()
+                pcall(function() require("minuet.virtualtext").action.accept() end)
+            end
+            local function minuet_dismiss()
+                pcall(function() require("minuet.virtualtext").action.dismiss() end)
+            end
+            local function blink_menu_visible()
+                local ok, blink = pcall(require, "blink.cmp")
+                return ok and blink.is_menu_visible()
+            end
+            local mc = require("box.multicursor")
+            -- minuet ghost text lives in Insert mode only (cleared on
+            -- InsertLeave), so the normal-mode AI preview to dismiss is the
+            -- DUET one; virtualtext steps stay in the <Tab> chain
+            local function duet_visible()
+                local ok, duet = pcall(require, "minuet.duet")
+                return ok and duet.action.is_visible()
+            end
+
+            keymap.map_multistep("i", "<Tab>", {
+                -- accept minuet ghost text first (AI suggestion beats motion)
+                { condition = minuet_visible, action = minuet_accept },
+                "blink_next",
+                { condition = tabout.condition, action = tabout.action },
+            })
+            keymap.map_multistep("i", "<S-Tab>", {
+                "blink_prev",
+                -- step back in over a closer (beyond TabOut; no S-Tab there)
+                { condition = tabout.back_in_condition, action = function() return "<Left>" end },
+                -- VSCode muscle memory: S-Tab in the indent zone dedents (mini
+                -- builtin maps it to <C-d> / << per mode); raw S-Tab has no
+                -- native behavior
+                "decrease_indent",
+            })
+            -- CR: blink accept (selected item only) > mini.pairs pair expansion
+            -- > raw CR. Replaces blink's own `accept+fallback` CR entry, whose
+            -- fallback forwarding to minipairs' expr map is the fragile part.
+            keymap.map_multistep("i", "<CR>", { "blink_accept", "minipairs_cr" })
+
+            -- smart <Esc> (insert): progressive exit — (1) blink completion menu visible
+            -- -> hide it and STAY in insert (blink itself never consumes Esc,
+            -- so this is the nvim-cmp-community behavior); (2) minuet ghost
+            -- text -> dismiss (it auto-hides while the menu is open, so after
+            -- (1) the suggestion may reappear for this press to clear);
+            -- (3) raw <Esc> -> leave insert mode.
+            keymap.map_multistep("i", "<Esc>", {
+                {
+                    condition = blink_menu_visible,
+                    action = function() pcall(function() require("blink.cmp").hide() end) end,
+                },
+                { condition = minuet_visible, action = minuet_dismiss },
+            })
+
+-- smart <Esc> (normal + visual): one progressive exit per press —
+            -- (1) extra multicursor cursors -> clear them; (2) minuet duet
+            -- preview -> dismiss it (the ghost text is insert-only, cleared on
+            -- InsertLeave); (3) search highlight -> :noh; nothing pending ->
+            -- raw <Esc> (aborts pending operators etc.)
+            -- Supersedes the old <Esc><Esc> combo, which is no longer mapped.
+            keymap.map_multistep({ "n", "x" }, "<Esc>", {
+                { condition = mc.is_active, action = mc.clear },
+                {
+                    condition = duet_visible,
+                    action = function()
+                        pcall(function() require("minuet.duet").action.dismiss() end)
+                    end,
+                },
+                { condition = function() return vim.v.hlsearch == 1 end,
+                  action = function() vim.cmd("nohlsearch") end },
+            })
+
+            -- smart <BS> (insert, other-editors semantics): in a whitespace run
+            -- -> eat the WHOLE run (line-start indentation collapses in one
+            -- press); else mini.pairs deletes the surrounding pair between
+            -- (|) — its own BS would shadow neither here; classic plain BS for
+            -- everything else. hungry first: minipairs_bs always returns keys
+            -- (never false), so a trailing minipairs step would be unreachable
+            keymap.map_multistep("i", "<BS>", { "hungry_bs", "minipairs_bs" })
 
             require("mini.move").setup({
                 mappings = {

@@ -15,6 +15,12 @@ local function clear()
     vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
 end
 
+-- exported for the smart-keys chains in plugins/editing.lua (the <Esc>
+-- multistep clears the cursors as its first rule)
+function M.clear()
+    clear()
+end
+
 function M.setup()
     local function mc_feed(keys)
         return function()
@@ -36,13 +42,10 @@ function M.setup()
     local map = function(lhs, rhs, desc)
         vim.keymap.set("n", lhs, rhs, { noremap = true, silent = true, desc = desc })
     end
-    map("<Esc>", function()
-        if M.is_active() then
-            clear()
-        else
-            vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
-        end
-    end, "Clear all cursor")
+    -- <Esc> is intentionally NOT mapped here: the smart-<Esc> multistep in
+    -- plugins/editing.lua owns it (clears the cursors when active, then falls
+    -- through to the minuet dismiss / nohlsearch / raw-Esc rules); a plain
+    -- global map here would shadow that chain
     map("<C-j>", mc_feed("1Qj"), "Add cursor below")
     map("<C-k>", mc_feed("1Qk"), "Add cursor above")
     map("<C-n>", mc_match("*"), "Add cursor at next match")

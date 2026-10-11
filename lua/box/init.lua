@@ -24,6 +24,8 @@
 --   battery          lualine battery helper
 --   fff_picker       fff-backed snacks picker sources (patch)
 --   notifier_anim    snacks notifier enter/exit animation (patch)
+--   tabout           TabOut-rules rule engine for the smart multistep
+--                    Tab/S-Tab (chains declared in plugins/editing.lua)
 --   sticky           WIP
 --   orgmode_profiles org personal/work profile switcher
 local M = {}

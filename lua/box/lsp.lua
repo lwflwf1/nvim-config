@@ -126,6 +126,12 @@ end
 
 function M.setup()
     local capabilities = vim.lsp.protocol.make_client_capabilities()
+    -- deliberate preload: blink.cmp is lazy (InsertEnter) but its
+    -- capabilities must be known BEFORE any LSP client attaches, and this
+    -- setup() runs in setup_late() -- after lazy's spec table exists but
+    -- before insert-mode. Requiring the module here loads blink's lua only
+    -- (no plugin/ autocmds, its own opts.setup() still runs later); laziness
+    -- of the completion machinery is untouched.
     capabilities = require("blink.cmp").get_lsp_capabilities(capabilities)
     capabilities.textDocument.foldingRange = {
         dynamicRegistration = false,
