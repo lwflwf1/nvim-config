@@ -8,8 +8,13 @@ vim.o.guifont = "JetBrainsMono Nerd Font Mono:h15"
 vim.g.neovide_input_macos_option_key_is_meta = "only_left"
 
 -- renderer-side animations (vsync'd; terminal nvim can't do these)
-vim.g.neovide_scroll_animation_length = 0.3
-vim.g.neovide_scroll_animation_far_lines = 9999
+-- scroll animation OFF: snacks.scroll (enabled in Neovide too, see
+-- plugins/snacks.lua) drives scrolling; running both = double easing.
+-- far_lines = 0: far jumps (>1 screen, e.g. G) snap clean instead of
+-- sliding through Neovide's blank-line filler (it can't render the
+-- middle of a far jump anyway, only cached scrollback is drawable).
+vim.g.neovide_scroll_animation_length = 0
+vim.g.neovide_scroll_animation_far_lines = 0
 vim.g.neovide_position_animation_length = 0.15
 vim.g.neovide_cursor_animation_length = 0.15
 vim.g.neovide_cursor_trail_size = 0

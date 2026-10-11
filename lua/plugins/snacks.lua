@@ -228,7 +228,10 @@ return {
             },
             quickfile    = { enabled = true                 },
             scope        = { enabled = true                 },
-            scroll       = { enabled = not vim.g.is_rhel6 and not vim.g.neovide, animate = { easing = "outCubic" } },
+            -- scroll: on inside Neovide too (smoother G/gg there than Neovide's
+            -- own scroll animation, which can't render the middle of a far jump);
+            -- Neovide's native scroll animation is disabled in box/neovide.lua
+            scroll       = { enabled = not vim.g.is_rhel6, animate = { easing = "outCubic" } },
             statuscolumn = { enabled = true                 },
             terminal     = { enabled = true                 },
             toggle       = { enabled = true                 },
