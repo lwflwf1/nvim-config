@@ -99,6 +99,8 @@ return {
                 return ok and duet.action.is_visible()
             end
 
+            -- smart <Tab> (insert): minuet ghost text > blink next > TabOut >
+            -- raw.
             keymap.map_multistep("i", "<Tab>", {
                 -- accept minuet ghost text first (AI suggestion beats motion)
                 { condition = minuet_visible, action = minuet_accept },
@@ -117,7 +119,7 @@ return {
             -- CR: blink accept (selected item only) > mini.pairs pair expansion
             -- > raw CR. Replaces blink's own `accept+fallback` CR entry, whose
             -- fallback forwarding to minipairs' expr map is the fragile part.
-            keymap.map_multistep("i", "<CR>", { "blink_accept", "minipairs_cr" })
+            keymap.map_multistep({"i", "c"}, "<CR>", { "blink_accept", "minipairs_cr" })
 
             -- smart <Esc> (insert): progressive exit — (1) blink completion menu visible
             -- -> hide it and STAY in insert (blink itself never consumes Esc,
@@ -125,13 +127,13 @@ return {
             -- text -> dismiss (it auto-hides while the menu is open, so after
             -- (1) the suggestion may reappear for this press to clear);
             -- (3) raw <Esc> -> leave insert mode.
-            keymap.map_multistep("i", "<Esc>", {
-                {
-                    condition = blink_menu_visible,
-                    action = function() pcall(function() require("blink.cmp").hide() end) end,
-                },
-                { condition = minuet_visible, action = minuet_dismiss },
-            })
+            -- keymap.map_multistep("i", "<Esc>", {
+            --     {
+            --         condition = blink_menu_visible,
+            --         action = function() pcall(function() require("blink.cmp").hide() end) end,
+            --     },
+            --     { condition = minuet_visible, action = minuet_dismiss },
+            -- })
 
 -- smart <Esc> (normal + visual): one progressive exit per press —
             -- (1) extra multicursor cursors -> clear them; (2) minuet duet

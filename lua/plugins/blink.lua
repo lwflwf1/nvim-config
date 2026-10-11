@@ -43,9 +43,35 @@ return {
                 -- disabled on RHEL6 and `require("minuet")` must not run at
                 -- spec load time
             },
-            -- blink's cmdline keymaps inherit the root ones; with <Tab> disabled
-            -- above, set them explicitly so cmdline menu navigation keeps working
-            cmdline = { keymap = { ["<Tab>"] = { "select_next" }, ["<S-Tab>"] = { "select_prev" } } },
+-- NOTE on cmdline/search: both settings accept `fun(ctx): boolean` and are
+            -- re-evaluated on every selection (completion/list.lua:170-175), so
+            -- search can be excluded WITHOUT giving it its own keymap — `:` and
+            -- the help cmdwin keep blink's cmdline defaults exactly.
+            -- Why search is special: the cmdline source is enabled only for
+            -- cmdtypes {':','@'} (sources/cmdline/init.lua:26), so search is
+            -- served by the `buffer` source alone, which in search returns only
+            -- the current buffer's words (is_search_context() -> get_search_bufnrs)
+            -- and those are near-unique. With auto_insert on, selecting a
+            -- candidate writes it back into the search box (text_edits.lua:49
+            -- vim.fn.setcmdline), so `/de` becomes `/desc` -> CmdlineChanged ->
+            -- the list re-filters down to that ONE word -> the
+            -- `#list.items == 1 -> accept` shortcut at blink/cmp/init.lua:111
+            -- fires and the menu vanishes without ever showing. Upstream:
+            -- saghen/blink.cmp#2635 (open) asks for exactly this exclusion.
+            cmdline = {
+                completion = {
+                    list = {
+                        selection = {
+                            preselect = function()
+                                return not vim.fn.getcmdtype():match("^[/?]")
+                            end,
+                            auto_insert = function()
+                                return not vim.fn.getcmdtype():match("^[/?]")
+                            end,
+                        },
+                    },
+                },
+            },
 
             sources = {
                 default = vim.tbl_filter(
@@ -79,9 +105,6 @@ return {
             snippets = { preset = "luasnip" },
 
             completion = {
-                -- minuet recommendation: don't prefetch on insert (LLM source
-                -- would fire on every quote/dot/word entry otherwise)
-                trigger = { prefetch_on_insert = false },
                 documentation = { auto_show = true },
                 menu = {
                     draw = {
