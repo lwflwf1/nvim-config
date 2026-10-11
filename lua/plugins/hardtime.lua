@@ -15,6 +15,15 @@ return {
             ["gj"] = false,
             ["gk"] = false,
         },
+        -- The arrows aren't restricted but hard-BLOCKED by hardtime's default
+        -- disabled_keys (the key is swallowed with a "The <Up> key is disabled!"
+        -- notice); false removes them from that list.
+        disabled_keys = {
+            ["<Up>"] = false,
+            ["<Down>"] = false,
+            ["<Left>"] = false,
+            ["<Right>"] = false,
+        },
         -- hardtime's default clears vim.o.mouse on every BufEnter, which would kill
         -- the lualine/bufferline on_click handlers and picker clicking.
         disable_mouse = false,
