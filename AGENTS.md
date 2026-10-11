@@ -188,39 +188,62 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   from `picker.opts.actions` — **not** `Snacks.picker.actions[name]` — so headless
   probes must invoke it via
   `require("snacks.picker.core.actions").resolve(name, picker, name).action(picker)`.
-- **Notifier enter/exit animation** (`box/notifier_anim.lua`, hooked from
-  `plugins/snacks.lua` via `styles.notification.on_win` = `notifier_animate_in`): the width unfolds from 2
-  cells to full with a fixed right edge (nvim clamps floats on-screen, so an
-  off-screen slide is impossible); the exit shrinks to 2 then really closes (an
-  instance-level `close` override animates before the close lands). Driven by
-  `Snacks.animate` at 120fps with a closed-form critically-damped spring as the
-  easing (`spring_easing`); the fade alpha is derived from the width progress, so
-  enter = unfold+fade-in and exit = shrink+fade-out with no second animation. The
-  target is re-read live via `win:win_opts()` and the animation restarts (same id)
-  through the `update` wrapper, because the notifier re-lays-out asynchronously
-  (VimResized / same-id replace) and a captured target would be written back stale.
-- **Fade needs BOTH winhl and a highlight namespace** (`box/notifier_anim.lua`): winhl
-  remaps to per-window private groups for the window groups (body, border glyphs,
-  title/footer and `NormalFloat` — the float background/border ring follows ONLY
-  winhl, verified with screen-attr probes), plus a window-local namespace for the
-  style's extmark groups (the fancy style draws icon/title/separator with extmarks,
-  which winhl cannot reach). Private groups live in a 64-slot pool; the namespace is
-  named `fade2_*` because namespaces can't be deleted — never reuse a namespace name
-  that ever held different group definitions (stale definitions take precedence over
-  winhl and silently break colors).
-- **nvim winhl/ns quirks (verified with screen-attr probes — do not "simplify")**
-  (`box/notifier_anim.lua`): (a) a winhl applied while the window is still hidden is
-  never picked up — `on_win` re-asserts it once visible; this is why the notifier's
-  own winhl (incl. the config's `SnacksNotifier<Level> → NormalFloat` link) had
-  silently never been effective; (b) `nvim_win_set_hl_ns` resets the winhl
-  effectiveness — hence ns-attach BEFORE setting winhl (fade setup) and ns-detach
-  BEFORE restoring winhl (fade clear); (c) `nvim_win_set_config` does not reset it,
-  and re-setting an identical winhl does take effect.
-- **Windows timer resolution caps the animation** (`box/notifier_anim.lua`): the
+- **Notifier enter/exit animation** (`box/anim/`, configured in
+  `box/notifier_anim.lua`, hooked from `plugins/snacks.lua` via
+  `styles.notification.on_win` = `notifier_animate_in`): two INDEPENDENT effects,
+  each optional via `enable` (or the whole table set to `false`):
+  `slide` unfolds the width from 2 cells to full with a fixed right edge (nvim
+  clamps floats on-screen, so an off-screen slide is impossible); the exit shrinks
+  to 2 then really closes (an instance-level `close` override animates before the
+  close lands). `fade` dissolves the highlight groups toward the editor
+  background. Both run as their own `Snacks.animate` pass at 120fps with a
+  closed-form critically-damped spring (`box/anim/spring.lua`) as the easing, so
+  the fade is no longer quantized by the integer width. The target is re-read
+  live via `win:win_opts()` and the animation restarts (same id) through the
+  `update` wrapper, because the notifier re-lays-out asynchronously (VimResized /
+  same-id replace) and a captured target would be written back stale.
+- **The fade fades the WHOLE window through ONE mechanism: a window-local
+  highlight namespace** (`box/anim/fade.lua`) that redefines every group the
+  notification uses — the window groups (`Normal`/`NormalNC` for the text,
+  `NormalFloat` for the float background, `FloatBorder`/`FloatTitle`/
+  `FloatFooter` for the border ring) and the style's extmark groups (the fancy
+  style draws icon/title/separator with extmarks). **Do not "simplify" this back
+  to winhl remaps** — an earlier version did that and it silently faded only the
+  extmark groups, because of the ns quirk in the next bullet.
+- **nvim winhl/ns quirks (verified with screen-attr probes — do not "simplify")**:
+  (a) a winhl applied while the window is still hidden is never picked up —
+  `on_win` re-asserts it once visible; (b) **`nvim_win_set_hl_ns` makes nvim ignore
+  the window's winhl PERMANENTLY** — re-setting the winhl afterwards (via `vim.wo`
+  or `setwinvar`, in either order) does NOT revive it, which is what broke the old
+  winhl-based fade; the namespace alone reaches every group the window uses
+  (verified: defining `Normal` recolours the text, `NormalFloat` the fill,
+  `FloatBorder` the ring); (c) `nvim_win_set_config` does not reset the ns, and
+  detaching it (`ns = 0`) leaves the winhl inert again, hence the detach-then-
+  re-assert ordering in the fade's clear.
+- **Namespaces can't be deleted, so the fade's ns instances live in a 64-slot
+  pool** and the names are `snacks_notif_fade2_*` — never reuse a namespace name
+  that ever held different group definitions (stale definitions take precedence
+  and silently break colors).
+- **A dark accent cannot be faded into lockstep with light text.** The fade gives
+  every group the same alpha (`fade.contrast = 0`), which keeps each group's
+  brightness-above-the-background ratio constant — genuinely in sync. The
+  optional `contrast` knob instead bisects each accent toward the body's
+  luminance, but a group can never end up brighter than its own full colour, so an
+  accent darker than the text saturates early and then freezes (measured: error's
+  `#e06c75`, WCAG contrast 4.38 vs the body's `#abb2bf` 6.57, hit full colour at
+  ~60% of the animation). The `contrast` target is clamped to what the group can
+  reach so it saturates on purpose. Fixing the remaining lag needs a brighter
+  error accent, not animation tuning.
+- **Both effects must flush their own frames** (`nvim__redraw{win, flush=true}`
+  per frame): highlight updates otherwise sit in nvim's cache until some unrelated
+  redraw, so the fade renders freeze-then-jump — and with `slide` disabled there
+  is no other flusher at all.
+- **Windows timer resolution caps the animation** (`box/anim/init.lua`): the
   default ~15.6ms quantizes uv timers (an 8ms interval fires at ~15.6ms; 16ms rounds
   up to 31ms) → ~64fps. `timeBeginPeriod(1)` (winmm via LuaJIT ffi, Windows-gated,
-  auto-released on exit) unlocks ~8.5ms ticks so `notif_anim_opts` can run at
-  120fps. fps / `duration = {step,total}` / easing knobs live in `notif_anim_opts`.
+  auto-released on exit) unlocks ~8.5ms ticks so the animation can run at 120fps.
+  `fps` plus the per-effect `frequency`/`damping`/`settle` springs live in
+  `box/notifier_anim.lua`.
 - **Sessions are `mini.sessions`** (`plugins/editing.lua`; persistence.nvim was
   removed and its old per-cwd session files deleted): named global sessions under
   `stdpath("data")/session/`, `<leader>ps` smart-saves (prompts for a name only when
