@@ -643,6 +643,21 @@ cargo-zigbuild produce an ELF with max `GLIBC_ 2.17` and no bad undefined refs.
   test keymaps.
 - **`:checkhealth` is synchronous** and writes to a buffer named `health://`; grab it
   right after the `vim.cmd("checkhealth")` call.
+- **Staging only part of a file needs LF and hunks kept whole.** When unrelated
+  WIP sits in a tracked file (e.g. `AGENTS.md`), the way to commit only your own
+  edits is: `git diff -- <file> > p.patch` in the shell, drop the other hunks,
+  then `git apply --cached p.patch` — it patches the INDEX, which is at HEAD, so
+  the staged blob becomes HEAD + your hunks. Two traps, both hit doing this:
+  - **`Set-Content` rewrites the patch with CRLF** (git wrote it with LF), so
+    every context line gains a `\r` and git reports the misleading
+    `patch does not apply` — it is the line endings, not the context. Write it
+    with .NET instead: `[System.IO.File]::WriteAllText($p, ($lines -join
+    [char]10) + [char]10, [System.Text.UTF8Encoding]::new($false))`.
+  - **A hunk's `@@` header must travel with its own body.** A keep/drop filter
+    that bumps the hunk counter *after* the add decision attaches each header to
+    the previous hunk — git then reports `corrupt patch`, because the header's
+    line counts don't match what follows. Group the lines per hunk first, then
+    emit the whole groups.
 - **git global proxy is left set** by `package.ps1` (`git config --global http.proxy`).
   Push uses SSH so it's unaffected; if git-over-HTTPS misbehaves, `git config --global --unset http.proxy`.
 - **Proxy for downloads/API:** `http://127.0.0.1:7897`. PowerShell
