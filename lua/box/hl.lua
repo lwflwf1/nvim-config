@@ -1,16 +1,19 @@
--- Highlight groups the colorschemes don't define, plus this config's answers to
--- "which existing group should they inherit from". One table, re-applied on
--- every ColorScheme: a compiled colorscheme (onedarkpro's included) opens with
--- `hi clear`, which drops everything set outside it -- `default` groups too --
--- so a one-shot apply at plugin load is silently lost after <leader>uC.
+-- Highlight groups this config owns: the ones the colorschemes don't define,
+-- plus a few deliberate deviations from a plugin's own default. One table,
+-- re-applied on every ColorScheme: a compiled colorscheme (onedarkpro's
+-- included) opens with `hi clear`, which drops everything set outside it --
+-- `default` groups too -- so a one-shot apply at plugin load is silently lost
+-- after <leader>uC.
 --
 -- `default = true` means "only fill a hole, never override". Omit it where the
 -- owning plugin declares the same group with `hi default` itself (the @org.*
--- keyword faces): a default set loses to a definition that is already there.
+-- keyword faces), or where we mean to override it (SnacksNotifier*): a default
+-- set loses to a definition that is already there.
 --
--- Overrides that aren't about filling holes (CursorLine, FloatTitle,
--- @punctuation.bracket) stay in the colorscheme's own `opts.highlights`, which
--- is what that field is for.
+-- Theme-specific taste overrides stay in the colorscheme's own
+-- `opts.highlights` (CursorLine, FloatTitle, @punctuation.bracket); picker
+-- window surgery is box/picker_hl.lua, and the notifier animation is
+-- box/notifier_anim.lua.
 local M = {}
 
 ---The groups, resolved against whichever theme is currently loaded.
@@ -28,6 +31,15 @@ local function groups()
         -- PmenuExtra (which has no fg of its own) without use_nvim_cmp_as_default.
         BlinkCmpLabelDetail = { link = "BlinkCmpSource" },
         BlinkCmpLabelDescription = { link = "BlinkCmpSource" },
+
+        -- not a gap: snacks links the notifier body to Normal, but a
+        -- notification is a float, so a Normal bg would show the editor
+        -- background inside the float's border. Override on purpose.
+        SnacksNotifierTrace = { link = "NormalFloat" },
+        SnacksNotifierDebug = { link = "NormalFloat" },
+        SnacksNotifierInfo = { link = "NormalFloat" },
+        SnacksNotifierWarn = { link = "NormalFloat" },
+        SnacksNotifierError = { link = "NormalFloat" },
 
         -- gitsigns builds the Staged names per sign (signs.lua) but defines none
         -- of them -- not even as defaults -- and onedarkpro's gitsigns.lua has no
@@ -76,6 +88,10 @@ local function groups()
         ["@org.agenda.current_time"] = { link = "DiagnosticWarn", bold = true },
         -- The one group that needs a value rather than a link: the today chip
         -- takes its foreground from Statement and its background from Visual.
+        -- A plain nvim_get_hl is safe even with a picker focused -- the picker's
+        -- winhl remaps NormalFloat/FloatBorder/FloatTitle/FloatFooter/CursorLine
+        -- only, none of which is read here. (That is why box/picker_hl.lua needs
+        -- a hand-rolled link walker and this doesn't.)
         ["@org.agenda.today"] = {
             bold = true,
             fg = vim.api.nvim_get_hl(0, { name = "Statement" }).fg,

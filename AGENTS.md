@@ -35,7 +35,8 @@ lua/
                           (<leader>ue), wins, multicursor, smart_gf, winpick, lsp, parsers,
                           terminals (<leader>fe / :Terminals picker over snacks terminals),
                           theme (+<leader>uC), hl (groups the colorschemes don't
-                          define), tools (:ToolInstall), neovide, battery,
+                          define), picker_hl (snacks picker window bg patch),
+                          tools (:ToolInstall), neovide, battery,
                           fff_picker (snacks patch), notifier_anim (snacks patch),
                           tabout (TabOut-rules engine for the smart multistep
                           Tab/S-Tab; chains declared in plugins/editing.lua),
@@ -208,8 +209,23 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
     `BlinkCmp*` entries win regardless of augroup order.
   Taste overrides that aren't gap-fills (`CursorLine`, `FloatTitle`,
   `@punctuation.bracket`) stay in the colorscheme's own `opts.highlights` in
-  `plugins/ui.lua`, and `plugins/snacks.lua`'s picker winhl surgery stays there
-  too — that one works around snacks' winhl model, not a theme gap.
+  `plugins/ui.lua`. `box/picker_hl.lua` (called from `plugins/snacks.lua`) is
+  the same idea for snacks' picker windows — that one works around snacks'
+  winhl model, not a theme gap, so it is not a group table.
+  - It patches `Snacks.picker.highlight.winhl` so each picker window also remaps
+    `Normal`, and strips the bg off `LineNr`/`NonText` so everything linking
+    them falls back to the float bg. The winhl wrapper compares the current
+    function against its own closure: wrapping twice (a `:Lazy reload
+    snacks.nvim` re-runs `config()`) would append `,Normal:..` per reload, and
+    an identity check re-wraps correctly when snacks comes back as a fresh
+    module. Do NOT stash the marker on the function itself — indexing a function
+    value is a hard Lua error, not nil.
+  - It keeps its own `box_picker_hl` ColorScheme autocmd because no replay
+    covers what it does: it strips the bg off existing theme groups
+    (`LineNr`/`NonText`) and its `SnacksTitle`/`SnacksFooter` go through
+    `set_hl{managed=false}`, which opts out of snacks' `snacks_util_hl` replay.
+    The callback is `vim.schedule`d, so the fix lands a tick after the theme
+    switch — harmless, nothing can be mid-picker while switching.
 - **Noice suppresses `recording @a`** (`msg_showmode` is `skip`-routed). lualine
   shows a `REC @<reg>` indicator instead, refreshed on `RecordingEnter`/`Leave`
   (`plugins/ui.lua`).
@@ -613,6 +629,16 @@ cargo-zigbuild produce an ELF with max `GLIBC_ 2.17` and no bad undefined refs.
   `vim.cmd.doautocmd("User VeryLazy")` and `vim.cmd.doautocmd("VimEnter")` in probes.
   Some probes (esp. `:normal! <C-i>`) can hang headless — always add a hard
   `vim.defer_fn(function() vim.cmd("qa!") end, N)` guard and a shell timeout.
+- **After force-loading the plugins, `print` stops reaching stdout in a headless
+  probe** — it prints fine up to that point, then goes nowhere once the event
+  loop is pumped (`vim.wait`). The script keeps running (exit 0, no error), so
+  this reads as "no output / no failures". Write probe results with
+  `io.open(path, "w")` + `:flush()` instead of `print` whenever the probe pumps
+  the loop. `vim.wait(ms, function() return false end)` is exactly what a probe
+  needs to pump, though: anything a `ColorScheme` handler defers with
+  `vim.schedule` (e.g. `box_picker_hl`) has NOT landed yet right after
+  `:colorscheme` returns, so assert after a wait or the check silently reads the
+  pre-theme value. (Same reason a probe that never pumps sees stale state.)
 - **`nvim_feedkeys(..., "nx")` disables remapping** — use `"mt"` when you want to
   test keymaps.
 - **`:checkhealth` is synchronous** and writes to a buffer named `health://`; grab it

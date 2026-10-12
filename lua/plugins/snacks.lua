@@ -252,78 +252,9 @@ return {
         },
         config = function(_, opts)
             require("snacks").setup(opts)
-            -- notifier body: float background instead of the editor bg (snacks
-            -- defaults SnacksNotifier<Level> to a Normal link)
-            local function fix_notifier_hl()
-                for _, level in ipairs({ "Trace", "Debug", "Info", "Warn", "Error" }) do
-                    vim.api.nvim_set_hl(0, "SnacksNotifier" .. level, { link = "NormalFloat" })
-                end
-            end
-            fix_notifier_hl()
-            -- Picker windows only remap NormalFloat in their winhl, so cells
-            -- whose group has no bg fall back to the window's Normal (not
-            -- remapped) and would show the editor bg. Remap Normal per window;
-            -- the two source groups that carry the editor bg explicitly
-            -- (NonText/LineNr, see onedarkpro's editor.lua) are made
-            -- transparent below so everything they feed also falls back.
-            local picker_hl = require("snacks").picker.highlight
-            local orig_winhl = picker_hl.winhl
-            picker_hl.winhl = function(prefix, links)
-                local ret = orig_winhl(prefix, links)
-                -- the box window already maps Normal:SnacksNormal, and
-                -- SnacksNormal links to NormalFloat, so it needs no remap
-                if prefix ~= "SnacksPickerBox" then
-                    ret = ret .. ",Normal:" .. prefix
-                end
-                return ret
-            end
-            local function raw(group)
-                return vim.api.nvim_get_hl(0, { name = group })
-            end
-            -- follow links manually: nvim_get_hl(link = false) resolves through
-            -- the current window's winhighlight, which corrupts resolution
-            -- while a picker window is focused
-            local function resolved(group, attr)
-                local h = raw(group)
-                local seen = {}
-                while h.link and not seen[h.link] do
-                    seen[h.link] = true
-                    h = raw(h.link)
-                end
-                return h[attr] and ("#%06x"):format(h[attr]) or nil
-            end
-            local function fix_picker_hl()
-                local float_bg = resolved("NormalFloat", "bg")
-                local title_fg = resolved("Title", "fg")
-                -- notifier history winbar (not a picker window, so the winhl
-                -- remaps above don't apply there)
-                Snacks.util.set_hl({
-                    SnacksTitle  = { fg = title_fg, bg = float_bg },
-                    SnacksFooter = { fg = title_fg, bg = float_bg },
-                }, { managed = false })
-                -- strip the editor bg from the two source groups (keep fg and
-                -- other attrs): the editor looks identical (fallback = Normal
-                -- bg) and every group linking them now falls back to the
-                -- window's float bg
-                for _, name in ipairs({ "LineNr", "NonText" }) do
-                    local h = raw(name)
-                    h.bg = nil
-                    vim.api.nvim_set_hl(0, name, h)
-                end
-                -- the one group linking Normal: winhl remaps happen before
-                -- link resolution, so the Normal: remap above can't reach it;
-                -- flatten to fg only and let the bg fall back
-                vim.api.nvim_set_hl(0, "SnacksPickerIconFile", { fg = resolved("Normal", "fg") })
-            end
-            vim.api.nvim_create_autocmd("ColorScheme", {
-                callback = function()
-                    vim.schedule(function()
-                        fix_picker_hl()
-                        fix_notifier_hl()
-                    end)
-                end,
-            })
-            fix_picker_hl()
+            -- Picker-window background patching (winhl + the float-bg fallbacks).
+            -- The notifier body groups live in box/hl.lua.
+            require("box.picker_hl").setup()
         end,
         keys = {
             { "<leader>ee", function() Snacks.explorer() end,                desc = "Explorer (sidebar)" },

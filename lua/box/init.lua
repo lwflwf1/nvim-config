@@ -21,6 +21,7 @@
 --   theme            colorscheme persistence + <leader>uC + lualine theme
 --   hl               highlight groups the colorschemes don't define (re-applied
 --                    on ColorScheme -- a colorscheme's `hi clear` wipes them)
+--   picker_hl        picker-window float-bg patch (called from plugins/snacks.lua)
 --   tools            :ToolInstall / :ToolUpdate
 --   neovide          GUI settings (called from ginit.vim)
 --   battery          lualine battery helper
