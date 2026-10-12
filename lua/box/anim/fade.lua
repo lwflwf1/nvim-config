@@ -1,28 +1,32 @@
--- Fade effect: dissolve the whole window toward the editor background
--- (nvim-notify's `set_opacity` idea: blend the groups' fg/bg toward one
--- background colour).
+-- Fade effect: dissolve the window toward the editor background (nvim-notify's
+-- `set_opacity` idea: blend the groups' fg/bg toward one background colour).
 --
--- Everything fades through ONE mechanism: a window-local highlight namespace
--- that redefines every group the window uses -- the window groups
--- (Normal/NormalNC for the text, NormalFloat for the float background,
--- FloatBorder/FloatTitle/FloatFooter for the border ring) and the style's
--- extmark groups (the fancy style draws icon/title/separator with extmarks).
+-- Works on any float: the groups the window paints with are taken from the
+-- window's own `winhighlight` (each `from:to` becomes `from` redefined in a
+-- window-local namespace with `to`'s resolved colours), plus the float fill and
+-- the border ring, plus any extra groups the caller lists (see `groups`) -- the
+-- style's extmark groups, which winhl cannot reach.
 --
--- Why not winhl remaps (the previous design): attaching a window-local
--- namespace makes nvim ignore the window's winhl *permanently* -- re-setting
--- the winhl afterwards (vim.wo or setwinvar, either order) does NOT revive it
--- (verified with screen-attr probes: without the ns a winhl colour change
--- renders, with the ns attached it never does). So the winhl-remap design
--- silently faded ONLY the extmark groups; the body text, background and border
--- never faded at all, which read as "the separator/title fade before the text".
--- The namespace alone can reach every one of those groups (verified: defining
--- Normal recolours the text, NormalFloat the float fill, FloatBorder the ring).
+-- Why a namespace and not winhl remaps: attaching a window-local namespace makes
+-- nvim ignore the window's winhl *permanently* -- re-setting the winhl afterwards
+-- (vim.wo or setwinvar, either order) does NOT revive it (verified with
+-- screen-attr probes). An earlier version remapped winhl onto per-window private
+-- groups and faded through that, which silently faded ONLY the extmark groups
+-- (whichever groups winhl could not reach); the body text, background and border
+-- never faded. The namespace alone reaches every one of them (verified: defining
+-- Normal recolours the text, NormalFloat the fill, FloatBorder the ring).
 --
 -- Namespaces cannot be deleted, so the ns instances live in a small reusable
 -- slot pool; their definitions are reset when the fade ends.
 local M = {}
 
 local fade_pool, fade_next, fade_ns = {}, 0, {}
+
+---@type table<number, table>  per-window fade state, keyed by winid (the effect
+--- instance is shared across windows, and raw floats have no Lua object to hang
+--- state off)
+local fades = {}
+
 local function fade_slot()
     local slot = fade_next % 64 + 1
     for _ = 1, 64 do
@@ -30,12 +34,12 @@ local function fade_slot()
             fade_pool[slot] = true
             fade_next = slot
             if not fade_ns[slot] then
-                -- "fade2": namespaces cannot be deleted and an earlier
-                -- implementation used "snacks_notif_fade_" with
-                -- Normal/NormalFloat/... definitions; reusing that name would
-                -- resurrect those stale definitions and break the window's
-                -- colors
-                fade_ns[slot] = vim.api.nvim_create_namespace("snacks_notif_fade2_" .. slot)
+                -- "box_anim_fade": namespaces cannot be deleted and earlier
+                -- implementations used other names ("snacks_notif_fade_",
+                -- "snacks_notif_fade2_") with different group definitions;
+                -- reusing one would resurrect those stale definitions and break
+                -- the window's colours
+                fade_ns[slot] = vim.api.nvim_create_namespace("box_anim_fade_" .. slot)
             end
             return slot
         end
@@ -68,11 +72,6 @@ local function fade_base(name)
     end
     local fg = attrs.fg and string.format("#%06x", attrs.fg)
     local bg = attrs.bg and string.format("#%06x", attrs.bg)
-    -- body groups link to NormalFloat/Normal which may have no fg (transparent
-    -- themes): fall back to the global Normal fg so the text still fades
-    if not fg and name:match("^SnacksNotifier%w*$") then
-        fg = Snacks.util.color("Normal", "fg")
-    end
     if not fg and not bg then
         return nil
     end
@@ -136,22 +135,46 @@ local function fade_lum(rgb, target, alpha)
         + 0.0722 * lin(rgb[3] * alpha + target[3] * (1 - alpha))
 end
 
-local function notif_fade_setup(win, contrast)
-    if win._notif_fade then
-        return win._notif_fade
+---@param aw table animation window (see box/anim/core.lua)
+---@param contrast number|boolean
+---@param groups nil|string[]|fun(aw: table, winhl: string): string[]
+local function fade_setup(aw, contrast, groups)
+    local winid = aw.win
+    if fades[winid] then
+        return fades[winid]
     end
-    local winhl = vim.wo[win.win].winhighlight
+    local winhl = vim.wo[winid].winhighlight
     if not winhl or winhl == "" then
         return nil
     end
-    local target = Snacks.util.color("Normal", "bg")
-        or Snacks.util.color("NormalFloat", "bg")
+    -- Read the colours through fade_base, NOT Snacks.util.color: that helper
+    -- uses nvim_get_hl(..., link = false), and that variant starts reflecting the
+    -- CURRENT window's winhighlight once nvim has applied it (measured: identical
+    -- to the plain read while synchronous, nil on the next tick). The animation
+    -- always runs after ticks, so any window mapping Normal (every animated
+    -- picker/input) got nil for the body fg and the editor bg came back as the
+    -- card colour -- the fade became a no-op. The plain read (fade_base) is not
+    -- affected.
+    local norm = fade_base("Normal")
+    local target = (norm and norm.bg)
+        or (fade_base("NormalFloat") or {}).bg
         or (vim.o.background == "light" and "#ffffff" or "#000000")
     local slot = fade_slot()
     if not slot then
         return nil
     end
-    local fade = { slot = slot, ns = fade_ns[slot], target = target, winhl = winhl, groups = {}, last = {} }
+    local fade = { winid = winid, slot = slot, ns = fade_ns[slot], target = target, winhl = winhl, groups = {}, last = {}, seen = {} }
+
+    --- add a group once, in priority order (winhl sources first, so a caller's
+    --- `groups` can never displace the group the window actually paints with)
+    local function add(name, base)
+        if not base or fade.seen[name] then
+            return
+        end
+        fade.seen[name] = true
+        fade.groups[#fade.groups + 1] = { name = name, attrs = base.attrs, fg = base.fg, bg = base.bg }
+    end
+
     local ref -- the body group's contrast (the visibility reference)
     local ref_group
     -- window groups: redefine each winhl source in the namespace with the
@@ -159,28 +182,95 @@ local function notif_fade_setup(win, contrast)
     for from, to in winhl:gmatch("([%w_]+):([%w_]+)") do
         local base = fade_base(to)
         if base then
+            -- a window group whose target carries only a background (linked to
+            -- NormalFloat) has no fg of its own: nvim falls back to the global
+            -- Normal for the window's normal text, so fade from there
+            if not base.fg and (from == "Normal" or from == "NormalNC") then
+                base.fg = norm and norm.fg
+            end
             local g = { name = from, attrs = base.attrs, fg = base.fg, bg = base.bg }
             if from == "Normal" then
                 ref = fade_contrast(g, target)
                 ref_group = g
             end
-            fade.groups[#fade.groups + 1] = g
+            add(from, { attrs = base.attrs, fg = base.fg, bg = base.bg })
         end
     end
-    -- the float background / border ring
-    local nf = fade_base("NormalFloat")
-    if nf then
-        fade.groups[#fade.groups + 1] = { name = "NormalFloat", attrs = nf.attrs, fg = nf.fg, bg = nf.bg }
-    end
-    -- extmark groups of the current style (icon/title/separator/footer)
-    local suffix = winhl:match("Normal:SnacksNotifier(%w*)") or winhl:match("NormalNC:SnacksNotifier(%w*)")
-    if suffix then
-        for _, key in ipairs({ "Icon", "Title", "Border", "Footer" }) do
-            local src = "SnacksNotifier" .. key .. suffix
-            local base = fade_base(src)
-            if base then
-                fade.groups[#fade.groups + 1] = { name = src, attrs = base.attrs, fg = base.fg, bg = base.bg }
+    -- the float fill, the border ring and the window's normal text/background,
+    -- unless the winhl already remapped them. Normal/NormalNC matter because a
+    -- window may remap only NormalFloat (Snacks.input does): its text still uses
+    -- the global Normal, so without these the text would appear before the box.
+    add("Normal", fade_base("Normal"))
+    add("NormalNC", fade_base("NormalNC"))
+    add("NormalFloat", fade_base("NormalFloat"))
+    add("FloatBorder", fade_base("FloatBorder"))
+    add("FloatTitle", fade_base("FloatTitle"))
+    add("FloatFooter", fade_base("FloatFooter"))
+    -- groups the window paints its own CONTENT with (extmarks: picker items and
+    -- their icons, the notifier's title/separator, ...). Discovered from the
+    -- visible range instead of enumerated per target, so a new window needs no
+    -- config at all. Syntax/treesitter highlights are not extmarks, so content
+    -- styled only by syntax (e.g. the picker preview) cannot fade from here --
+    -- pass `groups` for whatever this misses.
+    if aw.buf then
+        local first, last = 0, -1
+        pcall(vim.api.nvim_win_call, winid, function()
+            first, last = vim.fn.line("w0") - 1, vim.fn.line("w$")
+        end)
+        -- start/end are (row, col) tuples -- a bare integer is read as an
+        -- extmark id, which silently found nothing (nvim: "Invalid mark id")
+        local ok, marks = pcall(vim.api.nvim_buf_get_extmarks, aw.buf, -1, { first, 0 }, { last, 0 }, { details = true })
+        if ok then
+            for _, m in ipairs(marks) do
+                local d = m[4]
+                if d then
+                    if d.hl_group then
+                        add(d.hl_group, fade_base(d.hl_group))
+                    end
+                    if d.virt_text then
+                        for _, chunk in ipairs(d.virt_text) do
+                            if chunk[2] then
+                                add(chunk[2], fade_base(chunk[2]))
+                            end
+                        end
+                    end
+                end
             end
+        end
+    end
+    -- the float's border title/footer are chunk lists that carry their own
+    -- highlight groups (Snacks.input draws its prompt/icon there), which winhl
+    -- does not reach
+    local conf = vim.api.nvim_win_get_config(winid)
+    for _, side in ipairs({ "title", "footer" }) do
+        local chunks = conf[side]
+        if type(chunks) == "table" then
+            for _, chunk in ipairs(chunks) do
+                local hl = type(chunk) == "table" and chunk[2]
+                if type(hl) == "string" and hl ~= "" then
+                    add(hl, fade_base(hl))
+                end
+            end
+        end
+    end
+    -- `%#Group#` segments in winbar/statuscolumn carry their own groups too
+    -- (Snacks.input draws its icon in the statuscolumn, the notifier history in
+    -- the winbar), which winhl does not reach
+    for _, opt in ipairs({ "winbar", "statuscolumn" }) do
+        local val = vim.wo[winid][opt]
+        if type(val) == "string" then
+            for g in val:gmatch("%%#([^#]+)#") do
+                add(g, fade_base(g))
+            end
+        end
+    end
+    -- groups the caller lists explicitly (for anything the scan misses)
+    if type(groups) == "function" then
+        groups = groups(aw, winhl)
+    end
+    if type(groups) == "table" then
+        for _, name in ipairs(groups) do
+            add(name, fade_base(name))
         end
     end
     if #fade.groups == 0 then
@@ -188,14 +278,11 @@ local function notif_fade_setup(win, contrast)
         return nil
     end
     -- Contrast compensation: every group is blended by the same alpha, but the
-    -- accents (separator/title/icon) differ from the body text both in
-    -- luminance (this config: #61afef = 0.37 vs #abb2bf = 0.42) and in
-    -- saturation. At uniform alpha the accents stay dimmer and vanish first;
-    -- at a full luminance match they are equally bright but more saturated,
-    -- so they linger. `contrast` is the strength: 1 = full luminance match,
-    -- 0/false = uniform (nvim-notify), in between = split the difference.
-    -- `set` bisects the alpha that hits the scaled target luminance, so the
-    -- correction is exact rather than an approximation.
+    -- accents differ from the body text both in luminance and in saturation. At
+    -- uniform alpha the accents stay dimmer and vanish first; at a full luminance
+    -- match they are equally bright but more saturated, so they linger.
+    -- `contrast` is the strength: 1 = full luminance match, 0/false = uniform
+    -- (nvim-notify), in between = split the difference.
     local strength = contrast == true and 1 or (tonumber(contrast) or 0)
     -- clamp to 0..2: the knob is a strength multiplier on the correction, but
     -- values above 2 would extrapolate past the bisection's bracket and make
@@ -213,22 +300,21 @@ local function notif_fade_setup(win, contrast)
             end
         end
     end
-    vim.api.nvim_win_set_hl_ns(win.win, fade.ns)
-    win._notif_fade = fade
+    vim.api.nvim_win_set_hl_ns(winid, fade.ns)
+    fades[winid] = fade
     return fade
 end
 
 -- alpha 0 = blended into the editor background, 1 = the original colors
-local function notif_fade_apply(win, alpha, contrast)
-    local fade = win._notif_fade or notif_fade_setup(win, contrast)
-    if not fade or not win:win_valid() then
+local function fade_apply(aw, alpha, contrast, groups)
+    local fade = fades[aw.win] or fade_setup(aw, contrast, groups)
+    if not fade or not aw.valid() then
         return
     end
     alpha = math.min(1, math.max(0, alpha))
     -- the body's current blended luminance: every matched group is bisected to
     -- the alpha that hits the same luminance (scaled by `strength`), so all
-    -- groups track the body's visibility (the bisection is monotone; the
-    -- clamp at 1 covers groups whose base is dimmer than the body)
+    -- groups track the body's visibility
     local want
     if fade.ref_rgb then
         want = fade_lum(fade.ref_rgb, fade.target_rgb, alpha)
@@ -241,16 +327,10 @@ local function notif_fade_apply(win, alpha, contrast)
             -- A group can never get brighter than its own full colour, so a
             -- target above that has no solution in [0,1]. Left unbounded the
             -- bisection silently collapses onto an endpoint and pins the group
-            -- at full opacity -- measured: error's #e06c75 (L 0.279) against
-            -- the body's #abb2bf (L 0.443) hit full colour at ~60% of the
-            -- animation and then froze there while the body kept fading, which
-            -- is the "separator/title are out of order" artefact, and it only
-            -- showed up on error because warn (L 0.558) and info (L 0.394) stay
-            -- close enough to the body to keep a solution all the way. Clamp
-            -- the request to what the group can reach so it saturates on
-            -- purpose. With `contrast` at 0 (the default here) none of this
-            -- runs: every group shares one alpha, which keeps their
-            -- brightness-above-the-background ratio constant, i.e. in sync.
+            -- at full opacity -- measured: error's #e06c75 (L 0.279) against the
+            -- body's #abb2bf (L 0.443) hit full colour at ~60% of the animation
+            -- and then froze there while the body kept fading. Clamp the request
+            -- to what the group can reach so it saturates on purpose.
             local w = math.min(want, fade_lum(g.rgb, fade.target_rgb, 1))
             local lo, hi = 0, 1
             for _ = 1, 12 do
@@ -277,21 +357,21 @@ local function notif_fade_apply(win, alpha, contrast)
     -- nvim's cache until some unrelated redraw happens, so the fade renders as
     -- freeze-then-jump -- and with the slide disabled there is no other flusher
     if vim.api.nvim__redraw then
-        pcall(vim.api.nvim__redraw, { win = win.win, valid = false, flush = true })
+        pcall(vim.api.nvim__redraw, { win = aw.win, valid = false, flush = true })
     end
 end
 
-local function notif_fade_clear(win)
-    local fade = win._notif_fade
+local function fade_clear(aw)
+    local fade = fades[aw.win]
     if not fade then
         return
     end
-    win._notif_fade = nil
-    if win:win_valid() then
+    fades[aw.win] = nil
+    if aw.valid() then
         -- detaching the namespace leaves the winhl inert (see the header):
-        -- re-assert the notifier's own winhl so the resting colors come back
-        vim.api.nvim_win_set_hl_ns(win.win, 0)
-        vim.wo[win.win].winhighlight = win.opts.wo.winhighlight or fade.winhl
+        -- re-assert the window's own winhl so the resting colours come back
+        vim.api.nvim_win_set_hl_ns(aw.win, 0)
+        vim.wo[aw.win].winhighlight = fade.winhl
     end
     for _, g in ipairs(fade.groups) do
         vim.api.nvim_set_hl(fade.ns, g.name, {})
@@ -299,10 +379,11 @@ local function notif_fade_clear(win)
     fade_pool[fade.slot] = nil
 end
 
----@param opts { frequency: number, damping?: number, settle: number, contrast?: boolean|number }
+---@param opts { frequency: number, damping?: number, settle: number, contrast?: boolean|number, groups?: string[]|fun(aw: table, winhl: string): string[] }
 function M.new(opts)
     local sp = require("box.anim.spring").new(opts)
     local contrast = opts.contrast == nil and 0.5 or opts.contrast
+    local groups = opts.groups
     return {
         id = "fade",
         duration = sp.duration,
@@ -312,11 +393,11 @@ function M.new(opts)
         end,
         -- the width is not the progress here: alpha is the spring itself, so
         -- the fade is continuous instead of quantized by the integer width
-        apply = function(win, _, p)
-            notif_fade_apply(win, p, contrast)
+        apply = function(aw, _, p)
+            fade_apply(aw, p, contrast, groups)
         end,
-        clear = function(win)
-            notif_fade_clear(win)
+        clear = function(aw)
+            fade_clear(aw)
         end,
     }
 end

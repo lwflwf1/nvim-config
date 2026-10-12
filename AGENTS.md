@@ -38,6 +38,8 @@ lua/
                           define), picker_hl (snacks picker window bg patch),
                           tools (:ToolInstall), neovide, battery,
                           fff_picker (snacks patch), notifier_anim (snacks patch),
+                          anim (generic window animation framework: core.lua +
+                          slide/fade/spring effects; notifier_anim configures it),
                           blink_suffix (blink.cmp patch, Zed-style replace_suffix),
                           tabout (TabOut-rules engine for the smart multistep
                           Tab/S-Tab; chains declared in plugins/editing.lua),
@@ -336,10 +338,48 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   close lands). `fade` dissolves the highlight groups toward the editor
   background. Both run as their own `Snacks.animate` pass at 120fps with a
   closed-form critically-damped spring (`box/anim/spring.lua`) as the easing, so
-  the fade is no longer quantized by the integer width. The target is re-read
-  live via `win:win_opts()` and the animation restarts (same id) through the
-  `update` wrapper, because the notifier re-lays-out asynchronously (VimResized /
-  same-id replace) and a captured target would be written back stale.
+  the fade is no longer quantized by the integer width.
+- **`box/anim` is a generic window-animation framework, not notifier code.**
+  `box/anim/core.lua` owns the mechanics and knows nothing about notifications
+  or snacks Win objects — but it is NOT independent of snacks: `Snacks.animate`
+  still schedules the frames and `Snacks.util.blend` still mixes colours. The
+  decoupling is from the snacks *window model*, not from the engine. Effects, the
+  enter/exit direction, landing the first frame immediately, and cleanup live
+  here. Two entry points:
+  - `require("box.anim").attach(opts)` -> a snacks `on_win` hook. The snacks
+    adapter (`box/anim/init.lua`) is the only place that touches a snacks Win
+    object: it reads the target geometry from `win:win_opts()` (the *intended*
+    layout, which survives a re-layout better than the live config), installs the
+    `close`/`update` overrides, re-asserts the winhl once visible (see the ns
+    quirk below), and gates on `Snacks.animate.enabled`.
+  - `require("box.anim").new(opts)` -> a runner usable on ANY window:
+    `runner:enter(winid)`, `runner:exit(winid, finally)`,
+    `runner:stop(winid)`, `runner:resume(winid)`. Use it for a picker/dashboard
+    float you open yourself with `nvim_open_win`.
+  State is keyed by **winid** (a fresh snacks Win object is created per
+  notification, and raw floats have no object at all), and a `WinClosed`
+  autocmd releases the session so a window destroyed underneath the animation
+  cannot leak a namespace slot or leave `wrap` set.
+  Adding a new target is config + (for extmark-drawn content) a `fade.groups`
+  list -- the core and effects need no changes. `slide` only needs a float's
+  col/width; a leaf/split would need a different (resize) effect.
+- **The fade discovers its groups, so a target usually needs no config.** It
+  collects: every `from:to` in the window's own `winhighlight` (redefined in the
+  ns with `to`'s resolved colours); `Normal`/`NormalNC`/`NormalFloat` and the
+  `FloatBorder`/`FloatTitle`/`FloatFooter` ring (skipped when the winhl already
+  maps them); the extmark groups actually used in the VISIBLE range (the
+  notifier's separator/title/icons, picker items); the float title/footer chunk
+  groups (`get_config().title`/`footer`); `%#Group#` names in the window's
+  winbar/statuscolumn (Snacks.input's icon); and anything the config passes as
+  `fade.groups` (list or `fun(aw, winhl): string[]`). A window with an empty
+  winhl and no discovered groups is not faded (the effect reports "skip").
+  Syntax/treesitter highlights are not extmarks, so a window styled only by
+  syntax (e.g. the picker preview) cannot fade from here.
+- **`nvim_buf_get_extmarks(buf, ns, start, end, opts)` takes `(row, col)`
+  TUPLES for start/end** — a bare integer is read as an extmark id, and gets
+  "Invalid mark id (not found)" instead of failing loudly. The fade's discovery
+  silently found nothing until this was fixed, which is why the earlier
+  hand-written `fade.groups` for the notifier looked necessary.
 - **The fade fades the WHOLE window through ONE mechanism: a window-local
   highlight namespace** (`box/anim/fade.lua`) that redefines every group the
   notification uses — the window groups (`Normal`/`NormalNC` for the text,
@@ -348,6 +388,17 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   style draws icon/title/separator with extmarks). **Do not "simplify" this back
   to winhl remaps** — an earlier version did that and it silently faded only the
   extmark groups, because of the ns quirk in the next bullet.
+- **Never read theme colours with `Snacks.util.color` inside the animation.**
+  It calls `nvim_get_hl(..., link = false)`, and that variant starts reflecting
+  the **current window's winhighlight** once nvim has applied it (measured:
+  identical to the plain read while synchronous, `nil` on the next tick). The
+  animation always runs after ticks, so with a window mapping `Normal` (every
+  animated picker/input) the editor background came back as the card colour (the
+  fade silently became a no-op) and `Normal`'s fg as nil (the body would not
+  fade). The notifier happened to dodge it — its windows are opened with
+  `enter = false`, so the editor stays current — but a focused float hits it
+  immediately. Use the plain `nvim_get_hl` (via `fade_base`, which also follows
+  links itself).
 - **nvim winhl/ns quirks (verified with screen-attr probes — do not "simplify")**:
   (a) a winhl applied while the window is still hidden is never picked up —
   `on_win` re-asserts it once visible; (b) **`nvim_win_set_hl_ns` makes nvim ignore
@@ -359,9 +410,10 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   detaching it (`ns = 0`) leaves the winhl inert again, hence the detach-then-
   re-assert ordering in the fade's clear.
 - **Namespaces can't be deleted, so the fade's ns instances live in a 64-slot
-  pool** and the names are `snacks_notif_fade2_*` — never reuse a namespace name
+  pool** and the names are `box_anim_fade_*` — never reuse a namespace name
   that ever held different group definitions (stale definitions take precedence
-  and silently break colors).
+  and silently break colors; the pool exists so a fresh name is never needed
+  for a window that reuses a slot).
 - **A dark accent cannot be faded into lockstep with light text.** The fade gives
   every group the same alpha (`fade.contrast = 0`), which keeps each group's
   brightness-above-the-background ratio constant — genuinely in sync. The
@@ -376,7 +428,7 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   per frame): highlight updates otherwise sit in nvim's cache until some unrelated
   redraw, so the fade renders freeze-then-jump — and with `slide` disabled there
   is no other flusher at all.
-- **Windows timer resolution caps the animation** (`box/anim/init.lua`): the
+- **Windows timer resolution caps the animation** (`box/anim/core.lua`): the
   default ~15.6ms quantizes uv timers (an 8ms interval fires at ~15.6ms; 16ms rounds
   up to 31ms) → ~64fps. `timeBeginPeriod(1)` (winmm via LuaJIT ffi, Windows-gated,
   auto-released on exit) unlocks ~8.5ms ticks so the animation can run at 120fps.

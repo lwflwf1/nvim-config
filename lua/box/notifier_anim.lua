@@ -1,7 +1,8 @@
--- Notifier enter/exit animation: two independent effects driven by box/anim.
--- `slide` unfolds the width (right edge fixed), `fade` dissolves the highlight
--- groups toward the editor background. Both are optional: flip `enable` (or
--- replace the whole table with `false`) to see the other effect alone.
+-- Notifier enter/exit animation: two independent effects from box/anim (which
+-- is generic -- see box/anim/init.lua -- this file is only the notifier's
+-- config). `slide` unfolds the width (right edge fixed), `fade` dissolves the
+-- highlight groups toward the editor background. Both are optional: flip
+-- `enable` (or replace the whole table with `false`) to see the other alone.
 --
 -- Spring parameters follow nvim-notify (frequency in Hz + damping ratio, and
 -- `settle` = the fraction of the distance the spring covers when the schedule
@@ -10,6 +11,8 @@
 -- no longer quantized by the integer width.
 local CONFIG = {
     fps = 120,
+    id = "snacks_notifier", -- Snacks.animate id prefix (also the key that makes
+    -- a restart replace the previous run on the same window)
     slide = {
         enable = true, -- false = dissolve only
         frequency = 3.5, -- ~250ms at settle 0.973 (k~=5.5, the previous spring)
@@ -22,7 +25,7 @@ local CONFIG = {
         min = 2,
     },
     fade = {
-        enable = false, -- false = unfold only
+        enable = true, -- false = unfold only
         frequency = 3.5,
         damping = 1,
         settle = 0.973, -- same spring as slide: the fade ends with the width,

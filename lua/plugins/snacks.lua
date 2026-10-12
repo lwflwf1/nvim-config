@@ -5,6 +5,7 @@ local pick_files = fff_picker.pick_files
 local pick_grep = fff_picker.pick_grep
 local pick_grep_word = fff_picker.pick_grep_word
 local notifier_animate_in = require("box.notifier_anim").notifier_animate_in
+local input_animate_in = require("box.input_anim").input_animate_in
 
 return {
     {
@@ -266,7 +267,7 @@ return {
                     border = "none",
                     wo = { winbar = "%=%#SnacksNotifierHistoryTitle# Notification History %=" },
                 },
-                input                = { row = 0.5 },
+                input                = { row = 0.5, on_win = input_animate_in },
             },
         },
         config = function(_, opts)
