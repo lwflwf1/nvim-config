@@ -60,6 +60,18 @@
       "install": "bin"
     },
     {
+      "name": "wakatime-cli",
+      "version": "",
+      "glibc234": false,
+      "source": "github-release",
+      "owner": "wakatime",
+      "repo": "wakatime-cli",
+      "asset_glob": "wakatime-cli-linux-amd64.zip",
+      "out_file": "wakatime-cli.zip",
+      "binary": "wakatime-cli-linux-amd64",
+      "install": "bin"
+    },
+    {
       "name": "pandoc",
       "version": "",
       "glibc234": true,

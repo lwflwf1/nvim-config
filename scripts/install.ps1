@@ -481,6 +481,40 @@ if ($masonCount -lt $expectedMasonTools) {
     Ok "mason tools installed ($masonCount)"
 }
 
+# ================================================================ wakatime config
+# The CLI reads its settings ONLY from flags or ~/.wakatime.cfg (there is no env
+# binding except WAKATIME_API_KEY), so the file has to exist. The nvim plugin
+# creates a bare [settings] skeleton by itself, but without api_url the CLI would
+# fall back to api.wakatime.com -- hence this block. Same reasoning as the RHEL6
+# side (install-offline.sh): a config file must not write files on every startup.
+$wtHome = if ($env:WAKATIME_HOME) { $env:WAKATIME_HOME } else { $HOME }
+$wtCfg  = Join-Path $wtHome '.wakatime.cfg'
+if (Test-Path -LiteralPath $wtCfg) {
+    Ok "wakatime config present: $wtCfg"
+} else {
+    $wtUrl = $env:WAKATIME_API_URL
+    if (-not $wtUrl) {
+        Warn "WAKATIME_API_URL is not set - writing $wtCfg without api_url, so heartbeats would go to api.wakatime.com. Set the env var and re-run, or add 'api_url = ...' yourself."
+    }
+    $wtLines = @(
+        '; created by scripts/install.ps1 -- safe to edit',
+        '[settings]',
+        'debug = false'
+    )
+    if ($wtUrl) { $wtLines += "api_url = $wtUrl" }
+    $wtLines += @(
+        '; send only the project-relative path (rtl/foo.sv), never C:\...\rtl\foo.sv',
+        'hide_project_folder = true',
+        '; keep heartbeats in ~/.wakatime/offline_heartbeats.bdb instead of dropping them',
+        'offline = true'
+    )
+    Set-Content -LiteralPath $wtCfg -Value $wtLines -Encoding ascii
+    Ok "wakatime config written: $wtCfg"
+}
+if (-not $env:WAKATIME_API_KEY) {
+    Warn "no WAKATIME_API_KEY set - open nvim once and run :WakaTimeApiKey to enable tracking"
+}
+
 # ================================================================ Verification
 Log "== Verification =="
 $plugins = (Get-ChildItem "$DATA_DIR\lazy" -Directory -ErrorAction SilentlyContinue).Count

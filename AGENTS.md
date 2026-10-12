@@ -50,6 +50,8 @@ after/
 queries/systemverilog/    aerial, function_*, variables (the rest come from the SV fork)
 scripts/                  installers + packagers + tools.json
   build-fff-rhel6.sh      cross-build fff's backend for glibc 2.17 (run on Linux/WSL)
+  wakatime-export.sh      RHEL6: copy the offline heartbeat queue out for manual transfer
+  wakatime-sync.ps1       networked box: replay that queue into wakapi (official CLI sync)
   prebuilt/fff/           GENERATED (gitignored): RHEL6 libfff_nvim.so, built by build-fff-rhel6.sh
 .opencode-memory/         local agent session memory (gitignored)
 ```
@@ -92,6 +94,16 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   (both 0.13-dev)** — do NOT add version-branch shims for "older nvim"; only branch
   on `is_rhel6` for real glibc/tooling matters. (yazi.nvim is **not** `is_rhel6`-gated
   anymore — see the yazi bullet below.)
+- **The RHEL6 gate is glibc linkage, NOT the kernel version.** Measured on the real
+  box: fzf (Go, static), **wakatime-cli v2.27.1 (Go 1.27.2, static)** and yazi (Rust,
+  musl static-pie) all run fine on kernel **2.6.32**; fff and blink's fuzzy lib fail
+  purely because they are **dynamically linked against glibc ≥ 2.18 / 2.31**. Go's
+  "kernel ≥ 3.2 since go1.24" line (go.dev/wiki/MinimumRequirements) is a *supported
+  baseline*, not something the runtime checks — the one documented hard crash is
+  `runtime.procresize: invalid arg` on CentOS 6 (golang/go#77374). So: `file <bin>`
+  showing `statically linked` ⇒ stop worrying about the kernel; `ldd` showing
+  `libc.so.6` ⇒ check its GLIBC_ versions instead. **Do not pre-judge a static binary
+  as unrunnable on RHEL6 — test it** (one `--version` run answers it).
 - **Minuet / OpenCode Go** (`plugins/minuet.lua` + `plugins/blink.lua`): the key is
   read from opencode's own auth file, whose location is **per-OS** —
   `~/.local/share/opencode/auth.json` on Windows *and* Linux (verified on this box;
@@ -384,6 +396,67 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   A lang that fails the first check needs
   `require("nvim-treesitter").install(require("box.parsers"), { force = true })`
   (or deleting the stale `site/queries/<lang>` directory first).
+
+## wakatime / wakapi (coding-time tracking)
+
+`lua/plugins/wakatime.lua` (the whole config is one `opts` table) + the official
+`wakatime/vim-wakatime` plugin, server = self-hosted **wakapi** (Go, static binary)
+on the fnOS box. Data model: the CLI POSTs *heartbeats*; wakapi derives durations
+from the **gaps between consecutive heartbeats** (`services/duration.go`: per-user
+`timeout` (default 10 min) caps each gap, `heartbeatPadding = 0`, cross-day gaps are
+dropped, a range holding a single heartbeat counts 0). So idle time is never
+counted, and "touching nothing" records nothing — the plugin only emits on
+CursorHold with activity in the last 120s, on every BufWritePost and on BufEnter.
+
+- **Nothing about wakatime is set up from Lua; the installers own it.** Two things
+  must exist before nvim starts, and both are written by `install-offline.sh`
+  (RHEL6) / `install.ps1` (Windows, online):
+  `~/.wakatime/wakatime-cli` (symlink to `~/.local/bin/wakatime-cli-linux-amd64`,
+  copy fallback) and `~/.wakatime.cfg`.
+  Do **not** move either back into `lua/box/`: a config file should not mutate the
+  filesystem on every startup, and — critically — `opts` merges **after**
+  `plugin/wakatime.vim` has already called `require('wakatime').setup()`, whose
+  `setup_cli()` latches the first CLI path it finds (`state.cli_already_setup`). A
+  later `opts.cli_path` updates `state.config` but leaves `state.wakatime_cli`
+  pointing at the (non-existent) managed path, and `send_heartbeats()` then
+  **silently drops the buffer on every event**. Only `status_bar_enabled` survives
+  that late merge (it is re-read on every `statusline()` call).
+- **`~/.wakatime.cfg` is only written when absent, never edited** — it holds the api
+  key set via `:WakaTimeApiKey` (or `$WAKATIME_API_KEY`, the one setting the CLI
+  does read from the environment). `hide_project_folder` is on so only
+  project-relative paths are sent; `sync_ai_disabled` is set on RHEL6 only.
+- **RHEL6 `api_url` is `http://127.0.0.1:1/api`**: a routable-but-unreachable URL
+  would block every heartbeat for the full `timeout` (default 120s) on a dead route
+  or on a DNS query the intranet resolver never answers. Loopback port 1 is refused
+  instantly and the heartbeat is queued either way. Online machines take theirs from
+  `$WAKATIME_API_URL` at install time.
+- **`status_bar_enabled` is false on RHEL6.** The plugin injects a lualine component
+  that refreshes `wakatime-cli --today` every 60s, and `--today` is network-only
+  (`cmd/today/today.go` has no offline branch and never reads the queue) — that is
+  ~1440 doomed processes a day for an empty status line.
+- **Manual replay flow (air-gapped RHEL6).** Heartbeats pile up in
+  `~/.wakatime/offline_heartbeats.bdb` (bbolt, values are JSON). With every nvim
+  **closed** (bbolt holds an exclusive flock and copy-on-writes pages):
+  1. RHEL6: `bash scripts/wakatime-export.sh` → copies the queue out and verifies the
+     copy with `--offline-queue-file <copy> --offline-count` (a torn copy aborts the
+     export).
+  2. Any networked box: `pwsh -File scripts/wakatime-sync.ps1 -QueueFile <copy>` →
+     `wakatime-cli --offline-queue-file <copy> --sync-offline-activity 0`, using the
+     credentials already in `~/.wakatime.cfg`. It then asserts the copy drained and
+     deletes it.
+  Re-uploading is **idempotent**: wakapi hashes every heartbeat into a `UNIQUE` index
+  (`models.Heartbeat.Hashed`, deliberately excluding id/editor/os/machine) and
+  `InsertBatch` dedupes, so retries after a partial failure never double-count. Only
+  heartbeats younger than `heartbeat_max_age` (default 4320h = 180 days) are
+  accepted, so don't let the queue sit longer than that.
+- **Sizing the queue:** ~350 B per heartbeat, but bbolt's key duplicates the entity
+  path, so the `.bdb` runs ~1.3-1.4x the raw JSON and never shrinks (high-water mark).
+  The CLI's own `heartbeat_rate_limit_seconds` (120s) does **not** drop the extra
+  heartbeats that frequent saves produce — it *queues* them. That inflates the file
+  but not the totals (durations are computed from gaps).
+- `wakatime-cli` is bundled via `scripts/tools.json` (`install: "bin"` →
+  `~/.local/bin/wakatime-cli-linux-amd64`, `version: ""` tracks the latest release).
+  No `glibc234` wrapper: it is `CGO_ENABLED=0` static and runs on 2.6.32.
 
 ## Verification commands
 

@@ -360,6 +360,62 @@ apply_tools() {
     need rustup "" "requires an intranet mirror or manual install"
     need perl "" "requires an intranet mirror or manual install"
 
+    # ------------------------------------------------ wakatime (air-gapped setup)
+    # Both steps live here, not in Lua: a config file must not mutate the
+    # filesystem on every nvim startup, and the offline installer is the only
+    # place that actually knows this box can never reach the network.
+    wt_home="${WAKATIME_HOME:-$HOME}"
+    wt_target="$LOCAL_DIR/bin/wakatime-cli-linux-amd64"
+    wt_link="$wt_home/.wakatime/wakatime-cli"
+    # 1) The plugin probes opts.cli_path -> PATH -> ~/.wakatime/wakatime-cli in
+    #    that order and only enables its (network + python3) autoupdate installer
+    #    when all three miss. PATH holds the arch-qualified name from tools.json,
+    #    so expose the managed name too. This cannot be done from nvim: its opts
+    #    merge *after* the plugin's own setup() already latched the CLI path, and
+    #    a wrong path makes send_heartbeats() silently drop every heartbeat.
+    if [ -x "$wt_target" ]; then
+        mkdir -p "$wt_home/.wakatime"
+        if ln -sf "$wt_target" "$wt_link" 2>/dev/null; then
+            ok "wakatime-cli linked -> $wt_link"
+        else
+            cp -f "$wt_target" "$wt_link" && chmod +x "$wt_link" \
+                && ok "wakatime-cli copied -> $wt_link (symlink unavailable)"
+        fi
+    else
+        warn "wakatime-cli not installed ($wt_target missing) - heartbeats will not be recorded; re-run without --config-only"
+    fi
+    # 2) Config. Never overwrite: it holds the api key the user set via
+    #    :WakaTimeApiKey. api_url points at a loopback dead end on purpose --
+    #    a routable-but-unreachable URL would block every heartbeat for the full
+    #    `timeout` (default 120s) on a dead route or a DNS query the intranet
+    #    resolver never answers; port 1 is refused instantly and the heartbeat is
+    #    queued either way.
+    wt_cfg="$wt_home/.wakatime.cfg"
+    if [ -f "$wt_cfg" ]; then
+        if grep -qiE '^[[:space:]]*api_url[[:space:]]*=' "$wt_cfg"; then
+            ok "wakatime config present -> $wt_cfg"
+        else
+            warn "wakatime: $wt_cfg has no api_url -- append: api_url = http://127.0.0.1:1/api"
+        fi
+    else
+        cat > "$wt_cfg" <<'WAKATIME_EOF'
+; created by nvim's scripts/install-offline.sh -- safe to edit
+[settings]
+debug = false
+; air-gapped: nothing can reach the server, so this is a loopback dead end
+; that fails instantly instead of hanging on a dead route or on DNS.
+; Point it at a real URL only if this box ever gets network access.
+api_url = http://127.0.0.1:1/api
+; send only the project-relative path (rtl/foo.sv), never /home/.../rtl/foo.sv
+hide_project_folder = true
+; no AI transcripts exist offline; skip scanning for them entirely
+sync_ai_disabled = true
+; keep heartbeats in ~/.wakatime/offline_heartbeats.bdb instead of dropping them
+offline = true
+WAKATIME_EOF
+        ok "wakatime config written -> $wt_cfg"
+    fi
+
     # npm tools cache (bundled node_modules — offline fallback for the mason npm
     # packages: yaml-language-server, vscode-json-languageserver,
     # bash-language-server, prettier, @fsouza/prettierd). The .bin scripts call
