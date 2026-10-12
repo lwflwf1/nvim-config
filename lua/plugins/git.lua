@@ -41,13 +41,6 @@ return {
             -- pcall: silently skip on RHEL6-packaged (stripped) builds or when
             -- scrollview is not installed
             pcall(function() require("scrollview.contrib.gitsigns").setup() end)
-            local hl = vim.api.nvim_set_hl
-            hl(0, 'GitSignsStagedAdd',    { link = 'GitSignsAdd' })
-            hl(0, 'GitSignsStagedChange', { link = 'GitSignsChange' })
-            hl(0, 'GitSignsStagedDelete', { link = 'GitSignsDelete' })
-            hl(0, 'GitSignsStagedAddNr',    { link = 'GitSignsAddNr' })
-            hl(0, 'GitSignsStagedChangeNr', { link = 'GitSignsChangeNr' })
-            hl(0, 'GitSignsStagedDeleteNr', { link = 'GitSignsDeleteNr' })
         end,
         opts = {
             signs = {

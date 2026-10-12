@@ -35,18 +35,6 @@ return {
       configs.opts.icons.kinds.symbols.Struct    = '󰙅 '
       configs.opts.icons.kinds.symbols.Text      = '󰉿 '
       configs.opts.icons.kinds.symbols.Unit      = '󰑭 '
-      -- Link Task highlight to Function (same as function/method)
-      local function set_task_hl()
-        vim.api.nvim_set_hl(0, 'DropBarIconKindTask', { link = 'Function', default = true })
-        vim.api.nvim_set_hl(0, 'DropBarKindTask', { default = true })
-        vim.api.nvim_set_hl(0, 'DropBarIconKindTaskNC', { link = 'DropBarIconKindDefaultNC', default = true })
-        vim.api.nvim_set_hl(0, 'DropBarKindTaskNC', { default = true })
-      end
-      set_task_hl()
-      vim.api.nvim_create_autocmd('ColorScheme', {
-        group = vim.api.nvim_create_augroup('dropbar_task_hl', {}),
-        callback = set_task_hl,
-      })
 
       -- SystemVerilog: exact node type -> dropbar kind mapping.
       -- The SV grammar wraps every class member in class_item/class_method/

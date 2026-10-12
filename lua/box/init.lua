@@ -19,6 +19,8 @@
 --   lsp              LSP server config + pick_config
 --   parsers          treesitter parser list (data)
 --   theme            colorscheme persistence + <leader>uC + lualine theme
+--   hl               highlight groups the colorschemes don't define (re-applied
+--                    on ColorScheme -- a colorscheme's `hi clear` wipes them)
 --   tools            :ToolInstall / :ToolUpdate
 --   neovide          GUI settings (called from ginit.vim)
 --   battery          lualine battery helper
@@ -31,6 +33,7 @@
 local M = {}
 
 function M.setup()
+    require("box.hl").setup()
     require("box.multicursor").setup()
     require("box.smart_gf").setup()
     require("box.wins").setup()

@@ -73,18 +73,10 @@ return {
                 CursorLine = { link = "ColorColumn" },
                 FloatTitle = { fg = "${green}", bg = "${float_bg}" },
                 ["@punctuation.bracket"] = { link = "Constant" }, -- all brackets take the theme's Constant color (SV has no lang-specific group, so it needs the generic one)
-                -- blink.cmp and this theme both omit CmpItemKind*/BlinkCmpKind*
-                -- for these 4 kinds; link them to the theme's own semantic
-                -- groups so both the icon and the kind label stay colored.
-                ["BlinkCmpKindVariable"] = { link = "Identifier" },
-                ["BlinkCmpKindFolder"] = { link = "Directory" },
-                ["BlinkCmpKindReference"] = { link = "Tag" },
-                ["BlinkCmpKindColor"] = { link = "Constant" },
-                -- onedarkpro also omits the label detail/description groups, so
-                -- without use_nvim_cmp_as_default they'd fall back to PmenuExtra
-                -- (no fg). Link them to the theme's own secondary-text group.
-                ["BlinkCmpLabelDetail"] = { link = "BlinkCmpSource" },
-                ["BlinkCmpLabelDescription"] = { link = "BlinkCmpSource" },
+                -- everything the colorscheme is *missing* (BlinkCmpKind*,
+                -- GitSignsStaged*, Aerial*, DropBar*Task, the @org.* faces)
+                -- lives in lua/box/hl.lua, not here: those are re-applied on
+                -- ColorScheme so a `hi clear` can't drop them.
             },
         },
         config = function(_, opts)

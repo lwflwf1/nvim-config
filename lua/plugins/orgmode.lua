@@ -16,7 +16,7 @@ return {
       org_todo_keywords = { "TODO(t)", "NEXT(n)", "WAIT(w)", "HOLD(h)", "|", "DONE(d)", "CANC(c)" },
       org_todo_repeat_to_state = "NEXT",
       -- Faces only register the keywords with orgmode; the actual colors are
-      -- applied from theme highlight groups in apply_theme_hl (config below).
+      -- applied from theme highlight groups in lua/box/hl.lua.
       org_todo_keyword_faces = {
         TODO = ":weight bold",
         NEXT = ":weight bold",
@@ -199,35 +199,8 @@ config = function(_, opts)
         require("org-link").setup({ auto_link_completion = true })
       end)
 
-      -- Todo-keyword faces and agenda highlights are resolved from theme
-      -- highlight groups and re-applied on ColorScheme (no hardcoded colors).
-      local function apply_theme_hl()
-        local function fg(name)
-          return vim.api.nvim_get_hl(0, { name = name }).fg
-        end
-        -- orgmode defines the face groups with `hi default`, so these win no
-        -- matter whether they run before or after orgmode.setup.
-        vim.api.nvim_set_hl(0, "@org.keyword.face.TODO", { fg = fg("DiagnosticError"), bold = true })
-        vim.api.nvim_set_hl(0, "@org.keyword.face.NEXT", { fg = fg("String"), bold = true })
-        vim.api.nvim_set_hl(0, "@org.keyword.face.WAIT", { fg = fg("DiagnosticWarn"), bold = true })
-        vim.api.nvim_set_hl(0, "@org.keyword.face.HOLD", { fg = fg("Comment"), italic = true })
-        vim.api.nvim_set_hl(0, "@org.keyword.face.CANC", { fg = fg("Comment"), strikethrough = true })
-        vim.api.nvim_set_hl(0, "@org.keyword.face.DONE", { fg = fg("String") })
-        -- Agenda: day headers, scheduled, deadline, time grid, current time,
-        -- and the today chip (fg purple, bg = the theme's Visual background).
-        vim.api.nvim_set_hl(0, "@org.agenda.day", { bold = true, fg = fg("Function") })
-        vim.api.nvim_set_hl(0, "@org.agenda.scheduled", { fg = fg("String") })
-        vim.api.nvim_set_hl(0, "@org.agenda.deadline", { fg = fg("DiagnosticError") })
-        vim.api.nvim_set_hl(0, "@org.agenda.time_grid", { fg = fg("Comment") })
-        vim.api.nvim_set_hl(0, "@org.agenda.current_time", { fg = fg("DiagnosticWarn"), bold = true })
-        vim.api.nvim_set_hl(0, "@org.agenda.today", {
-          bold = true,
-          fg = fg("Statement"),
-          bg = vim.api.nvim_get_hl(0, { name = "Visual" }).bg,
-        })
-      end
-      vim.api.nvim_create_autocmd("ColorScheme", { pattern = "*", callback = apply_theme_hl })
-      apply_theme_hl()
+      -- Todo-keyword faces and agenda highlights live in lua/box/hl.lua
+      -- (mapped onto the theme's own groups, re-applied on ColorScheme).
 
       local function org_map(mode, lhs, rhs, desc)
         vim.keymap.set(mode, lhs, rhs, { buffer = 0, silent = true, desc = desc })

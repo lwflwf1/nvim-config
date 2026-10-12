@@ -125,18 +125,6 @@ return {
             vim.lsp.protocol.SymbolKind.Covergroup = 30
             vim.lsp.protocol.SymbolKind.AssertProperty = 31
             require("aerial").setup(opts)
-            vim.api.nvim_set_hl(0, "AerialLine", { link = "IncSearch", default = true })
-
-            -- Custom kind highlights
-            vim.api.nvim_set_hl(0, "AerialClockingIcon",       { link = "Special",    default = true })
-            vim.api.nvim_set_hl(0, "AerialBlockIcon",          { link = "Special",    default = true })
-            vim.api.nvim_set_hl(0, "AerialCovergroupIcon",     { link = "Special",    default = true })
-            vim.api.nvim_set_hl(0, "AerialAssertPropertyIcon", { link = "Special",    default = true })
-            vim.api.nvim_set_hl(0, "AerialConstraintIcon",     { link = "Special",    default = true })
-            vim.api.nvim_set_hl(0, "AerialClocking",            { link = "AerialNormal", default = true })
-            vim.api.nvim_set_hl(0, "AerialBlock",               { link = "AerialNormal", default = true })
-            vim.api.nvim_set_hl(0, "AerialCovergroup",          { link = "AerialNormal", default = true })
-            vim.api.nvim_set_hl(0, "AerialAssertProperty",      { link = "AerialNormal", default = true })
         end,
     },
 }

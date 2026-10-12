@@ -34,7 +34,8 @@ lua/
                           shared by editing keymaps + lualine), toggle_value (<leader>sw), trim
                           (<leader>ue), wins, multicursor, smart_gf, winpick, lsp, parsers,
                           terminals (<leader>fe / :Terminals picker over snacks terminals),
-                          theme (+<leader>uC), tools (:ToolInstall), neovide, battery,
+                          theme (+<leader>uC), hl (groups the colorschemes don't
+                          define), tools (:ToolInstall), neovide, battery,
                           fff_picker (snacks patch), notifier_anim (snacks patch),
                           tabout (TabOut-rules engine for the smart multistep
                           Tab/S-Tab; chains declared in plugins/editing.lua),
@@ -183,6 +184,32 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   `data/lazy/fff/target/release/libfff_nvim.so`; fff's `binary_exists()`
   short-circuits so the plugin never auto-downloads the wrong build. Rebuild when
   the fff plugin commit changes — see "Rebuilding the fff RHEL6 binary".
+- **Highlight gap-fills live in one table: `lua/box/hl.lua`** (applied from
+  `box.setup()`, re-applied on every `ColorScheme`). It owns the groups the
+  colorschemes don't define: `BlinkCmpKind{Variable,Folder,Reference,Color}` +
+  `BlinkCmpLabel{Detail,Description}`, the six `GitSignsStaged*`,
+  aerial's extra SymbolKind groups, `DropBar{Kind,IconKind}Task{,NC}`, and the
+  `@org.keyword.face.*` / `@org.agenda.*` faces. Reasons, all verified:
+  - **A compiled colorscheme opens with `hi clear`, which drops EVERYTHING set
+    outside it — including `default = true` groups.** So a one-shot
+    `nvim_set_hl` in a plugin's `config()` (aerial's, gitsigns' staged links)
+    is silently lost after `<leader>uC` switches themes. That is why the old
+    per-plugin copies needed their own `ColorScheme` autocmd (dropbar's,
+    orgmode's) — they are gone, `box_hl` does it for all of them.
+  - **`link` combines with attributes**: `{ link = "DiagnosticError", bold = true }`
+    takes `bold` from the table and falls back to the link for `fg`. So the
+    orgmode faces are links to the theme's semantic groups instead of baking
+    `fg()` values.
+  - **`default = true` loses to a group the owning plugin already declared with
+    `hi default`** — which is why the `@org.keyword.face.*` entries omit it
+    (orgmode declares those itself) while everything else that no plugin
+    touches keeps it.
+  - blink's `highlights.lua` sets *every* group with `default = true`, so the
+    `BlinkCmp*` entries win regardless of augroup order.
+  Taste overrides that aren't gap-fills (`CursorLine`, `FloatTitle`,
+  `@punctuation.bracket`) stay in the colorscheme's own `opts.highlights` in
+  `plugins/ui.lua`, and `plugins/snacks.lua`'s picker winhl surgery stays there
+  too — that one works around snacks' winhl model, not a theme gap.
 - **Noice suppresses `recording @a`** (`msg_showmode` is `skip`-routed). lualine
   shows a `REC @<reg>` indicator instead, refreshed on `RecordingEnter`/`Leave`
   (`plugins/ui.lua`).
