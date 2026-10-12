@@ -96,7 +96,7 @@ return {
                         module = "minuet.blink",
                         async = true,
                         -- must match minuet.config.request_timeout * 1000
-                        timeout_ms = 2500,
+                        timeout_ms = 6000,
                         score_offset = 50,
                     },
                 } or {}),

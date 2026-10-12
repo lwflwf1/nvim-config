@@ -9,7 +9,7 @@ local mode_icons = {
     ["\22"] = "󰕰",
     R = "󰈸",
     c = "",
-    t = "",
+    t = "",
     s = "",
     S = "",
     ["\19"] = "",
@@ -219,7 +219,7 @@ return {
                 lualine_a = {
                     {
                         mode_component,
-                        right_padding = 2,
+                        right_padding = 1,
                     },
                 },
                 lualine_b = {

@@ -43,9 +43,9 @@ lua/
   snippets/               LuaSnip snippets
 after/
   ftplugin/               per-filetype overrides (systemverilog, log, markdown, ralf, tc, bigfile)
-  queries/systemverilog/  context.scm, textobjects.scm
+  queries/systemverilog/  context.scm
   syntax/                 ralf.vim, tc.vim
-queries/systemverilog/    aerial, highlights, textobjects, function_*, variables
+queries/systemverilog/    aerial, function_*, variables (the rest come from the SV fork)
 scripts/                  installers + packagers + tools.json
   build-fff-rhel6.sh      cross-build fff's backend for glibc 2.17 (run on Linux/WSL)
   prebuilt/fff/           GENERATED (gitignored): RHEL6 libfff_nvim.so, built by build-fff-rhel6.sh
@@ -90,6 +90,28 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   (both 0.13-dev)** — do NOT add version-branch shims for "older nvim"; only branch
   on `is_rhel6` for real glibc/tooling matters. (yazi.nvim is **not** `is_rhel6`-gated
   anymore — see the yazi bullet below.)
+- **Minuet / OpenCode Go** (`plugins/minuet.lua` + `plugins/blink.lua`): the key is
+  read from opencode's own auth file, whose location is **per-OS** —
+  `~/.local/share/opencode/auth.json` on Windows *and* Linux (verified on this box;
+  `%LOCALAPPDATA%/opencode` does not exist), `~/Library/Application
+  Support/opencode/auth.json` on macOS. The lookup tries both, then
+  `OPENCODE_GO_API_KEY`; with no key minuet reports `is_available() == false`, the
+  blink source is dropped and the backend never invokes its callback (a headless
+  probe then hangs instead of erroring). The `/go` endpoint 401s
+  (`MissingSessionID`) without `x-opencode-session`, which is added via
+  `provider_options.openai_compatible.transform` — not via curl args.
+- **`request_timeout` is curl's `--max-time` for the whole request**
+  (`utils.make_curl_args`), streaming included, so it must cover first-token latency.
+  Through this box's local proxy `glm-5.3-flash` measures 2.0-2.8s (cold ~5s), which
+  is why the budget is 6s and blink's minuet `timeout_ms` must match it; a tighter
+  budget silently returns nothing. HTTP/2 through the same proxy stalls ~15s now and
+  then (curl exits 000), so `curl_extra_args = { "--http1.1", "--connect-timeout", "5" }`
+  is set at minuet's **root** config (`curl_extra_args` is read from
+  `require("minuet").config`, not from `provider_options`). Both are plain curl
+  options, safe on every platform, and minuet is disabled on RHEL6 anyway. AI is
+  manual + per-buffer on purpose (`blink.enable_auto_complete = false`,
+  `virtualtext.auto_trigger_ft = {}`, `<leader>ua` arms the buffer) so the source and
+  the ghost text never each send a request per typing pause.
 - **yazi on RHEL6** (`plugins/yazi.lua`): the plugin enables wherever
   `vim.fn.executable("yazi") == 1` (no `is_rhel6` check). The upstream **musl
   static-pie** build (`yazi-*-unknown-linux-musl.zip`) runs on the RHEL6 2.6.32
@@ -266,25 +288,59 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
 - `systemverilog` is overridden to the personal fork
   `https://github.com/lwflwf1/tree-sitter-systemverilog` (dynamic `master` tracking)
   in `plugins/treesitter.lua`.
-- Custom SV queries live in `queries/systemverilog/` + `after/queries/systemverilog/`.
+- **SV queries are split between the fork and this config.** The fork's
+  `install_info.queries = "queries"` makes nvim-treesitter **copy** that dir into
+  `site/queries/systemverilog` on every install (`install.lua:441-443` →
+  `do_copy_queries`), so `folds/highlights/indents/injections/textobjects` ship with
+  the parser — do NOT keep config copies of those: `queries/` sits earlier on rtp
+  than `site/`, so a stale local copy silently shadows the fork's version.
+- What must stay in `queries/systemverilog/` + `after/queries/systemverilog/`,
+  because the fork does not ship it: `aerial.scm` (aerial's backend),
+  `function_arguments.scm`, `function_body.scm`, `function_definition.scm` and
+  `variables.scm` (hlargs.nvim loads those four names in `lua/hlargs/parse.lua`), and
+  `after/queries/systemverilog/context.scm` (treesitter-context loads the `context`
+  query). When moving a query into the fork, delete the config copy in the same
+  commit and check `git hash-object` against the fork's blob sha.
 - `:ToolInstall` installs missing mason tools from `box.lsp` + `plugins/formatter`
   and missing parsers; `:ToolUpdate` refreshes mason registry + parsers.
+- **Never hand-copy `lazy/nvim-treesitter/runtime/queries/<lang>` into
+  `data/site/queries/<lang>`** (this config used to do exactly that, and the
+  advice used to live here). `install()` decides a language is out of date with
+  `fs_realpath(site/queries/<lang>) ~= fs_realpath(runtime/queries/<lang>)`
+  (`install.lua:178-183`), so a real directory is *always* "different" → install
+  tries to `fs_symlink` over it → `[nvim-treesitter/install/<lang>] error: EEXIST:
+  file already exists`. `do_link_queries` can only `uv_unlink`, which fails on a
+  non-empty directory, so the error cannot be retried away. Fix: delete the
+  directory and let nvim-treesitter link it — `site/queries/<lang>` should be a
+  junction/symlink into `runtime/queries/<lang>` (all 20 of ours are), never a
+  directory. Re-check after a plugin update with the audit below.
 - **Queries must live under an rtp `queries/<lang>/` dir.** `nvim-treesitter` (main
   branch) keeps its queries in `<plugin>/runtime/queries`, which is **not** on rtp;
-  `install()`/`:TSUpdate` *links* them into `site/queries/<lang>`. Because
+  `install()`/`:TSUpdate` links them into `site/queries/<lang>`. Because
   `install()` skips already-installed parsers, a parser can exist with **no base
   query** → treesitter starts, captures nothing, and the regex syntax is off →
   **no highlighting** (keywords like python `def`, go `func`, rust `fn`). A theme/plugin
   `after/queries/<lang>/highlights.scm` (`; extends`) does **not** count as a base
   and can mask the problem: `vim.treesitter.query.get()` returns non-nil while
-  only theme captures exist. Check the *sources*, not just non-nil:
-  `vim.treesitter.query.get_files(lang, "highlights")` must include a file that is
-  not under `after/queries`. Fix locally (offline, no recompile) by copying
-  `lazy/nvim-treesitter/runtime/queries/<lang>` → `data/site/queries/<lang>`
-  (fixes highlights **and** `indents`/`folds`/`locals`); or run
-  `:TSUpdate` / `require("nvim-treesitter").install(require("box.parsers"), { force = true })`.
-  Seen on Windows for python/go/rust and 13 others; RHEL6 is unaffected (its
-  `site/` is built fresh by the offline installer).
+  only theme captures exist. Check the *sources*, not just non-nil — audit all
+  parsers after an update:
+
+```lua
+  -- headless probe: prints nothing when every parser has a base highlights query
+  for _, lang in ipairs(require("box.parsers")) do
+    local base = vim.tbl_filter(function(f)
+      return not f:match("after[\\/]queries")
+    end, vim.treesitter.query.get_files(lang, "highlights"))
+    if #base == 0 then print("no base highlights: " .. lang) end
+    if not vim.uv.fs_stat(vim.fs.joinpath(vim.fn.stdpath("data"), "site", "parser", lang .. ".so")) then
+      print("missing parser: " .. lang)
+    end
+  end
+  ```
+
+  A lang that fails the first check needs
+  `require("nvim-treesitter").install(require("box.parsers"), { force = true })`
+  (or deleting the stale `site/queries/<lang>` directory first).
 
 ## Verification commands
 

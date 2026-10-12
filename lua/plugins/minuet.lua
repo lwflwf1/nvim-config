@@ -9,18 +9,22 @@ return {
             -- (~/.local/share/opencode/auth.json, provider "opencode-go")
             -- instead of requiring a separate OPENCODE_GO_API_KEY env var;
             -- falls back to the env var when the auth file/field is absent
-            local auth_file = vim.fs.joinpath(
-                vim.fs.dirname(vim.fn.stdpath("data")),
-                "opencode",
-                "auth.json"
-            )
+            -- opencode stores it under ~/.local/share/opencode on Windows too
+            -- (verified: %LOCALAPPDATA%\opencode does not exist), so try the home
+            -- path first, then the XDG dir next to stdpath("data").
+            local auth_files = {
+                vim.fs.joinpath(vim.fn.expand("~/.local/share/opencode"), "auth.json"),
+                vim.fs.joinpath(vim.fs.dirname(vim.fn.stdpath("data")), "opencode", "auth.json"),
+            }
             local function opencode_api_key()
-                local f = io.open(auth_file, "r")
-                if f then
-                    local ok, auth = pcall(vim.json.decode, f:read("*a"))
-                    f:close()
-                    local key = ok and auth and auth["opencode-go"] and auth["opencode-go"].key or nil
-                    if key and key ~= "" then return key end
+                for _, auth_file in ipairs(auth_files) do
+                    local f = io.open(auth_file, "r")
+                    if f then
+                        local ok, auth = pcall(vim.json.decode, f:read("*a"))
+                        f:close()
+                        local key = ok and auth and auth["opencode-go"] and auth["opencode-go"].key or nil
+                        if key and key ~= "" then return key end
+                    end
                 end
                 return os.getenv("OPENCODE_GO_API_KEY") or ""
             end
@@ -38,8 +42,14 @@ return {
                 -- endpoint (~1.1s, measured with a ~850-token context); README's
                 -- tuned recipe uses deepseek-v4-flash).
                 provider = "openai_compatible",
+                -- --max-time for the whole request; through the local proxy
+                -- glm-5.3-flash measured 1.4-5.0s to first token on this box,
+                -- so a 2.5s budget returned nothing on most attempts
                 -- keep in sync with blink's minuet provider timeout_ms
-                request_timeout = 2.5,
+                request_timeout = 6,
+                -- HTTP/2 through the local proxy stalls ~15s now and then
+                -- (curl exits 000); pinning HTTP/1.1 avoids it
+                curl_extra_args = { "--http1.1", "--connect-timeout", "5" },
                 -- slower cadence: fewer LLM calls, lower cost / rate-limit risk
                 throttle = 1500,
                 debounce = 600,
