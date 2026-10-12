@@ -90,6 +90,11 @@ return {
                 local ok, blink = pcall(require, "blink.cmp")
                 return ok and blink.is_menu_visible()
             end
+            -- same condition mini.keymap's `blink_accept` builtin uses
+            local function blink_item_selected()
+                local ok, blink = pcall(require, "blink.cmp")
+                return ok and blink.is_menu_visible() and blink.get_selected_item() ~= nil
+            end
             local mc = require("box.multicursor")
             -- minuet ghost text lives in Insert mode only (cleared on
             -- InsertLeave), so the normal-mode AI preview to dismiss is the
@@ -119,7 +124,30 @@ return {
             -- CR: blink accept (selected item only) > mini.pairs pair expansion
             -- > raw CR. Replaces blink's own `accept+fallback` CR entry, whose
             -- fallback forwarding to minipairs' expr map is the fragile part.
-            keymap.map_multistep({"i", "c"}, "<CR>", { "blink_accept", "minipairs_cr" })
+            keymap.map_multistep("i", "<CR>", { "blink_accept", "minipairs_cr" })
+
+            -- CR in cmdline/search is ONE press: accept the selected completion
+            -- AND run the line. `blink_accept` needs a second <CR> because a
+            -- mini.keymap step only feeds keys after the mapping (its action is
+            -- `<Cmd>lua require("blink.cmp").accept()<CR>`), which merely fills
+            -- the cmdline; `accept_and_enter` instead feeds the <CR> from the
+            -- accept callback, so the updated line runs immediately (accept
+            -- itself is vim.schedule'd, so the ordering is safe).
+            -- The condition is deliberately the same as `blink_accept` (menu
+            -- visible + item selected): a plain CR must stay "run what I typed",
+            -- never "run item 1 instead" — that would rewrite `:e foo.lua` into
+            -- some other match. `accept_and_enter`, not
+            -- `select_accept_and_enter`: with no selection `list.accept()`
+            -- returns early and the press would be swallowed.
+            keymap.map_multistep("c", "<CR>", {
+                {
+                    condition = blink_item_selected,
+                    action = function()
+                        return "<Cmd>lua require('blink.cmp').accept_and_enter()<CR>"
+                    end,
+                },
+                "minipairs_cr",
+            })
 
             -- smart <Esc> (insert): progressive exit — (1) blink completion menu visible
             -- -> hide it and STAY in insert (blink itself never consumes Esc,
