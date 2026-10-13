@@ -21,12 +21,15 @@ M.markers = {
     "Makefile", "Cargo.toml", "package.json",
 }
 
+-- Auto-cwd on/off (default on). Toggled by <leader>pa / the lualine click.
+local auto_enabled = true
+
 -- Manual root pin (<leader>pp / lualine left-click): set by M.pick's confirm
 -- callback, cleared when auto-cwd is toggled back on.
 local pinned_root = nil
 
--- Auto-cwd on/off (default on). Toggled by <leader>pa / the lualine click.
-local auto_enabled = true
+---@type table<string, string>
+local cwd_cache = {}
 
 ---@return boolean
 function M.auto_enabled()
@@ -80,12 +83,34 @@ function M.get_root(source)
     return pinned_root or find_root(source)
 end
 
--- Pure state flip (no feedback). M.toggle_cwd below is the user-facing entry
--- for both <leader>pa and the lualine cwd click (ui.lua).
+-- Recompute the cwd for the current buffer and chdir there. The single place
+-- that actually moves the cwd: the BufEnter autocmd and the auto-cwd toggle
+-- both go through it, so turning auto ON lands on the right dir immediately
+-- instead of waiting for the next BufEnter (which left getcwd() on the stale
+-- pin while get_root() already reported the new root).
+local function apply_cwd()
+    local path = vim.api.nvim_buf_get_name(0)
+    if path == "" or vim.bo.buftype ~= "" then
+        return
+    end
+    local dir = vim.fs.dirname(path)
+    if cwd_cache[dir] == nil then
+        cwd_cache[dir] = find_root(0) or dir
+    end
+    local target = cwd_cache[dir]
+    if vim.fn.getcwd() ~= target then
+        vim.fn.chdir(target)
+    end
+end
+
+-- Pure state flip, except that turning auto ON also re-derives the cwd now.
+-- M.toggle_cwd below is the user-facing entry for both <leader>pa and the
+-- lualine cwd click (ui.lua).
 function M.toggle_auto()
     auto_enabled = not auto_enabled
     if auto_enabled then
         pinned_root = nil
+        apply_cwd()
     end
 end
 
@@ -210,25 +235,13 @@ function M.setup()
     -- Single auto-cwd implementation (global chdir). Disabled by <leader>pa
     -- (M.toggle_cwd) and by a manual root set via <leader>pp (M.pick).
     local auto_cwd_aug = vim.api.nvim_create_augroup("auto_cwd", { clear = true })
-    local cwd_cache = {}
     vim.api.nvim_create_autocmd("BufEnter", {
         group = auto_cwd_aug,
         callback = function()
             if not auto_enabled then
                 return
             end
-            local path = vim.api.nvim_buf_get_name(0)
-            if path == "" or vim.bo.buftype ~= "" then
-                return
-            end
-            local dir = vim.fs.dirname(path)
-            if cwd_cache[dir] == nil then
-                cwd_cache[dir] = find_root(0) or dir
-            end
-            local target = cwd_cache[dir]
-            if vim.fn.getcwd() ~= target then
-                vim.fn.chdir(target)
-            end
+            apply_cwd()
         end,
     })
 
