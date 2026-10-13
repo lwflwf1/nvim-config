@@ -105,6 +105,9 @@ return {
             snippets = { preset = "luasnip" },
 
             completion = {
+                -- No `keyword.range` on purpose: 'full' would fix the duplicated
+                -- suffix but also eats unrelated tails. box/blink_suffix.lua
+                -- tests the tail instead (Zed's "replace_suffix").
                 documentation = { auto_show = true },
                 menu = {
                     draw = {
@@ -129,6 +132,11 @@ return {
             -- cmdline completions are on by default (blink auto-detects noice)
         },
         config = function(_, opts)
+            -- Conditional suffix replacement (Zed's "replace_suffix" idea). Order
+            -- does not matter here: the wrapper passes its own 'full' range and
+            -- never reads the resolved config.
+            require("box.blink_suffix").setup()
+
             -- minuet is disabled on RHEL6, so require it via pcall and attach
             -- the manual-trigger <A-y> map only when it's loadable
             local ok, minuet = pcall(require, "minuet")
