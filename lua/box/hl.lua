@@ -51,27 +51,6 @@ local function groups()
         GitSignsStagedChangeNr = { link = "GitSignsChangeNr" },
         GitSignsStagedDeleteNr = { link = "GitSignsDeleteNr" },
 
-        -- aerial: the extra SymbolKinds registered in plugins/aerial.lua have no
-        -- theme groups (onedarkpro's aerial.lua only carries AerialClass).
-        AerialLine = { link = "IncSearch", default = true },
-        AerialClockingIcon = { link = "Special", default = true },
-        AerialBlockIcon = { link = "Special", default = true },
-        AerialCovergroupIcon = { link = "Special", default = true },
-        AerialAssertPropertyIcon = { link = "Special", default = true },
-        AerialConstraintIcon = { link = "Special", default = true },
-        AerialClocking = { link = "AerialNormal", default = true },
-        AerialBlock = { link = "AerialNormal", default = true },
-        AerialCovergroup = { link = "AerialNormal", default = true },
-        AerialAssertProperty = { link = "AerialNormal", default = true },
-
-        -- dropbar: Task is registered as a symbol kind in plugins/dropbar.lua,
-        -- where it means the same thing as a function. The label groups are
-        -- emptied on purpose so a Task symbol carries no color of its own.
-        DropBarIconKindTask = { link = "Function", default = true },
-        DropBarKindTask = { default = true },
-        DropBarIconKindTaskNC = { link = "DropBarIconKindDefaultNC", default = true },
-        DropBarKindTaskNC = { default = true },
-
         -- orgmode todo keywords and agenda, mapped onto the theme's own semantic
         -- groups (no hardcoded colors). orgmode declares the keyword faces with
         -- `hi default`, hence no `default` key on those.
@@ -99,16 +78,38 @@ local function groups()
         },
     }
 
-    -- Port kinds (by direction) are config-only in both plugins: aerial needs
-    -- the icon groups, dropbar needs the text + icon groups (and their NC
-    -- variants, which dropbar derives only for kinds it knows about).
-    for _, kind in ipairs({ "InputPort", "OutputPort", "InoutPort", "Port" }) do
-        g["Aerial" .. kind .. "Icon"] = { link = "Special", default = true }
-        g["Aerial" .. kind] = { link = "AerialNormal", default = true }
-        g["DropBarIconKind" .. kind] = { link = "Special", default = true }
-        g["DropBarKind" .. kind] = { default = true }
-        g["DropBarIconKind" .. kind .. "NC"] = { link = "DropBarIconKindDefaultNC", default = true }
-        g["DropBarKind" .. kind .. "NC"] = { default = true }
+    -- aerial/dropbar groups this config owns. The custom SymbolKinds
+    -- (registered in plugins/aerial.lua and dropbar.lua's sv_kinds) have no
+    -- theme or plugin groups: aerial needs text + icon, dropbar needs text +
+    -- icon plus the NC variants it only derives for kinds it already knows.
+    -- { kind, aerial icon, dropbar icon }; a nil side is skipped (Clocking..
+    -- Constraint are aerial-only, Task is dropbar-only). Net reuses Variable's
+    -- highlight (Identifier / DropBarIconKindDefault).
+    g.AerialLine = { link = "IncSearch", default = true }
+    for _, spec in ipairs({
+        { "Clocking",       "Special" },
+        { "Block",          "Special" },
+        { "Covergroup",     "Special" },
+        { "AssertProperty", "Special" },
+        { "Constraint",     "Special" },
+        { "InputPort",      "Special",    "Special" },
+        { "OutputPort",     "Special",    "Special" },
+        { "InoutPort",      "Special",    "Special" },
+        { "Port",           "Special",    "Special" },
+        { "Net",            "Identifier", "DropBarIconKindDefault" },
+        { "Task",           nil,          "Function" },
+    }) do
+        local kind, aerial_icon, dropbar_icon = spec[1], spec[2], spec[3]
+        if aerial_icon then
+            g["Aerial" .. kind .. "Icon"] = { link = aerial_icon, default = true }
+            g["Aerial" .. kind] = { link = "AerialNormal", default = true }
+        end
+        if dropbar_icon then
+            g["DropBarIconKind" .. kind] = { link = dropbar_icon, default = true }
+            g["DropBarKind" .. kind] = { default = true }
+            g["DropBarIconKind" .. kind .. "NC"] = { link = "DropBarIconKindDefaultNC", default = true }
+            g["DropBarKind" .. kind .. "NC"] = { default = true }
+        end
     end
 
     return g

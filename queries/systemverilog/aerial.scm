@@ -97,8 +97,10 @@
   (#set! "kind" "AssertProperty")) @type
 
 ;-------------------------------------
-; Variable / Net declarations
+; Variables (`logic`/`reg`/`bit`/...) and nets (`wire`/`tri`/...)
 ;-------------------------------------
+; @type is the assignment node (not the declaration) so a multi-name
+; declaration (`wire a, b;`) yields one symbol per name.
 (data_declaration
   (list_of_variable_decl_assignments
     (variable_decl_assignment
@@ -109,9 +111,35 @@
 (net_declaration
   (list_of_net_decl_assignments
     (net_decl_assignment
-      (simple_identifier) @name))
+      (simple_identifier) @name) @type)
   (#not-has-ancestor? @type class_property)
-  (#set! "kind" "Variable")) @type
+  (#set! "kind" "Net"))
+
+;-------------------------------------
+; Constants (parameters / localparams / specparams)
+;-------------------------------------
+; `parameter_port_declaration` wraps these, so header parameters are covered
+; without their own rule.
+(parameter_declaration
+  (list_of_param_assignments
+    (param_assignment (simple_identifier) @name) @type)
+  (#set! "kind" "Constant"))
+
+(local_parameter_declaration
+  (list_of_param_assignments
+    (param_assignment (simple_identifier) @name) @type)
+  (#set! "kind" "Constant"))
+
+; `parameter type T = ...`
+(type_parameter_declaration
+  (list_of_type_assignments
+    (type_assignment (simple_identifier) @name) @type)
+  (#set! "kind" "Constant"))
+
+(specparam_declaration
+  (list_of_specparam_assignments
+    (specparam_assignment (simple_identifier) @name) @type)
+  (#set! "kind" "Constant"))
 
 ;-------------------------------------
 ; Ports (direction-typed; kept distinct from internal Variable signals)

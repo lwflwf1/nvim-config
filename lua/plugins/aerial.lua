@@ -55,29 +55,13 @@ return {
                 return containers[vim.bo[bufnr or src_bufnr()].filetype] or containers["_"]
             end
 
-            local function filter(kinds, desc)
-                return {
-                    callback = function()
-                        local sb = src_bufnr()
-                        if kinds == false then
-                            apply_filter(sb, false, false)
-                        elseif not kinds then
-                            apply_filter(sb, nil, nil)
-                        else
-                            apply_filter(sb, vim.list_extend(vim.deepcopy(kinds), container_kinds(sb)), kinds)
-                        end
-                    end,
-                    desc = desc or "",
-                }
-            end
-
             local function open_kind_picker(source_bufnr)
                 local items = {}
                 -- One entry per kind; pick several with <Tab>.
                 local kinds = {
                     "Module", "Interface", "Package", "Class", "Constructor",
                     "Function", "Property", "Constraint", "AssertProperty",
-                    "Clocking", "Block", "Covergroup", "Variable",
+                    "Clocking", "Block", "Covergroup", "Variable", "Net", "Constant",
                     "InputPort", "OutputPort", "InoutPort", "Port",
                 }
                 for _, k in ipairs(kinds) do
@@ -87,11 +71,7 @@ return {
                     items = items,
                     title = "Aerial kind filter (<Tab> to multi-select)",
                     layout = { preset = "select", style = "minimal" },
-                    format = function(item, picker)
-                        local ret = Snacks.picker.format.selected(item, picker)
-                        ret[#ret + 1] = { item.text }
-                        return ret
-                    end,
+                    format = "text",
                     actions = {
                         confirm = function(picker, _)
                             picker:close()
@@ -126,14 +106,14 @@ return {
                 },
                 filter_kind = {
                     "Class", "Constructor", "Function", "Interface", "Module",
-                    "Variable", "Property", "Constraint", "AssertProperty",
-                    "Clocking", "Covergroup",
+                    "Variable", "Net", "Property", "Constraint", "AssertProperty",
+                    "Clocking", "Covergroup", "Constant",
                     "InputPort", "OutputPort", "InoutPort", "Port",
                 },
                 -- A port re-declared internally (`input foo;` ... `wire foo;`)
-                -- would show up twice; keep the Port symbol, drop the Variable.
+                -- would show up twice; keep the Port symbol, drop the signal.
                 post_parse_symbol = function(bufnr, item, ctx)
-                    if item.kind ~= "Variable" then
+                    if item.kind ~= "Variable" and item.kind ~= "Net" then
                         return nil
                     end
                     if require("box.sv").port_names(bufnr, ctx.syntax_tree)[item.name] then
@@ -164,17 +144,22 @@ return {
                     OutputPort     = " ",
                     InoutPort      = " ",
                     Port           = "󱘖 ",
+                    Net            = "󱕆 " ,
                 },
-                show_guides = true,
+                show_guides = false,
                 keymaps = {
-                    ["sf"] = filter({ "Function", "Constructor" }, "Filter: Functions/Constructor"),
-                    ["sc"] = filter({ "Class", "Interface", "Module", "Package" }, "Filter: Class/Interface/Module/Package"),
-                    ["sp"] = filter({ "Property", "Constraint", "AssertProperty" }, "Filter: Property/Constraint/AssertProperty"),
-                    ["sv"] = filter({ "Variable" }, "Filter: Variable"),
-                    ["so"] = filter({ "Clocking", "Covergroup" }, "Filter: Clocking/Covergroup"),
-                    ["sb"] = filter({"Block"}, "Filter: Block"),
-                    ["sa"] = filter(false, "Show all symbols"),
-                    ["sr"] = filter(nil, "Restore default"),
+                    ["sa"] = {
+                        callback = function()
+                            apply_filter(src_bufnr(), false, false)
+                        end,
+                        desc = "Show all symbols",
+                    },
+                    ["sr"] = {
+                        callback = function()
+                            apply_filter(src_bufnr(), nil, nil)
+                        end,
+                        desc = "Restore default",
+                    },
                     ["ss"] = {
                         callback = function()
                             open_kind_picker(src_bufnr())
@@ -194,6 +179,7 @@ return {
             vim.lsp.protocol.SymbolKind.InputPort = 33
             vim.lsp.protocol.SymbolKind.OutputPort = 34
             vim.lsp.protocol.SymbolKind.InoutPort = 35
+            vim.lsp.protocol.SymbolKind.Net = 36
             require("aerial").setup(opts)
         end,
     },

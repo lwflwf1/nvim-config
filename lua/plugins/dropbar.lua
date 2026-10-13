@@ -27,6 +27,7 @@ return {
       configs.opts.icons.kinds.symbols.OutputPort = " "
       configs.opts.icons.kinds.symbols.InoutPort  = " "
       configs.opts.icons.kinds.symbols.Port       = "󱘖 "
+      configs.opts.icons.kinds.symbols.Net        = "󱕆 "
       -- Align icons with lspkind.nvim
       configs.opts.icons.kinds.symbols.Class     = '󰠱 '
       configs.opts.icons.kinds.symbols.Field     = '󰜢 '
@@ -60,7 +61,11 @@ return {
         function_prototype = 'Function',
         task_prototype = 'Function',
         data_declaration = 'Variable',
-        net_declaration = 'Variable',
+        net_declaration = 'Net',
+        parameter_declaration = 'Constant',
+        local_parameter_declaration = 'Constant',
+        type_parameter_declaration = 'Constant',
+        specparam_declaration = 'Constant',
         port_declaration = 'Port',
         ansi_port_declaration = 'Port',
       }
@@ -110,6 +115,48 @@ return {
           local found = sv_first_identifier(child, buf)
           if found then return found end
         end
+      end
+
+      -- Declarations whose named children are the declared entities, plus the
+      -- assignment/list node types used to reach them. Covers variables, nets,
+      -- parameters/localparams/specparams and `parameter type`.
+      local sv_multi_types = {
+        data_declaration = true,
+        class_property = true,
+        net_declaration = true,
+        parameter_declaration = true,
+        local_parameter_declaration = true,
+        type_parameter_declaration = true,
+        specparam_declaration = true,
+      }
+      local sv_assign_types = {
+        variable_decl_assignment = true,
+        net_decl_assignment = true,
+        param_assignment = true,
+        type_assignment = true,
+        specparam_assignment = true,
+      }
+      local sv_assign_lists = {
+        list_of_variable_decl_assignments = true,
+        list_of_net_decl_assignments = true,
+        list_of_param_assignments = true,
+        list_of_type_assignments = true,
+        list_of_specparam_assignments = true,
+      }
+
+      -- Assignment units of a declaration, in source order.
+      local function sv_var_assignments(node)
+        local out = {}
+        for list in node:iter_children() do
+          if sv_assign_lists[list:type()] then
+            for va in list:iter_children() do
+              if sv_assign_types[va:type()] then
+                out[#out + 1] = va
+              end
+            end
+          end
+        end
+        return out
       end
 
       -- Port name from a body `port_declaration`: descend to the identifier
@@ -208,6 +255,23 @@ return {
           end
           return ''
         end
+        -- Constants: the name is the first identifier under the assignment
+        -- list (skips a user type name in `parameter my_t P = ...`).
+        if
+          node:type() == 'parameter_declaration'
+          or node:type() == 'local_parameter_declaration'
+          or node:type() == 'type_parameter_declaration'
+          or node:type() == 'specparam_declaration'
+        then
+          local assigns = sv_var_assignments(node)
+          if col then
+            for _, va in ipairs(assigns) do
+              local id = sv_identifier_at_col(va, buf, col)
+              if id and id ~= '' then return id end
+            end
+          end
+          return assigns[1] and sv_first_identifier(assigns[1], buf) or ''
+        end
         local text = vim.treesitter.get_node_text(node, buf):gsub('\n', ' '):gsub('%s+', ' ')
         local m = vim.fn.matchlist(text, sv_name_patterns[node:type()])
         if
@@ -225,32 +289,6 @@ return {
           return m[2] ~= nil and m[2] ~= '' and m[2] or m[3] or ''
         end
         return m[3] ~= nil and m[3] ~= '' and m[3] or m[2] or ''
-      end
-
-      local sv_multi_var_types = {
-        data_declaration = true,
-        class_property = true,
-        net_declaration = true,
-      }
-      local sv_var_assignment_types = {
-        variable_decl_assignment = true,
-        net_decl_assignment = true,
-      }
-
-      -- Assignment units of a net/data declaration, in source order.
-      local function sv_var_assignments(node)
-        local out = {}
-        for list in node:iter_children() do
-          local lt = list:type()
-          if lt == 'list_of_variable_decl_assignments' or lt == 'list_of_net_decl_assignments' then
-            for va in list:iter_children() do
-              if sv_var_assignment_types[va:type()] then
-                out[#out + 1] = va
-              end
-            end
-          end
-        end
-        return out
       end
 
       -- Declared names of a net/data declaration (one per assignment).
@@ -301,11 +339,11 @@ return {
         return not sv_port_redecl(node, buf)
       end
 
-      -- For multi-variable declarations (e.g. `bit [31:0] hw_val, mask;` or
-      -- `wire a, b;`), return the assignment nodes when there are ≥ 2.
-      -- Port re-declarations are excluded so they never surface twice.
+      -- For declarations with several names (e.g. `wire a, b;` or
+      -- `parameter A = 1, B = 2;`), return the assignment nodes when there
+      -- are ≥ 2. Port re-declarations are excluded so they never show twice.
       local function sv_multi_vars(node, buf)
-        if not sv_multi_var_types[node:type()] then
+        if not sv_multi_types[node:type()] then
           return nil
         end
         local assigns = sv_var_assignments(node)
@@ -417,9 +455,9 @@ return {
           return nil
         end
 
-        -- variable_decl_assignment / net_decl_assignment: extract name from
-        -- first child, inherit kind from the parent declaration.
-        if node:type() == 'variable_decl_assignment' or node:type() == 'net_decl_assignment' then
+        -- Assignment nodes (variable/net/param/type/specparam): extract the
+        -- name, inherit the kind from the parent declaration.
+        if sv_assign_types[node:type()] then
           name = sv_first_identifier(node, buf)
           if not name or name == '' then return nil end
           local parent = node:parent()
