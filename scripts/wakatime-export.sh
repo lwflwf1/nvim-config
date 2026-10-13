@@ -1,88 +1,160 @@
 #!/bin/bash
-# Export the RHEL6 wakatime-cli offline queue for manual transfer.
+# wakatime-export.sh - RHEL6 side of the wakapi mail bridge.
 #
-# RHEL6 is air-gapped, so heartbeats accumulate in the local bbolt queue
-# (~/.wakatime/offline_heartbeats.bdb) instead of being uploaded. This copies
-# that queue out; scripts/wakatime-sync.ps1 replays it on a networked machine.
+# The air-gapped box cannot reach wakapi, so its heartbeat queue is mailed out
+# instead: dump the local bbolt queue to JSON, pack+compress it with ferry,
+# mail the (<=1 MiB) parts, then clear the queue. The receiving end is
+# scripts/wakatime-fetch.py on a networked machine.
 #
-# Usage: wakatime-export.sh [-o OUTDIR] [-q]
-#          -o OUTDIR  where to write the .bdb (default: ./wakatime-export)
-#          -q         quiet; only print the file path and sha256
+# Why JSON and not the .bdb: bbolt copy-on-writes and nothing in wakatime-cli
+# ever compacts it, so the file only grows and never shrinks -- the moment it
+# passes 1 MiB (this box's per-file mail limit) copying it is impossible. JSON
+# also compresses ~5-20x, so one part carries far more heartbeats.
 #
-# IMPORTANT: close every nvim instance first. bbolt takes an exclusive flock and
-# writes copy-on-write pages, so copying the file while the CLI has it open can
-# capture a torn database. The post-copy --offline-count below is the safety net:
-# a torn copy fails to open and we abort before anything is lost.
-set -u
+# Why the queue is cleared: --print-offline-heartbeats always dumps the WHOLE
+# queue, so leaving it would re-send everything on the next run and the queue
+# would grow without bound until the archive blew past ferry's 10 MiB prompt
+# (which cancels instead of splitting in a non-interactive run). Clearing it on
+# success is safe because by then the parts are in the mailbox, and the receiver
+# does not delete a message until it has been uploaded to wakapi -- at every
+# instant the data lives in at least one place.
+#
+# IMPORTANT: do not edit files while this runs. The queue is deleted on success,
+# so a heartbeat appended between the dump and the delete would go with it. The
+# script warns when a wakatime-cli process is currently running.
+#
+# Usage: wakatime-export.sh [-n|--keep-queue] [-d DIR] [-t RECIPIENT]
+#   -n  keep the queue (and the local artifacts) after a successful send
+#   -d  working directory for the .json/.zip (default: ~/wakatime-ferry)
+#   -t  recipient (default: "$(id -un)@asrmicro.com")
+#
+# Env overrides: FERRY (path to ferry.py/.cmd or a command name), WAKATIME_HOME.
+set -uo pipefail
 
-OUT_DIR="./wakatime-export"
-QUIET=0
-while getopts "o:q" opt; do
+OUT_DIR="${HOME}/wakatime-ferry"
+RECIPIENT="$(id -un)@asrmicro.com"
+KEEP_Q=0
+FERRY="${FERRY:-ferry}"
+
+while getopts "nd:t:" opt; do
     case "$opt" in
-        o) OUT_DIR="$OPTARG" ;;
-        q) QUIET=1 ;;
-        *) echo "usage: $0 [-o OUTDIR] [-q]" >&2; exit 2 ;;
+        n) KEEP_Q=1 ;;
+        d) OUT_DIR="$OPTARG" ;;
+        t) RECIPIENT="$OPTARG" ;;
+        *) echo "usage: $0 [-n] [-d DIR] [-t RECIPIENT]" >&2; exit 2 ;;
     esac
 done
 
-HOME_DIR="${WAKATIME_HOME:-$HOME}"
-CLI="$HOME_DIR/.wakatime/wakatime-cli"
-QUEUE="$HOME_DIR/.wakatime/offline_heartbeats.bdb"
+WK_HOME="${WAKATIME_HOME:-$HOME}"
+CLI="$WK_HOME/.wakatime/wakatime-cli"
+QUEUE="$WK_HOME/.wakatime/offline_heartbeats.bdb"
 
-log() { [ "$QUIET" = 1 ] || echo "$*"; }
-die() { echo "$*" >&2; exit 1; }
+log()  { printf '%s\n' "$*"; }
+warn() { printf '[!] %s\n' "$*" >&2; }
+die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+# ---------------------------------------------------------------- preflight
+command -v "$FERRY" >/dev/null 2>&1 || die "ferry not found (set FERRY=/path/to/ferry)"
 [ -x "$CLI" ] || die "wakatime-cli not executable: $CLI
-  (expected a symlink to ~/.local/bin/wakatime-cli-linux-amd64, created by
-   box.wakatime.bootstrap(); if missing, run the offline installer)"
+       run the offline installer (it links ~/.local/bin/wakatime-cli-linux-amd64)"
 
-if [ ! -f "$QUEUE" ]; then
-    log "no offline queue yet: $QUEUE"
-    log "(it only appears once wakatime-cli has failed to upload a heartbeat)"
-    exit 0
+if command -v pgrep >/dev/null 2>&1 && pgrep -f 'wakatime-cli' >/dev/null 2>&1; then
+    warn "a wakatime-cli process is running right now"
+    warn "if you are editing, a heartbeat written during this export can be lost with the queue"
 fi
 
+[ -f "$QUEUE" ] || die "no offline queue at $QUEUE
+       (it appears once wakatime-cli has recorded a heartbeat)"
+
+COUNT="$("$CLI" --offline-queue-file "$QUEUE" --offline-count 2>/dev/null | tr -d '\r\n')"
+case "$COUNT" in
+    ''|*[!0-9]*) die "unexpected --offline-count output: '$COUNT' (is the queue corrupt?)" ;;
+esac
+if [ "$COUNT" = 0 ]; then
+    log "offline queue is empty - nothing to export"
+    exit 0
+fi
+log "queued heartbeats: $COUNT"
+
+# Only create the working dir once there is actually something to export.
 mkdir -p "$OUT_DIR" || die "cannot create $OUT_DIR"
+# ---------------------------------------------------------------- dump
 STAMP="$(date +%Y%m%d-%H%M%S)"
-DEST="$OUT_DIR/wakatime-$STAMP.bdb"
+ARCHIVE="wakatime-${STAMP}.zip"
+JSON="$OUT_DIR/wakatime-${STAMP}.json"
 
-COUNT="$("$CLI" --offline-queue-file "$QUEUE" --offline-count 2>&1)" \
-    || die "cannot read the queue (is nvim still running?): $COUNT"
-[ -n "$COUNT" ] || die "unexpected empty --offline-count output"
+log "dumping to $(basename "$JSON")"
+"$CLI" --offline-queue-file "$QUEUE" --print-offline-heartbeats "$COUNT" > "$JSON" \
+    || die "failed to dump the queue"
+[ -s "$JSON" ] || die "the dump is empty (pass N=0? note --print-offline-heartbeats 0 prints NOTHING: ReadMany stops at len >= limit)"
 
-SIZE="$(wc -c < "$QUEUE" | tr -d ' ')"
+# Re-read the dump and compare with the queue's own count: the dump is now the
+# only copy that will travel, so a short write must not be sent as if complete.
+DUMPED="$(python3 -c '
+import json,sys
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception as e:
+    sys.stderr.write("%s\n" % e); sys.exit(2)
+print(len(d))
+' "$JSON")" || die "the dump is not valid JSON: $JSON"
+if [ "$DUMPED" != "$COUNT" ]; then
+    die "dump holds $DUMPED heartbeats but the queue reported $COUNT - refusing to send"
+fi
+log "dumped $DUMPED heartbeats ($(wc -c < "$JSON" | tr -d ' ') bytes)"
 
-if [ "$COUNT" = "0" ]; then
-    log "offline queue is empty ($SIZE bytes) -- nothing to export"
-    exit 0
+# ---------------------------------------------------------------- pack
+# ferry's pack records paths relative to Path.cwd(), so the input has to be
+# inside it -- hence running ferry with cwd = the export dir and -i a basename.
+log "packing with ferry (cwd=$OUT_DIR)"
+( cd "$OUT_DIR" && "$FERRY" pack -i "$(basename "$JSON")" -o "$ARCHIVE" -f zip ) \
+    || { warn "ferry pack failed"; exit 1; }
+
+ZIP_PATH="$OUT_DIR/$ARCHIVE"
+[ -f "$ZIP_PATH" ] || die "ferry did not produce $ZIP_PATH"
+ZIP_SIZE="$(wc -c < "$ZIP_PATH" | tr -d ' ')"
+PARTS=$(( (ZIP_SIZE + 1048575) / 1048576 ))
+log "archive: $(basename "$ZIP_PATH") ${ZIP_SIZE} bytes -> ${PARTS} mail part(s) at 1 MiB"
+
+if [ "$ZIP_SIZE" -gt 10485760 ]; then
+    die "archive is $(( ZIP_SIZE / 1048576 )) MiB; ferry prompts above 10 MiB and CANCELS
+       in a non-interactive run. Export more often, or raise its FILE_SIZE_LIMIT.
+       (the .json and .zip were left in $OUT_DIR)"
 fi
 
-if [ "$SIZE" -gt 1048576 ]; then
-    log "WARNING: queue is $SIZE bytes (>1 MiB). If your transfer only allows"
-    log "         1 MiB per trip, export more often, or compress the JSON dump:"
-    log "           $CLI --print-offline-heartbeats $COUNT --offline-queue-file $QUEUE | gzip -9 > $DEST.json.gz"
+# ---------------------------------------------------------------- send
+# ferry splits at exactly 1 MiB (its SPLIT_SIZE), mails one message per part
+# with subject "Directory Archive: <archive> [i/N]", then deletes the parts.
+# Its `email` subcommand reports failure via the exit code, unlike `pack -e`
+# which swallows send_email()'s result -- so send as a separate step.
+log "mailing to $RECIPIENT"
+if ! ( cd "$OUT_DIR" && "$FERRY" email -i "$ARCHIVE" -t "$RECIPIENT" ); then
+    warn "ferry email failed - nothing was cleaned up, fix and re-run"
+    warn "artifacts kept: $JSON  $ZIP_PATH"
+    exit 1
 fi
 
-cp -f "$QUEUE" "$DEST" || die "copy failed"
-chmod 0600 "$DEST"
-
-# Integrity check on the *copy*: only now do we know it is readable, so a torn
-# file can never be mistaken for a good export.
-VERIFY="$("$CLI" --offline-queue-file "$DEST" --offline-count 2>&1)" \
-    || die "the exported copy is unreadable (db was being written?) -- aborting: $VERIFY"
-[ "$VERIFY" = "$COUNT" ] \
-    || die "copy holds $VERIFY heartbeats but the source had $COUNT -- aborting"
-
-SUM="$(sha256sum "$DEST" | cut -d' ' -f1)"
-
-log "heartbeats : $COUNT"
-log "source     : $QUEUE ($SIZE bytes)"
-log "exported   : $DEST"
-if [ "$QUIET" = 1 ]; then
-    echo "$DEST"
+# ---------------------------------------------------------------- cleanup
+# By now every part is in the mailbox, so the local copies can go.
+if [ "$KEEP_Q" = 1 ]; then
+    log "keeping the local artifacts and the queue (--keep-queue):"
+    log "  $JSON"
+    log "  $ZIP_PATH"
+    log "  $QUEUE"
+    log "NOTE: the next export will re-send these heartbeats (server-side hash dedup"
+    log "      makes that harmless but wasteful)"
 else
-    log "sha256     : $SUM"
-    log ""
-    log "Copy $DEST to a networked machine and run:"
-    log "  pwsh -File scripts/wakatime-sync.ps1 -QueueFile <copied .bdb>"
+    # The parts are in the mailbox and the receiver will not delete them until
+    # they are uploaded, so dropping the local copies loses nothing. Clearing
+    # the queue is what keeps the next export to just the new heartbeats; it is
+    # recreated on the next heartbeat.
+    rm -f "$JSON" "$ZIP_PATH"
+    rm -f "$QUEUE"
+    log "cleaned up the local artifacts and cleared the queue: $QUEUE"
 fi
+
+log ""
+log "done: $COUNT heartbeats mailed in ${PARTS} part(s) to $RECIPIENT"
+log "next, on a machine that can reach the internet:"
+log "  python scripts/wakatime-fetch.py scan     # confirm all parts arrived"
+log "  python scripts/wakatime-fetch.py sync     # download, verify, upload to wakapi"

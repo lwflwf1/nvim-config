@@ -3,6 +3,13 @@ return {
     -- Not lazy: heartbeats are emitted from CursorHold / BufWritePost / BufEnter,
     -- so a lazily loaded plugin would record nothing.
     lazy = false,
+    -- Registers :WakaExport / :WakaSync. Running from `init` (before the plugin
+    -- dir is sourced) keeps it out of the way; unlike the config bootstrap that
+    -- used to live here, it only creates user commands -- nothing touches the
+    -- filesystem at startup. See box/wakatime.lua.
+    init = function()
+        require("box.wakatime").setup()
+    end,
     -- Everything else is installer-owned on purpose. ~/.wakatime.cfg (api_url,
     -- hide_project_folder, sync_ai_disabled) is written by install-offline.sh /
     -- install.ps1, and ~/.wakatime/wakatime-cli is linked from

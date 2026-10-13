@@ -40,7 +40,7 @@ lua/
                           fff_picker (snacks patch), notifier_anim (snacks patch),
                           tabout (TabOut-rules engine for the smart multistep
                           Tab/S-Tab; chains declared in plugins/editing.lua),
-                          sticky (WIP), orgmode_profiles
+                          sticky (WIP), orgmode_profiles, wakatime (:WakaExport/:WakaSync)
   async.lua               compat shim: async.lua -> promise-async -> async.nvim
   snippets/               LuaSnip snippets
 after/
@@ -50,8 +50,8 @@ after/
 queries/systemverilog/    aerial, function_*, variables (the rest come from the SV fork)
 scripts/                  installers + packagers + tools.json
   build-fff-rhel6.sh      cross-build fff's backend for glibc 2.17 (run on Linux/WSL)
-  wakatime-export.sh      RHEL6: copy the offline heartbeat queue out for manual transfer
-  wakatime-sync.ps1       networked box: replay that queue into wakapi (official CLI sync)
+  wakatime-export.sh      RHEL6: dump the queue, pack+mail it via ferry (see below)
+  wakatime-fetch.py       networked box: fetch mailed archives, verify, upload (IMAP)
   prebuilt/fff/           GENERATED (gitignored): RHEL6 libfff_nvim.so, built by build-fff-rhel6.sh
 .opencode-memory/         local agent session memory (gitignored)
 ```
@@ -399,7 +399,8 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
 
 ## wakatime / wakapi (coding-time tracking)
 
-`lua/plugins/wakatime.lua` (the whole config is one `opts` table) + the official
+`lua/plugins/wakatime.lua` (+ `lua/box/wakatime.lua` for the `:WakaExport` /
+`:WakaSync` commands) and the official
 `wakatime/vim-wakatime` plugin, server = self-hosted **wakapi** (Go, static binary)
 on the fnOS box. Data model: the CLI POSTs *heartbeats*; wakapi derives durations
 from the **gaps between consecutive heartbeats** (`services/duration.go`: per-user
@@ -435,20 +436,52 @@ CursorHold with activity in the last 120s, on every BufWritePost and on BufEnter
   (`cmd/today/today.go` has no offline branch and never reads the queue) — that is
   ~1440 doomed processes a day for an empty status line.
 - **Manual replay flow (air-gapped RHEL6).** Heartbeats pile up in
-  `~/.wakatime/offline_heartbeats.bdb` (bbolt, values are JSON). With every nvim
-  **closed** (bbolt holds an exclusive flock and copy-on-writes pages):
-  1. RHEL6: `bash scripts/wakatime-export.sh` → copies the queue out and verifies the
-     copy with `--offline-queue-file <copy> --offline-count` (a torn copy aborts the
-     export).
-  2. Any networked box: `pwsh -File scripts/wakatime-sync.ps1 -QueueFile <copy>` →
-     `wakatime-cli --offline-queue-file <copy> --sync-offline-activity 0`, using the
-     credentials already in `~/.wakatime.cfg`. It then asserts the copy drained and
-     deletes it.
-  Re-uploading is **idempotent**: wakapi hashes every heartbeat into a `UNIQUE` index
-  (`models.Heartbeat.Hashed`, deliberately excluding id/editor/os/machine) and
-  `InsertBatch` dedupes, so retries after a partial failure never double-count. Only
-  heartbeats younger than `heartbeat_max_age` (default 4320h = 180 days) are
-  accepted, so don't let the queue sit longer than that.
+  `~/.wakatime/offline_heartbeats.bdb` (bbolt, values are JSON). The bridge is
+  **mail**: RHEL6 can reach only the corporate Exchange box, so the export is
+  mailed to `<user>@asrmicro.com`, an Outlook rule moves it to `INBOX/wakatime`,
+  and a networked machine pulls it back over IMAP. Two commands:
+  - RHEL6: `:WakaExport` (`scripts/wakatime-export.sh`) — `--offline-count` →
+    `--print-offline-heartbeats N` → `ferry pack -f zip` → `ferry email`, which
+    splits at ferry's `SPLIT_SIZE` (exactly 1 MiB) and mails one message per
+    part. Then it deletes the local .json/.zip **and the queue**.
+  - Networked box: `:WakaSync` (`scripts/wakatime-fetch.py sync`, `ssh` not
+    needed) — IMAP fetch of the parts → `ferry merge` → `ferry unpack` → POST to
+    `<api_url>/users/current/heartbeats.bulk`.
+- **Never copy the `.bdb` across.** Nothing in wakatime-cli ever compacts it, so
+  the file only grows (the Windows box's is already 4 MiB while empty); past
+  1 MiB the copy path is dead. JSON also compresses ~5-20x, so one part carries
+  far more heartbeats. Likewise `--print-offline-heartbeats 0` prints **nothing**
+  (`Queue.ReadMany` breaks at `len >= limit` before appending) — unlike
+  `--sync-offline-activity 0`, 0 is not "all"; pass the real count.
+- **The queue is cleared on a successful send, and that is the point.**
+  `--print-offline-heartbeats` always dumps the *whole* queue, so leaving it
+  would re-send everything next time and grow until the archive exceeded ferry's
+  10 MiB prompt (which *cancels* instead of splitting when non-interactive).
+  Safe because by then the parts are in the mailbox, and the receiver does not
+  delete a message until the upload succeeded — at every instant the data lives
+  somewhere. `--keep-queue` skips it. Corollary: **do not edit while exporting**,
+  a heartbeat appended between the dump and the delete goes with it (the script
+  warns when a `wakatime-cli` process is running).
+- **Integrity is checked, not assumed.** `ferry merge` validates the part
+  sequence and `ferry unpack` proves the zip CRC, so an MTA that rewrites line
+  endings surfaces as `INTEGRITY FAILURE` instead of silently corrupting
+  heartbeats (fallback: ferry's `-f text`, base64 in the body). `wakatime-fetch.py`
+  is **read-only until the POST succeeds** (`EXAMINE` + `BODY.PEEK`).
+- **Re-uploading is idempotent**: wakapi hashes each heartbeat into a `UNIQUE`
+  index (`models.Heartbeat.Hashed`, excluding id/editor/os/machine) and
+  `InsertBatch` dedupes. Only heartbeats younger than `heartbeat_max_age` (4320h
+  = 180 days) are accepted. `sync` keeps a ledger
+  (`~/wakatime-ferry/state.json`) instead of relying on `\Seen`, because a
+  mail-client rule may already mark mail read on arrival — so `scan`/`fetch`
+  search by subject, never by `UNSEEN`, and `--force` re-uploads.
+- **The upload auth is `Authorization: Basic base64(api_key)` — no trailing
+  colon.** `utils.ExtractBearerAuth` base64-decodes whatever follows the scheme
+  and uses it verbatim, so the WakaTime convention (`base64("key:")`) 401s.
+  `?api_key=<key>` also works and is the quickest manual check.
+- **Credentials live outside the repo** (`scripts/wakatime-fetch.py` reads
+  `imap.json`, searched via `-c`, then `./`, then its own dir; `:WakaSync` passes
+  `-c $WAKATIME_IMAP_CONFIG`). `.gitignore` carries an `imap.json` line purely as
+  a backstop against `git add -A` publishing a mailbox password.
 - **Sizing the queue:** ~350 B per heartbeat, but bbolt's key duplicates the entity
   path, so the `.bdb` runs ~1.3-1.4x the raw JSON and never shrinks (high-water mark).
   The CLI's own `heartbeat_rate_limit_seconds` (120s) does **not** drop the extra
