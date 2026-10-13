@@ -10,9 +10,7 @@ words
 # generated RHEL6 fff binary (build with scripts/build-fff-rhel6.sh)
 scripts/prebuilt/
 
-# credentials for scripts/wakatime-fetch.py (corporate IMAP password).
-# The file is meant to live outside the repo (next to ferry's upload.json),
-# this rule is only a backstop against `git add -A` publishing it.
+# IMAP credentials for :WakaSync (corporate mailbox password). The file is meant
+# to live outside the repo (next to ferry.py); this rule is only a backstop
+# against `git add -A` publishing it.
 imap.json
-# python bytecode (scripts/wakatime-fetch.py)
-__pycache__/

@@ -4,7 +4,12 @@
 # The air-gapped box cannot reach wakapi, so its heartbeat queue is mailed out
 # instead: dump the local bbolt queue to JSON, pack+compress it with ferry,
 # mail the (<=1 MiB) parts, then clear the queue. The receiving end is
-# scripts/wakatime-fetch.py on a networked machine.
+# `ferry recv` + `:WakaSync` on a networked machine.
+#
+# All of the export logic lives here on purpose, and Lua (:WakaExport) only runs
+# this file: the queue must stay rescuable even when nvim cannot start on this
+# box. The sync side has no such requirement -- it runs on a machine with
+# network and a working editor -- so it lives in lua/box/wakatime.lua.
 #
 # Why JSON and not the .bdb: bbolt copy-on-writes and nothing in wakatime-cli
 # ever compacts it, so the file only grows and never shrinks -- the moment it
@@ -172,6 +177,7 @@ fi
 
 log ""
 log "done: $COUNT heartbeats mailed in ${PARTS} part(s) to $RECIPIENT"
-log "next, on a machine that can reach the internet:"
-log "  python scripts/wakatime-fetch.py scan     # confirm all parts arrived"
-log "  python scripts/wakatime-fetch.py sync     # download, verify, upload to wakapi"
+log "next, on a machine that can reach the internet, in nvim:"
+log "  :WakaSync    # ferry recv -> merge -> unpack -> POST to wakapi"
+log "or just the download half, by hand:"
+log "  ferry recv -c imap.json -o ~/wakatime-ferry/incoming -s 'Directory Archive: wakatime-'"

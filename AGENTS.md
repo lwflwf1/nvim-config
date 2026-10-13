@@ -446,6 +446,16 @@ CursorHold with activity in the last 120s, on every BufWritePost and on BufEnter
   - Networked box: `:WakaSync` (`lua/box/wakatime.lua`, `ssh` not needed) —
     `ferry recv` pulls the parts out of the mailbox, then `ferry merge` →
     `ferry unpack` → POST to `<api_url>/users/current/heartbeats.bulk`.
+- **The export half is deliberately NOT in Lua, even though it could be.** Two
+  files implement this flow and the split is load-bearing: `wakatime-export.sh`
+  owns everything that runs on RHEL6, `box/wakatime.lua` owns everything that runs
+  on the networked box. The reason is the air gap: the export is a *data rescue*
+  operation on a machine whose only editor is the nvim whose config might be what
+  is broken, so it must keep working with nvim entirely out of the picture —
+  `bash scripts/wakatime-export.sh` is the manual fallback, and `:WakaExport`
+  only wraps it (locate, check bash, pass argv through, show output). Do not
+  "unify" the two halves; if you find yourself reimplementing a queue count or a
+  size check in Lua, it belongs in the script.
 - **The mailbox half lives in ferry, not here.** `ferry recv` (`G:\ai\scripts\
   ferry\ferry.py`, an external tool this repo depends on) is the receiving
   counterpart of `ferry email`: it lists mailboxes, searches by subject, and
@@ -478,9 +488,9 @@ CursorHold with activity in the last 120s, on every BufWritePost and on BufEnter
 - **Re-uploading is idempotent**: wakapi hashes each heartbeat into a `UNIQUE`
   index (`models.Heartbeat.Hashed`, excluding id/editor/os/machine) and
   `InsertBatch` dedupes. Only heartbeats younger than `heartbeat_max_age` (4320h
-  = 180 days) are accepted. `sync` keeps a ledger
+  = 180 days) are accepted. `:WakaSync` keeps a ledger
   (`~/wakatime-ferry/state.json`) instead of relying on `\Seen`, because a
-  mail-client rule may already mark mail read on arrival — so `scan`/`fetch`
+  mail-client rule may already mark mail read on arrival — so `ferry recv`
   search by subject, never by `UNSEEN`, and `--force` re-uploads.
 - **The upload auth is `Authorization: Basic base64(api_key)` — no trailing
   colon.** `utils.ExtractBearerAuth` base64-decodes whatever follows the scheme
@@ -492,10 +502,19 @@ CursorHold with activity in the last 120s, on every BufWritePost and on BufEnter
   `scripts/imap.json`, and passes `-c` on to `ferry recv`, which reads the same
   file. `.gitignore` carries an `imap.json` line purely as a backstop against
   `git add -A` publishing a mailbox password.
-- **The upload runs through curl, not a Python HTTP client.** `vim.base64`
-  (present in 0.13-dev, checked) builds the header and `vim.system` runs it, so
-  the sync is one async Lua chain and its progress lands in a `wakatime://sync`
-  scratch buffer. Nothing about it runs at startup.
+- **The upload is a curl process, not a Lua HTTP stack.** `vim.base64`
+  (present in 0.13-dev, checked, byte-identical to .NET's) builds the header and
+  `vim.system` runs `curl`, so the sync is one async Lua chain and its progress
+  lands in a `wakatime://sync` scratch buffer. Nothing about it runs at startup.
+- **`ferry email` shells out to the local `mail` binary** (`mail -s <subject> -a
+  <file> <to>`), so nothing about SMTP lives in this repo — the credentials are
+  the RHEL6 MTA's own configuration. The consequence matters: **a 0 exit from
+  `mail` only means the local MTA accepted the message**, not that Exchange
+  delivered it or that the Outlook rule ran. A gateway that strips or quarantines
+  a 1 MiB attachment still yields exit 0, and the export has already deleted the
+  queue by then. That is the one genuine data-loss path in the bridge, and it is
+  why a cron-driven export should keep the `.zip` (see "Automation" below) rather
+  than deleting both artifacts.
 - **Sizing the queue:** ~350 B per heartbeat, but bbolt's key duplicates the entity
   path, so the `.bdb` runs ~1.3-1.4x the raw JSON and never shrinks (high-water mark).
   The CLI's own `heartbeat_rate_limit_seconds` (120s) does **not** drop the extra

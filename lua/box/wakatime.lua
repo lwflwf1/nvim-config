@@ -3,9 +3,14 @@
 -- The air-gapped RHEL6 box cannot reach wakapi, so its heartbeats leave by mail
 -- and come back over IMAP on a networked machine:
 --
---   RHEL6   :WakaExport  -> scripts/wakatime-export.sh
+--   RHEL6   :WakaExport  -> bash scripts/wakatime-export.sh
 --              wakatime-cli --print-offline-heartbeats -> ferry pack -> ferry email
 --   here    :WakaSync    -> ferry recv -> ferry merge -> ferry unpack -> POST
+--
+-- The export half deliberately stays in the shell script, even though :WakaExport
+-- could reimplement it here: that side must keep working when nvim cannot start
+-- on the air-gapped box, so it has exactly one implementation and it does not
+-- depend on this file. The sync half has no such constraint, so it lives here.
 --
 -- The IMAP half lives in ferry itself (`ferry recv`), next to the `email` command
 -- that sends these archives -- ferry stays a generic transport tool and knows
@@ -285,13 +290,19 @@ function M.export(args)
     local cmd = table.concat(argv, " ")
     show("export", "running: " .. cmd .. "\n")
     sh(argv, nil, function(code, out, e)
+        -- The script's warn() goes to stderr, and its two most important
+        -- messages ("mailing failed, artifacts kept" / "queue grew, keeping it")
+        -- are warnings -- so stderr first, or they read as an afterthought.
         show("export", table.concat({
             "$ " .. cmd,
             "exit: " .. code,
             "",
-            out,
             e,
+            out,
         }, "\n"))
+        if code ~= 0 then
+            err(cmd .. " exited " .. code .. " - see the wakatime://export buffer")
+        end
     end)
 end
 
@@ -502,7 +513,7 @@ end
 function M.setup()
     vim.api.nvim_create_user_command("WakaExport", function(a)
         M.export(a.args)
-    end, { nargs = "*", desc = "Export the heartbeat queue and mail it (wakatime-export.sh)" })
+    end, { nargs = "*", desc = "Export the heartbeat queue and mail it (runs scripts/wakatime-export.sh)" })
 
     vim.api.nvim_create_user_command("WakaSync", function(a)
         M.sync(a.args)
