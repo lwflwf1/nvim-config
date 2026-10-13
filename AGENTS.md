@@ -38,6 +38,7 @@ lua/
                           define), picker_hl (snacks picker window bg patch),
                           tools (:ToolInstall), neovide, battery,
                           fff_picker (snacks patch), notifier_anim (snacks patch),
+                          blink_suffix (blink.cmp patch, Zed-style replace_suffix),
                           tabout (TabOut-rules engine for the smart multistep
                           Tab/S-Tab; chains declared in plugins/editing.lua),
                           sticky (WIP), orgmode_profiles, wakatime (:WakaExport/:WakaSync)
@@ -125,6 +126,67 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   manual + per-buffer on purpose (`blink.enable_auto_complete = false`,
   `virtualtext.auto_trigger_ft = {}`, `<leader>ua` arms the buffer) so the source and
   the ghost text never each send a request per typing pause.
+- **Completing mid-identifier** (`lua/box/blink_suffix.lua`, wired from
+  `plugins/blink.lua`): blink's `completion.keyword.range` has only `'prefix'`
+  (edit stops at the cursor) and `'full'` (edit always runs to the end of the
+  keyword). `'prefix'` duplicates the text already after the cursor —
+  `creat|eProject()` + `createProject` → `creat`eProject… → `createProjecteProject()`.
+  **`'full'` is not the fix**: it eats unrelated tails, because `-` is a keyword
+  character in *both* fuzzy implementations (`[\p{L}0-9_-]` in
+  `fuzzy/rust/keyword.rs:7-8`, iskeyword `@,48-57,_,-,192-255` in
+  `fuzzy/lua/keyword.lua:14`), so `foo-|bar` loses `bar`; blink #968 also reported
+  the cursor jumping to line 1 with `'full'`. So the patch wraps
+  `blink.cmp.lib.text_edits.get_from_item` — the one place blink turns a
+  CompletionItem into an edit range, and the one *every* caller goes through
+  (cmp/init.lua ghost text + accept, cmp/preview.lua, cmp/libs/luasnip.lua,
+  cmp/libs/vsnip.lua) — and widens the range **only when the tail really is a
+  suffix of the candidate** (case-insensitive, length-aware). That is Zed's
+  `completions.lsp_insert_mode = "replace_suffix"` test
+  (`crates/editor/src/editor.rs:11712-11806`); upstream has no equivalent
+  (saghen/blink.cmp#1767, #657). Notes:
+  - It covers **every** source, LSP or not, which is the whole point: Zed only
+    tests completions carrying an `InsertReplaceEdit`, so Zed itself would not fix
+    a `buffer`/`lazydev` item, which has no `textEdit` and goes through
+    `text_edits.guess`. This is Zed's idea, not a port.
+  - It compares `edit.newText`, not Zed's `completion.label` — for snippets, or
+    servers whose label differs from the inserted text, Zed tests the wrong string.
+  - It widens to blink's own keyword scan, not the server's `replace_range.end`,
+    because `InsertReplaceEdit.replace` is discarded inside `get_from_item`
+    (`text_edits.lua:155-156`) before any wrapper can see it.
+  - Mutating the returned edit in place is safe: it is always a fresh table
+    (`deepcopy` for the `textEdit` path, a table literal for `guess`), and blink
+    itself mutates it in 3 of the 5 paths. `luasnip`/`brackets` only read
+    `range.start`, so widening is a no-op there. It also *improves*
+    `accept.dot_repeat`, which derives `chars_to_delete` from `end.character` —
+    without the widening `.` would re-insert and leave the tail behind.
+  - **Do NOT set `keyword.range`** to fix duplication. It also feeds
+    `match_suffix` (`blink/cmp/fuzzy/init.lua:130`), so `'full'` changes which
+    candidates are *offered*, not merely what gets edited. The patch needs
+    `'prefix'` as its baseline and only ever widens an edit that stopped at the
+    cursor, so it can never shrink or extend a range a server chose deliberately.
+  - `fuzzy.get_keyword_range(line, col, range)`'s third argument is the **string**
+    `'prefix'`/`'full'`; the dispatcher normalises it with `range == 'full'` before
+    handing the boolean to whichever implementation is active
+    (`fuzzy/init.lua:156-158`). Passing a boolean is silently wrong (it compares
+    `true == 'full'` → false) and looks like an upstream inconsistency if you
+    forget the normaliser exists.
+- **Explorer fuzzy** (`plugins/snacks.lua`): upstream sets
+  `matcher = { sort_empty = false, fuzzy = false }` for the tree
+  (`snacks/picker/config/sources.lua`, `M.explorer`), so fuzzy is enabled here.
+  Sorting stays the explorer's own `sort` field and only reorders *within* a
+  directory — in a tree the useful half of fuzzy is filtering, not ordering.
+  **`<a-r>` / `toggle_regex` is a no-op for this source**: it writes
+  `picker.opts.regex` (`snacks/picker/config/init.lua:100`) while the matcher
+  reads a **deep copy** of `picker.opts.matcher` (`snacks/picker/core/picker.lua:112`
+  → `core/matcher.lua:53`, `tbl_deep_extend` makes a new table); `opts.regex` is
+  only read by the *grep* source, to decide about `--fixed-strings`
+  (`grep.lua:58`). With fuzzy on, `^foo`, `foo$`, `!foo`, `'foo'` and `a | b` all
+  still work — `_prepare` turns fuzzy off **per token**
+  (`core/matcher.lua:268-333`) — but the anchor is the **displayed relative
+  path**, not the basename (`^uart` does not match `src/driver/uart_ctrl.sv`).
+  Regex is also a *global* opt, so enabling it would reinterpret `^foo$` as real
+  regex anchors and break that per-token syntax — which is the other reason it is
+  left off.
 - **yazi on RHEL6** (`plugins/yazi.lua`): the plugin enables wherever
   `vim.fn.executable("yazi") == 1` (no `is_rhel6` check). The upstream **musl
   static-pie** build (`yazi-*-unknown-linux-musl.zip`) runs on the RHEL6 2.6.32
