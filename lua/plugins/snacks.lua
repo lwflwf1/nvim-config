@@ -35,6 +35,25 @@ return {
                     explorer = {
                         -- file watcher is unreliable on RHEL6 NFS trees (cf. snacks.scroll)
                         watch = not vim.g.is_rhel6,
+                        -- upstream disables fuzzy for the tree
+                        -- (config/sources.lua: matcher = { sort_empty = false, fuzzy = false }).
+                        -- Keep it OFF as `regex`: `matcher.regex` is global, so
+                        -- enabling it would reinterpret ^foo$ as real regex anchors
+                        -- and break the per-token `^`/`$`/`!`/`'` syntax, and it
+                        -- can't be toggled at runtime anyway -- `toggle_regex`
+                        -- (<a-r>) writes `picker.opts.regex`, while the matcher
+                        -- reads the deep-copied `picker.opts.matcher`
+                        -- (core/picker.lua:112 + core/matcher.lua:53), so <a-r>
+                        -- is a no-op for this source.
+                        --
+                        -- fuzzy stays on so partial, scattered recall works
+                        -- ("cmt" finds config_manager_thread.sv). Ranking is still
+                        -- the explorer's own `sort` field, which only reorders
+                        -- within a directory - in a tree the useful half of fuzzy
+                        -- is filtering, not ordering. `^foo`, `$foo`, `!foo`,
+                        -- `'foo'` and `a | b` all keep working: matcher._prepare
+                        -- (core/matcher.lua:310-333) turns fuzzy off per token.
+                        matcher = { fuzzy = true, sort_empty = false },
                         -- <CR> on a file asks which window to open in first; dirs
                         -- still toggle. A keymap chain can't be conditional, and
                         -- `confirm` can't be overridden: the explorer source's
