@@ -77,6 +77,7 @@ return {
                         ['@constraint.outer']  = 'V',
                         ['@covergroup.outer']  = 'V',
                         ['@property.outer']    = 'V',
+                        ['@comment.outer']     = 'V',
                     },
                 },
                 move = {
@@ -90,7 +91,6 @@ return {
             local ts_sel = require("nvim-treesitter-textobjects.select")
             local ts_move = require("nvim-treesitter-textobjects.move")
             local ts_swap = require("nvim-treesitter-textobjects.swap")
-            local ts_repeat = require("nvim-treesitter-textobjects.repeatable_move")
 
             -- Select textobjects
             vim.keymap.set({ "x", "o" }, "af", function() ts_sel.select_textobject("@function.outer") end, { desc = "outer function" })
@@ -115,6 +115,9 @@ return {
             vim.keymap.set({ "x", "o" }, "ig", function() ts_sel.select_textobject("@covergroup.inner") end, { desc = "inner covergroup" })
             vim.keymap.set({ "x", "o" }, "ae", function() ts_sel.select_textobject("@property.outer") end, { desc = "outer property" })
             vim.keymap.set({ "x", "o" }, "ie", function() ts_sel.select_textobject("@property.inner") end, { desc = "inner property" })
+            -- SV has only @comment.outer, so both keys select it.
+            vim.keymap.set({ "x", "o" }, "am", function() ts_sel.select_textobject("@comment.outer") end, { desc = "outer comment" })
+            vim.keymap.set({ "x", "o" }, "im", function() ts_sel.select_textobject("@comment.outer") end, { desc = "comment" })
 
             -- Move: start jumps
             vim.keymap.set("n", "]f", function() ts_move.goto_next_start("@function.outer") end, { desc = "next function" })
@@ -156,13 +159,10 @@ return {
             vim.keymap.set("n", "<leader>t>", function() ts_swap.swap_next("@parameter.inner") end, { desc = "swap param right" })
             vim.keymap.set("n", "<leader>t<", function() ts_swap.swap_previous("@parameter.inner") end, { desc = "swap param left" })
 
-            -- Repeatable move with builtin f/t integration
-            vim.keymap.set({ "n", "x", "o" }, ";", ts_repeat.repeat_last_move_next, { desc = "repeat last move" })
-            vim.keymap.set({ "n", "x", "o" }, ",", ts_repeat.repeat_last_move_previous, { desc = "repeat last move reverse" })
-            vim.keymap.set({ "n", "x", "o" }, "f", ts_repeat.builtin_f_expr, { expr = true, desc = "f with repeat" })
-            vim.keymap.set({ "n", "x", "o" }, "F", ts_repeat.builtin_F_expr, { expr = true, desc = "F with repeat" })
-            vim.keymap.set({ "n", "x", "o" }, "t", ts_repeat.builtin_t_expr, { expr = true, desc = "t with repeat" })
-            vim.keymap.set({ "n", "x", "o" }, "T", ts_repeat.builtin_T_expr, { expr = true, desc = "T with repeat" })
+            -- f/F/t/T and ;/, are deliberately left to flash.nvim's char mode
+            -- (the flash spec below): flash labels the f/t jumps. This drops the
+            -- repeatable_move f/t integration, so ]f/[f repeat via the jumplist
+            -- (<C-o>/<C-i>), not ;/,.
         end,
     },
     {

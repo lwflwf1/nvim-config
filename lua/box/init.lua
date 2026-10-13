@@ -12,6 +12,7 @@
 --   terminals        picker over live snacks terminals (<leader>fe / :Terminals)
 --   toggle_value     SystemVerilog value toggling (<leader>sw)
 --   trim             trim trailing whitespace / CRs (<leader>ue)
+--   path             <C-g> = file info + copy path (also lualine filename)
 --   wins             window move/resize (<M-hjkl>, arrows)
 --   multicursor      nvim 0.13 multicursor glue (<C-j/k/n/p>, <Esc>)
 --   smart_gf         file:line-aware gf/gF
@@ -43,6 +44,7 @@ function M.setup()
     require("box.terminals").setup()
     require("box.project").setup()
     require("box.sos").setup()
+    require("box.path").setup()
 end
 
 function M.setup_late()

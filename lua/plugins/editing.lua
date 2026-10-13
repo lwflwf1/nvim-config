@@ -267,7 +267,7 @@ return {
             },
         },
         keys = {
-            { "<M-f>", mode = { "n", "x", "o" }, function() require("flash").jump() end, desc = "Flash" },
+            { "M", mode = { "n", "x", "o" }, function() require("flash").jump() end, desc = "Flash" },
             { "<M-K>", mode = { "n" }, function()
                 require("flash").jump({
                     action = function(match)
@@ -284,8 +284,9 @@ return {
                     end,
                 })
             end, desc = "Flash hover" },
-            { "S", function() require("flash").treesitter() end, desc = "Flash Treesitter", mode = { "n", "x", "o" } },
-            { "R", function() require("flash").treesitter_search() end, desc = "Flash Treesitter Search", mode = { "o", "x" } },
+            { "S", function() require("flash").treesitter() end, desc = "Flash Treesitter", mode = { "n" } },
+            { "s", function() require("flash").treesitter() end, desc = "Flash Treesitter", mode = { "o" } },
+            { "R", function() require("flash").treesitter_search() end, desc = "Flash Remote Treesitter", mode = { "o", "x" } },
             { "r", function() require("flash").remote() end, desc = "Flash Remote", mode = "o" },
             { "<c-s>", function() require("flash").toggle() end, desc = "Toggle Flash Search", mode = "c" },
         },

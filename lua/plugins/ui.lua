@@ -268,11 +268,7 @@ return {
                         newfile  = "[New]",
                     }, on_click = function(_, button)
                         if button == "r" then
-                            local path = vim.fn.expand("%:p")
-                            if path == "" then return end
-                            local ok = pcall(vim.fn.setreg, "+", path)
-                            vim.notify(ok and ("Copied: " .. path) or "Clipboard unavailable",
-                                ok and vim.log.levels.INFO or vim.log.levels.WARN)
+                            require("box.path").copy()
                         else
                             require("snacks").picker.files()
                         end
