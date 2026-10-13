@@ -4,6 +4,15 @@ local M = {}
 ---@type table<integer, { tick: integer, names: table<string, true> }>
 local cache = {}
 
+-- Drop a buffer's entry when it goes away (bufnrs are not reused, but this
+-- keeps the table from growing over a long session).
+vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
+    group = vim.api.nvim_create_augroup("box_sv_cache", { clear = true }),
+    callback = function(args)
+        cache[args.buf] = nil
+    end,
+})
+
 local function collect(node, bufnr, names)
     for child in node:iter_children() do
         local t = child:type()

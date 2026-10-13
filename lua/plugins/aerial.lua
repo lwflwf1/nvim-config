@@ -10,9 +10,28 @@ return {
             { "[s", function() require("aerial").prev() end, desc = "Prev symbol" },
         },
         opts = function()
-            local function apply_filter(src_bufnr, kinds)
+            -- `kinds` is what the backend filters on (the requested kinds plus
+            -- the container kinds, so roots survive); `selected` is the raw
+            -- request, read by post_add_all_symbols to drop containers that
+            -- end up with no matching descendant (VS Code-style).
+            local function apply_filter(src_bufnr, kinds, selected)
                 vim.b[src_bufnr].aerial_filter_kind = kinds
+                vim.b[src_bufnr].aerial_filter_selected = selected
                 require("aerial").refetch_symbols(src_bufnr)
+            end
+
+            -- The backend filter drops non-matching items and re-parents the
+            -- rest, so a container with no matching descendant is left without
+            -- children. Prune those, keeping only the ancestors of matches.
+            local function prune(items, selected)
+                local out = {}
+                for _, item in ipairs(items) do
+                    item.children = prune(item.children or {}, selected)
+                    if selected[item.kind] or #item.children > 0 then
+                        out[#out + 1] = item
+                    end
+                end
+                return out
             end
 
             local function src_bufnr()
@@ -20,7 +39,7 @@ return {
             end
 
             local containers = {
-                systemverilog = { "Class", "Interface", "Module", "Package" },
+                systemverilog = { "Class", "Interface", "Module", "Package", "Program" },
                 python = { "Class", "Module" },
                 perl = { "Package" },
                 cpp = { "Class", "Struct", "Namespace" },
@@ -40,56 +59,51 @@ return {
                 return {
                     callback = function()
                         local sb = src_bufnr()
-                        local merged
                         if kinds == false then
-                            merged = false
+                            apply_filter(sb, false, false)
+                        elseif not kinds then
+                            apply_filter(sb, nil, nil)
                         else
-                            merged = kinds and vim.list_extend(vim.deepcopy(kinds), container_kinds(sb)) or nil
+                            apply_filter(sb, vim.list_extend(vim.deepcopy(kinds), container_kinds(sb)), kinds)
                         end
-                        apply_filter(sb, merged)
                     end,
                     desc = desc or "",
                 }
             end
 
-            -- Port kinds stay as 4 separate picker entries, but the "Port"
-            -- entry keeps every direction at once (they are distinct kinds
-            -- internally, so each direction can carry its own icon).
-            local port_kinds = { "InputPort", "OutputPort", "InoutPort", "Port" }
-
             local function open_kind_picker(source_bufnr)
                 local items = {}
+                -- One entry per kind; pick several with <Tab>.
                 local kinds = {
-                    { "Module" },
-                    { "Interface" },
-                    { "Package" },
-                    { "Class" },
-                    { "Constructor" },
-                    { "Function" },
-                    { "Property" },
-                    { "Constraint" },
-                    { "AssertProperty" },
-                    { "Clocking" },
-                    { "Block" },
-                    { "Covergroup" },
-                    { "Variable" },
-                    { "InputPort" },
-                    { "OutputPort" },
-                    { "InoutPort" },
-                    { "Port", port_kinds },
+                    "Module", "Interface", "Package", "Class", "Constructor",
+                    "Function", "Property", "Constraint", "AssertProperty",
+                    "Clocking", "Block", "Covergroup", "Variable",
+                    "InputPort", "OutputPort", "InoutPort", "Port",
                 }
-                for _, spec in ipairs(kinds) do
-                    table.insert(items, { text = spec[1], kinds = spec[2] or { spec[1] } })
+                for _, k in ipairs(kinds) do
+                    table.insert(items, { text = k, kind = k })
                 end
                 Snacks.picker.pick({
                     items = items,
-                    title = "Aerial kind filter",
+                    title = "Aerial kind filter (<Tab> to multi-select)",
                     layout = { preset = "select", style = "minimal" },
-                    format = "text",
+                    format = function(item, picker)
+                        local ret = Snacks.picker.format.selected(item, picker)
+                        ret[#ret + 1] = { item.text }
+                        return ret
+                    end,
                     actions = {
-                        confirm = function(picker, item)
+                        confirm = function(picker, _)
                             picker:close()
-                            apply_filter(source_bufnr, item and vim.list_extend(vim.deepcopy(container_kinds(source_bufnr)), item.kinds) or nil)
+                            local picked = {}
+                            for _, it in ipairs(picker:selected({ fallback = true })) do
+                                picked[#picked + 1] = it.kind
+                            end
+                            if #picked == 0 then
+                                apply_filter(source_bufnr, nil, nil)
+                            else
+                                apply_filter(source_bufnr, vim.list_extend(vim.deepcopy(container_kinds(source_bufnr)), picked), picked)
+                            end
                         end,
                     },
                 })
@@ -126,6 +140,20 @@ return {
                         return false
                     end
                 end,
+                -- VS Code-style container pruning: keep a container only when a
+                -- matching descendant survived the backend filter. Skipped for
+                -- the default and show-all modes (no raw selection recorded).
+                post_add_all_symbols = function(bufnr, items, _)
+                    local sel = vim.b[bufnr].aerial_filter_selected
+                    if type(sel) ~= "table" then
+                        return items
+                    end
+                    local selected = {}
+                    for _, k in ipairs(sel) do
+                        selected[k] = true
+                    end
+                    return prune(items, selected)
+                end,
                 icons = {
                     Clocking       = "",
                     Block          = "󰦮",
@@ -143,7 +171,6 @@ return {
                     ["sc"] = filter({ "Class", "Interface", "Module", "Package" }, "Filter: Class/Interface/Module/Package"),
                     ["sp"] = filter({ "Property", "Constraint", "AssertProperty" }, "Filter: Property/Constraint/AssertProperty"),
                     ["sv"] = filter({ "Variable" }, "Filter: Variable"),
-                    ["sP"] = filter(port_kinds, "Filter: Ports"),
                     ["so"] = filter({ "Clocking", "Covergroup" }, "Filter: Clocking/Covergroup"),
                     ["sb"] = filter({"Block"}, "Filter: Block"),
                     ["sa"] = filter(false, "Show all symbols"),

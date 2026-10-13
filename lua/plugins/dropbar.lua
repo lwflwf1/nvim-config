@@ -19,8 +19,6 @@ return {
       end
 
       local ts_config = configs.opts.sources.treesitter
-      table.insert(ts_config.valid_types, 'task')
-      table.insert(ts_config.valid_types, 'module')
 
       -- Add Task icon (task in SV is analogous to function)
       configs.opts.icons.kinds.symbols.Task = '󰊕 '
@@ -70,6 +68,8 @@ return {
       -- Extract the declaration identifier from the node text (first capture).
       -- Keyed by node type so task/function can share the 'Function' kind
       -- while keeping their own name rules.
+      local fn_name = '\\(\\k\\+\\)\\s*('
+      local var_name = '\\(\\k\\+\\)\\s*\\(\\[[^\\[\\]]*\\]\\s*\\)\\?[;=,]'
       local sv_name_patterns = {
         class_declaration = '^\\s*\\%(virtual\\s\\+\\)\\?class\\s\\+\\(\\k\\+\\)',
         interface_class_declaration = '^\\s*\\%(virtual\\s\\+\\)\\?interface\\s\\+\\%(class\\s\\+\\)\\?\\(\\k\\+\\)',
@@ -77,14 +77,14 @@ return {
         module_declaration = '^\\s*module\\s\\+\\(\\k\\+\\)',
         program_declaration = '^\\s*program\\s\\+\\(\\k\\+\\)',
         package_declaration = '^\\s*package\\s\\+\\(\\k\\+\\)',
-        function_declaration = '\\(\\k\\+\\)\\s*(',
-        function_prototype = '\\(\\k\\+\\)\\s*(',
-        class_constructor_declaration = '\\(\\k\\+\\)\\s*(',
+        function_declaration = fn_name,
+        function_prototype = fn_name,
+        class_constructor_declaration = fn_name,
         task_declaration = '^\\s*task\\s\\+\\%(\\%(automatic\\|static\\|extern\\|virtual\\|protected\\|local\\)\\s\\+\\)\\?\\(\\k\\+\\)\\%(::\\(\\k\\+\\)\\)\\?',
         task_prototype = '^\\s*task\\s\\+\\%(\\%(automatic\\|static\\|extern\\|virtual\\|protected\\|local\\)\\s\\+\\)\\?\\(\\k\\+\\)\\%(::\\(\\k\\+\\)\\)\\?',
-        class_property = '\\(\\k\\+\\)\\s*\\(\\[[^\\[\\]]*\\]\\s*\\)\\?[;=,]',
-        data_declaration = '\\(\\k\\+\\)\\s*\\(\\[[^\\[\\]]*\\]\\s*\\)\\?[;=,]',
-        net_declaration = '\\(\\k\\+\\)\\s*\\(\\[[^\\[\\]]*\\]\\s*\\)\\?[;=,]',
+        class_property = var_name,
+        data_declaration = var_name,
+        net_declaration = var_name,
       }
 
       -- For multi-variable declarations (`int a, b;`), find the
@@ -93,7 +93,7 @@ return {
         for child in node:iter_children() do
           if child:type() == 'simple_identifier' then
             local _, sc, _, ec = child:range()
-            if col >= sc and col <= ec then
+            if col >= sc and col < ec then
               return vim.treesitter.get_node_text(child, buf)
             end
           end
@@ -237,20 +237,29 @@ return {
         net_decl_assignment = true,
       }
 
-      -- Declared names of a net/data declaration (one per assignment).
-      local function sv_decl_names(node, buf)
-        local names = {}
+      -- Assignment units of a net/data declaration, in source order.
+      local function sv_var_assignments(node)
+        local out = {}
         for list in node:iter_children() do
           local lt = list:type()
           if lt == 'list_of_variable_decl_assignments' or lt == 'list_of_net_decl_assignments' then
             for va in list:iter_children() do
               if sv_var_assignment_types[va:type()] then
-                local n = sv_first_identifier(va, buf)
-                if n then
-                  names[#names + 1] = n
-                end
+                out[#out + 1] = va
               end
             end
+          end
+        end
+        return out
+      end
+
+      -- Declared names of a net/data declaration (one per assignment).
+      local function sv_decl_names(node, buf)
+        local names = {}
+        for _, va in ipairs(sv_var_assignments(node)) do
+          local n = sv_first_identifier(va, buf)
+          if n then
+            names[#names + 1] = n
           end
         end
         return names
@@ -293,33 +302,25 @@ return {
       end
 
       -- For multi-variable declarations (e.g. `bit [31:0] hw_val, mask;` or
-      -- `wire a, b;`), return the assignment child nodes when there are ≥ 2.
+      -- `wire a, b;`), return the assignment nodes when there are ≥ 2.
       -- Port re-declarations are excluded so they never surface twice.
       local function sv_multi_vars(node, buf)
         if not sv_multi_var_types[node:type()] then
           return nil
         end
+        local assigns = sv_var_assignments(node)
+        if #assigns < 2 then
+          return nil
+        end
         local ports = require('box.sv').port_names(buf)
-        for list in node:iter_children() do
-          local lt = list:type()
-          if lt == 'list_of_variable_decl_assignments' or lt == 'list_of_net_decl_assignments' then
-            local vars = {}
-            local total = 0
-            for va in list:iter_children() do
-              if sv_var_assignment_types[va:type()] then
-                total = total + 1
-                local name = sv_first_identifier(va, buf)
-                if not (name and ports[name]) then
-                  vars[#vars + 1] = va
-                end
-              end
-            end
-            if total >= 2 then
-              return vars
-            end
+        local vars = {}
+        for _, va in ipairs(assigns) do
+          local name = sv_first_identifier(va, buf)
+          if not (name and ports[name]) then
+            vars[#vars + 1] = va
           end
         end
-        return nil
+        return vars
       end
 
       local function sv_children(node, buf)
@@ -419,12 +420,7 @@ return {
         -- variable_decl_assignment / net_decl_assignment: extract name from
         -- first child, inherit kind from the parent declaration.
         if node:type() == 'variable_decl_assignment' or node:type() == 'net_decl_assignment' then
-          for child in node:iter_children() do
-            if child:type() == 'simple_identifier' then
-              name = vim.treesitter.get_node_text(child, buf)
-              break
-            end
-          end
+          name = sv_first_identifier(node, buf)
           if not name or name == '' then return nil end
           local parent = node:parent()
           if parent then parent = parent:parent() end
@@ -618,14 +614,15 @@ return {
         else
           symbols = orig_get_symbols(buf, win, cursor)
         end
-        if #symbols <= 1 then return symbols end
+        if not is_sv or #symbols <= 1 then
+          return symbols
+        end
         local deduped = {}
-        local last_name = nil
-        local last_line = nil
+        local last_name, last_line
         for _, sym in ipairs(symbols) do
           local name = sym.name and sym.name:gsub('%s*$', '') or ''
           local line = sym.range and sym.range.start and sym.range.start.line
-          if name ~= last_name and line ~= last_line then
+          if not (name == last_name and line == last_line) then
             table.insert(deduped, sym)
             last_name = name
             last_line = line

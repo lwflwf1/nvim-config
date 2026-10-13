@@ -160,6 +160,23 @@
   (simple_identifier) @name
   (#set! "kind" "Port")) @type
 
+; Directionless but typed (`input logic clk, logic [3:0] a, b`): the header is
+; present but carries no port_direction. Anchor on the header's first child
+; being the type so a direction-bearing header does not also match here.
+(ansi_port_declaration
+  (variable_port_header
+    .
+    (variable_port_type))
+  (simple_identifier) @name
+  (#set! "kind" "Port")) @type
+
+(ansi_port_declaration
+  (net_port_header
+    .
+    (net_port_type))
+  (simple_identifier) @name
+  (#set! "kind" "Port")) @type
+
 ;-------------------------------------
 ; Function / Task
 ;-------------------------------------
