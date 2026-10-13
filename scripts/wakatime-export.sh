@@ -135,7 +135,24 @@ if ! ( cd "$OUT_DIR" && "$FERRY" email -i "$ARCHIVE" -t "$RECIPIENT" ); then
 fi
 
 # ---------------------------------------------------------------- cleanup
-# By now every part is in the mailbox, so the local copies can go.
+# By now every part is in the mailbox, so the local copies can go. But before
+# dropping the queue, re-read it: a heartbeat appended while the mail was being
+# sent lives in the same file, and deleting it would lose a heartbeat the dump
+# never captured. Keeping the queue in that case costs a re-send next time
+# (wakapi dedupes by hash) and loses nothing.
+if [ "$KEEP_Q" = 0 ]; then
+    AFTER="$("$CLI" --offline-queue-file "$QUEUE" --offline-count 2>/dev/null | tr -d '\r\n')"
+    case "$AFTER" in
+        ''|*[!0-9]*) AFTER="$COUNT" ;;
+    esac
+    if [ "$AFTER" != "$COUNT" ]; then
+        warn "queue grew from $COUNT to $AFTER while this ran - keeping it"
+        warn "the extra heartbeat(s) are newer than the dump; next export re-sends"
+        warn "the whole queue, and wakapi dedupes by hash, so nothing is lost"
+        KEEP_Q=1
+    fi
+fi
+
 if [ "$KEEP_Q" = 1 ]; then
     log "keeping the local artifacts and the queue (--keep-queue):"
     log "  $JSON"
