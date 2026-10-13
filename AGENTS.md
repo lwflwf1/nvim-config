@@ -51,7 +51,6 @@ queries/systemverilog/    aerial, function_*, variables (the rest come from the 
 scripts/                  installers + packagers + tools.json
   build-fff-rhel6.sh      cross-build fff's backend for glibc 2.17 (run on Linux/WSL)
   wakatime-export.sh      RHEL6: dump the queue, pack+mail it via ferry (see below)
-  wakatime-fetch.py       networked box: fetch mailed archives, verify, upload (IMAP)
   prebuilt/fff/           GENERATED (gitignored): RHEL6 libfff_nvim.so, built by build-fff-rhel6.sh
 .opencode-memory/         local agent session memory (gitignored)
 ```
@@ -444,9 +443,18 @@ CursorHold with activity in the last 120s, on every BufWritePost and on BufEnter
     `--print-offline-heartbeats N` → `ferry pack -f zip` → `ferry email`, which
     splits at ferry's `SPLIT_SIZE` (exactly 1 MiB) and mails one message per
     part. Then it deletes the local .json/.zip **and the queue**.
-  - Networked box: `:WakaSync` (`scripts/wakatime-fetch.py sync`, `ssh` not
-    needed) — IMAP fetch of the parts → `ferry merge` → `ferry unpack` → POST to
-    `<api_url>/users/current/heartbeats.bulk`.
+  - Networked box: `:WakaSync` (`lua/box/wakatime.lua`, `ssh` not needed) —
+    `ferry recv` pulls the parts out of the mailbox, then `ferry merge` →
+    `ferry unpack` → POST to `<api_url>/users/current/heartbeats.bulk`.
+- **The mailbox half lives in ferry, not here.** `ferry recv` (`G:\ai\scripts\
+  ferry\ferry.py`, an external tool this repo depends on) is the receiving
+  counterpart of `ferry email`: it lists mailboxes, searches by subject, and
+  downloads matching attachments, read-only (`EXAMINE` + `BODY.PEEK`) unless
+  `--mark-seen`. It deliberately knows nothing about wakapi. Everything
+  wakapi-specific — archive grouping, the ledger, the POST, the credentials —
+  stays in `box/wakatime.lua`, which is also why `wakatime-fetch.py` was deleted
+  rather than grown (the IMAP/MIME protocol work is exactly what Python's stdlib
+  does and Lua would have to reinvent).
 - **Never copy the `.bdb` across.** Nothing in wakatime-cli ever compacts it, so
   the file only grows (the Windows box's is already 4 MiB while empty); past
   1 MiB the copy path is dead. JSON also compresses ~5-20x, so one part carries
@@ -465,8 +473,8 @@ CursorHold with activity in the last 120s, on every BufWritePost and on BufEnter
 - **Integrity is checked, not assumed.** `ferry merge` validates the part
   sequence and `ferry unpack` proves the zip CRC, so an MTA that rewrites line
   endings surfaces as `INTEGRITY FAILURE` instead of silently corrupting
-  heartbeats (fallback: ferry's `-f text`, base64 in the body). `wakatime-fetch.py`
-  is **read-only until the POST succeeds** (`EXAMINE` + `BODY.PEEK`).
+  heartbeats (fallback: ferry's `-f text`, base64 in the body). `:WakaSync` is
+  read-only on the mailbox until a POST succeeds.
 - **Re-uploading is idempotent**: wakapi hashes each heartbeat into a `UNIQUE`
   index (`models.Heartbeat.Hashed`, excluding id/editor/os/machine) and
   `InsertBatch` dedupes. Only heartbeats younger than `heartbeat_max_age` (4320h
@@ -478,10 +486,16 @@ CursorHold with activity in the last 120s, on every BufWritePost and on BufEnter
   colon.** `utils.ExtractBearerAuth` base64-decodes whatever follows the scheme
   and uses it verbatim, so the WakaTime convention (`base64("key:")`) 401s.
   `?api_key=<key>` also works and is the quickest manual check.
-- **Credentials live outside the repo** (`scripts/wakatime-fetch.py` reads
-  `imap.json`, searched via `-c`, then `./`, then its own dir; `:WakaSync` passes
-  `-c $WAKATIME_IMAP_CONFIG`). `.gitignore` carries an `imap.json` line purely as
-  a backstop against `git add -A` publishing a mailbox password.
+- **Credentials live outside the repo**: `imap.json` (host/port/user/password/
+  mailbox/`subject_filter`, plus optional `ferry`/`staging`/`state_file`).
+  `:WakaSync` resolves it via `$WAKATIME_IMAP_CONFIG`, then `./`, then
+  `scripts/imap.json`, and passes `-c` on to `ferry recv`, which reads the same
+  file. `.gitignore` carries an `imap.json` line purely as a backstop against
+  `git add -A` publishing a mailbox password.
+- **The upload runs through curl, not a Python HTTP client.** `vim.base64`
+  (present in 0.13-dev, checked) builds the header and `vim.system` runs it, so
+  the sync is one async Lua chain and its progress lands in a `wakatime://sync`
+  scratch buffer. Nothing about it runs at startup.
 - **Sizing the queue:** ~350 B per heartbeat, but bbolt's key duplicates the entity
   path, so the `.bdb` runs ~1.3-1.4x the raw JSON and never shrinks (high-water mark).
   The CLI's own `heartbeat_rate_limit_seconds` (120s) does **not** drop the extra
