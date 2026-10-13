@@ -1,0 +1,91 @@
+# wakapi on fnOS, behind Lucky (Lucky terminates TLS, not wakapi).
+#
+# Paste into fnOS -> Docker -> Compose (new project); Compose pulls the image
+# itself, so pre-downloading it in the registry browser is only useful to test
+# that your Docker Hub mirror works (and then pull this exact tag).
+#
+# Image choice: ghcr.io/muety/wakapi and n1try/wakapi come from the same release
+# CI; use the Docker Hub namespace because ghcr.io is often slow or unreachable
+# from a CN network. Never the "alpine" tag on either registry -- it is a
+# leftover name that now points at the distroless build.
+#
+# `latest` does NOT auto-update: compose's default pull_policy is `missing`, so
+# a new version arrives only when you run `docker compose pull`. Treat that as a
+# deliberate step and back up wakapi.db first -- this project has shipped
+# breaking changes in patch releases before (2.17.2 changed the base image and
+# the in-container uid, which broke bind-mounted SQLite installs). To be
+# conservative instead, replace :latest with a line tag such as :2.18.
+
+services:
+  wakapi:
+    image: n1try/wakapi:latest
+    container_name: wakapi
+    # reap zombies / forward signals; wakapi is a single static binary
+    init: true
+    restart: unless-stopped
+    ports:
+      - "3000:3000"                   # the image already listens on 0.0.0.0
+    volumes:
+      # Create this directory in fnOS's file manager first, then paste its real
+      # path (fnOS pools mount under /vol1, /vol2, ...). Keeping it on the pool
+      # means your normal NAS backup covers wakapi.db.
+      - /vol1/1000/docker/wakapi/data:/data
+      # Timezone data. The image is distroless static: no /usr/share/zoneinfo,
+      # no /etc/localtime, and wakapi does not embed time/tzdata (no such import
+      # in main.go). A named location therefore fails to load, and
+      # models.User.TZ() silently falls back to time.Local -- which is UTC here.
+      # With TZ=Asia/Shanghai below and this mount, both time.Local and named
+      # lookups resolve, so daily boundaries land on local midnight instead of
+      # 08:00. fnOS is Debian-based, so the host does have tzdata
+      # (verify: ls /usr/share/zoneinfo | head).
+      - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
+    # The image's /data is owned by nonroot (uid 65532), but a bind mount keeps
+    # the host directory's owner, so SQLite cannot create wakapi.db and the
+    # container exits. Running as your own uid is the no-sudo fix -- check yours
+    # with `id`. The alternative is a one-off
+    #   sudo chown -R 65532:65532 /vol1/1000/docker/wakapi/data
+    # Do one of the two; doing neither shows up as a read-only db error.
+    user: "1000:1000"
+    environment:
+      TZ: "Asia/Shanghai"                     # pairs with the zoneinfo mount above
+      # required -- generate with: openssl rand -base64 32
+      WAKAPI_PASSWORD_SALT: "CHANGE_ME"
+      WAKAPI_PUBLIC_URL: "http://192.168.x.x:3000"
+      WAKAPI_INSECURE_COOKIES: "true"         # flip to false in step 3 below
+      WAKAPI_ALLOW_SIGNUP: "true"             # flip to false once your account exists
+      # image defaults, spelled out for clarity
+      WAKAPI_DB_TYPE: "sqlite3"
+      WAKAPI_DB_NAME: "/data/wakapi.db"
+      # 180 days: the oldest heartbeat wakapi will accept. This is the ceiling
+      # for how long the air-gapped RHEL6 queue may sit before a replay is
+      # rejected, so export/upload more often than this.
+      WAKAPI_HEARTBEAT_MAX_AGE: "4320h"
+    logging:
+      driver: json-file                       # otherwise docker logs grow forever
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Not needed here (all inherited from the image): the healthcheck (GET
+# /api/health, 120s start period), WAKAPI_LISTEN_IPV4=0.0.0.0, WAKAPI_DB_TYPE.
+#
+# Bring-up order -- the cookie flag is the part that bites:
+#   1. As-is: `docker compose up -d`, open http://<fnos-ip>:3000, register the
+#      first user, copy the API key from the profile menu.
+#   2. Add the Lucky web-service rule (domain -> http://<fnos-ip>:3000) and
+#      confirm https://<domain> opens and lets you log in.
+#   3. Only then set WAKAPI_INSECURE_COOKIES="false" and
+#      WAKAPI_PUBLIC_URL="https://<domain>", then `up -d` again. With the flag
+#      false the secure cookie is not sent over http, so logging in through
+#      http://<fnos-ip>:3000 stops working -- expected, use the domain.
+#
+# Lucky backend target: http://<fnos-ip>:3000 (this box's LAN address).
+# 127.0.0.1 would resolve inside Lucky's own container if Lucky is
+# containerised. If Lucky shares a docker network with wakapi, http://wakapi:3000
+# works too and the host port mapping becomes unnecessary.
+#
+# Upgrade ritual (with :latest):
+#   docker compose stop wakapi
+#   cp /vol1/1000/docker/wakapi/data/wakapi.db ~/wakapi-$(date +%F).db
+#   docker compose pull && docker compose up -d
+#   docker compose logs -f wakapi          # watch the migrations
