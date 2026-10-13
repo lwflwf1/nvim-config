@@ -52,11 +52,34 @@ return {
                 }
             end
 
+            -- Port kinds stay as 4 separate picker entries, but the "Port"
+            -- entry keeps every direction at once (they are distinct kinds
+            -- internally, so each direction can carry its own icon).
+            local port_kinds = { "InputPort", "OutputPort", "InoutPort", "Port" }
+
             local function open_kind_picker(source_bufnr)
                 local items = {}
-                local kinds = { "Module", "Interface", "Package", "Class", "Constructor", "Function", "Property", "Constraint", "AssertProperty", "Clocking", "Block", "Covergroup", "Variable" }
-                for _, k in ipairs(kinds) do
-                    table.insert(items, { text = k, kind = k })
+                local kinds = {
+                    { "Module" },
+                    { "Interface" },
+                    { "Package" },
+                    { "Class" },
+                    { "Constructor" },
+                    { "Function" },
+                    { "Property" },
+                    { "Constraint" },
+                    { "AssertProperty" },
+                    { "Clocking" },
+                    { "Block" },
+                    { "Covergroup" },
+                    { "Variable" },
+                    { "InputPort" },
+                    { "OutputPort" },
+                    { "InoutPort" },
+                    { "Port", port_kinds },
+                }
+                for _, spec in ipairs(kinds) do
+                    table.insert(items, { text = spec[1], kinds = spec[2] or { spec[1] } })
                 end
                 Snacks.picker.pick({
                     items = items,
@@ -66,7 +89,7 @@ return {
                     actions = {
                         confirm = function(picker, item)
                             picker:close()
-                            apply_filter(source_bufnr, item and vim.list_extend(vim.deepcopy(container_kinds(source_bufnr)), { item.kind }) or nil)
+                            apply_filter(source_bufnr, item and vim.list_extend(vim.deepcopy(container_kinds(source_bufnr)), item.kinds) or nil)
                         end,
                     },
                 })
@@ -91,13 +114,28 @@ return {
                     "Class", "Constructor", "Function", "Interface", "Module",
                     "Variable", "Property", "Constraint", "AssertProperty",
                     "Clocking", "Covergroup",
+                    "InputPort", "OutputPort", "InoutPort", "Port",
                 },
+                -- A port re-declared internally (`input foo;` ... `wire foo;`)
+                -- would show up twice; keep the Port symbol, drop the Variable.
+                post_parse_symbol = function(bufnr, item, ctx)
+                    if item.kind ~= "Variable" then
+                        return nil
+                    end
+                    if require("box.sv").port_names(bufnr, ctx.syntax_tree)[item.name] then
+                        return false
+                    end
+                end,
                 icons = {
                     Clocking       = "",
                     Block          = "󰦮",
                     Covergroup     = "󰓾",
                     AssertProperty = "",
                     Constraint     = "󰗴",
+                    InputPort      = " ",
+                    OutputPort     = " ",
+                    InoutPort      = " ",
+                    Port           = "󱘖 ",
                 },
                 show_guides = true,
                 keymaps = {
@@ -105,6 +143,7 @@ return {
                     ["sc"] = filter({ "Class", "Interface", "Module", "Package" }, "Filter: Class/Interface/Module/Package"),
                     ["sp"] = filter({ "Property", "Constraint", "AssertProperty" }, "Filter: Property/Constraint/AssertProperty"),
                     ["sv"] = filter({ "Variable" }, "Filter: Variable"),
+                    ["sP"] = filter(port_kinds, "Filter: Ports"),
                     ["so"] = filter({ "Clocking", "Covergroup" }, "Filter: Clocking/Covergroup"),
                     ["sb"] = filter({"Block"}, "Filter: Block"),
                     ["sa"] = filter(false, "Show all symbols"),
@@ -124,6 +163,10 @@ return {
             vim.lsp.protocol.SymbolKind.Block = 29
             vim.lsp.protocol.SymbolKind.Covergroup = 30
             vim.lsp.protocol.SymbolKind.AssertProperty = 31
+            vim.lsp.protocol.SymbolKind.Port = 32
+            vim.lsp.protocol.SymbolKind.InputPort = 33
+            vim.lsp.protocol.SymbolKind.OutputPort = 34
+            vim.lsp.protocol.SymbolKind.InoutPort = 35
             require("aerial").setup(opts)
         end,
     },

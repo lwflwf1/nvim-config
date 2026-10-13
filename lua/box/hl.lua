@@ -19,7 +19,7 @@ local M = {}
 ---The groups, resolved against whichever theme is currently loaded.
 ---@return table<string, table>
 local function groups()
-    return {
+    local g = {
         -- blink.cmp and onedarkpro's blink_cmp.lua both omit these 4 kinds, so
         -- the icon and the kind label fall back to the menu foreground.
         -- blink sets every group with `default = true`, so ours win either way.
@@ -98,6 +98,20 @@ local function groups()
             bg = vim.api.nvim_get_hl(0, { name = "Visual" }).bg,
         },
     }
+
+    -- Port kinds (by direction) are config-only in both plugins: aerial needs
+    -- the icon groups, dropbar needs the text + icon groups (and their NC
+    -- variants, which dropbar derives only for kinds it knows about).
+    for _, kind in ipairs({ "InputPort", "OutputPort", "InoutPort", "Port" }) do
+        g["Aerial" .. kind .. "Icon"] = { link = "Special", default = true }
+        g["Aerial" .. kind] = { link = "AerialNormal", default = true }
+        g["DropBarIconKind" .. kind] = { link = "Special", default = true }
+        g["DropBarKind" .. kind] = { default = true }
+        g["DropBarIconKind" .. kind .. "NC"] = { link = "DropBarIconKindDefaultNC", default = true }
+        g["DropBarKind" .. kind .. "NC"] = { default = true }
+    end
+
+    return g
 end
 
 function M.apply()

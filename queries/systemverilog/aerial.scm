@@ -17,6 +17,15 @@
   (simple_identifier) @name
   (#set! "kind" "Module")) @type
 
+; Module instances (e.g. `dsi_top #(...) u_old_dsi_top (...)`). Capture the
+; instance name's simple_identifier (not the whole name_of_instance) so an
+; array instance's unpacked dimension (`[255:0]`) is not part of the name.
+(module_instantiation
+  instance_type: (simple_identifier)
+  (hierarchical_instance
+    (name_of_instance (simple_identifier) @name))
+  (#set! "kind" "Module")) @type
+
 (interface_declaration
   (interface_ansi_header name: (simple_identifier) @name)
   (#set! "kind" "Interface")) @type
@@ -103,6 +112,53 @@
       (simple_identifier) @name))
   (#not-has-ancestor? @type class_property)
   (#set! "kind" "Variable")) @type
+
+;-------------------------------------
+; Ports (direction-typed; kept distinct from internal Variable signals)
+;-------------------------------------
+; Non-ANSI body form: `input clk;` / `output [7:0] d;` / `inout pad;`.
+; The bare names in a non-ANSI module header (`port` nodes) are intentionally
+; NOT captured -- they duplicate these declarations.
+(port_declaration
+  (input_declaration
+    (list_of_port_identifiers (simple_identifier) @name))
+  (#set! "kind" "InputPort")) @type
+
+(port_declaration
+  (output_declaration
+    (list_of_port_identifiers (simple_identifier) @name))
+  (#set! "kind" "OutputPort")) @type
+
+(port_declaration
+  (inout_declaration
+    (list_of_port_identifiers (simple_identifier) @name))
+  (#set! "kind" "InoutPort")) @type
+
+; ANSI header form: `module m (input logic clk, output [7:0] d);`.
+(ansi_port_declaration
+  (_ (port_direction) @dir)
+  (simple_identifier) @name
+  (#eq? @dir "input")
+  (#set! "kind" "InputPort")) @type
+
+(ansi_port_declaration
+  (_ (port_direction) @dir)
+  (simple_identifier) @name
+  (#eq? @dir "output")
+  (#set! "kind" "OutputPort")) @type
+
+(ansi_port_declaration
+  (_ (port_direction) @dir)
+  (simple_identifier) @name
+  (#eq? @dir "inout")
+  (#set! "kind" "InoutPort")) @type
+
+; Direction omitted (inherited from the previous ANSI port) -- only the
+; directionless form has simple_identifier as its first child.
+(ansi_port_declaration
+  .
+  (simple_identifier) @name
+  (#set! "kind" "Port")) @type
 
 ;-------------------------------------
 ; Function / Task

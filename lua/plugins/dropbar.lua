@@ -24,6 +24,11 @@ return {
 
       -- Add Task icon (task in SV is analogous to function)
       configs.opts.icons.kinds.symbols.Task = '󰊕 '
+      -- Module ports by direction (nf-fa sign-in/sign-out/exchange/plug).
+      configs.opts.icons.kinds.symbols.InputPort  = " "
+      configs.opts.icons.kinds.symbols.OutputPort = " "
+      configs.opts.icons.kinds.symbols.InoutPort  = " "
+      configs.opts.icons.kinds.symbols.Port       = "󱘖 "
       -- Align icons with lspkind.nvim
       configs.opts.icons.kinds.symbols.Class     = '󰠱 '
       configs.opts.icons.kinds.symbols.Field     = '󰜢 '
@@ -46,6 +51,7 @@ return {
         class_declaration = 'Class',
         interface_class_declaration = 'Interface',
         module_declaration = 'Module',
+        module_instantiation = 'Module',
         interface_declaration = 'Interface',
         program_declaration = 'Program',
         package_declaration = 'Package',
@@ -56,6 +62,9 @@ return {
         function_prototype = 'Function',
         task_prototype = 'Function',
         data_declaration = 'Variable',
+        net_declaration = 'Variable',
+        port_declaration = 'Port',
+        ansi_port_declaration = 'Port',
       }
 
       -- Extract the declaration identifier from the node text (first capture).
@@ -75,6 +84,7 @@ return {
         task_prototype = '^\\s*task\\s\\+\\%(\\%(automatic\\|static\\|extern\\|virtual\\|protected\\|local\\)\\s\\+\\)\\?\\(\\k\\+\\)\\%(::\\(\\k\\+\\)\\)\\?',
         class_property = '\\(\\k\\+\\)\\s*\\(\\[[^\\[\\]]*\\]\\s*\\)\\?[;=,]',
         data_declaration = '\\(\\k\\+\\)\\s*\\(\\[[^\\[\\]]*\\]\\s*\\)\\?[;=,]',
+        net_declaration = '\\(\\k\\+\\)\\s*\\(\\[[^\\[\\]]*\\]\\s*\\)\\?[;=,]',
       }
 
       -- For multi-variable declarations (`int a, b;`), find the
@@ -92,14 +102,119 @@ return {
         end
       end
 
+      local function sv_first_identifier(node, buf)
+        for child in node:iter_children() do
+          if child:type() == 'simple_identifier' then
+            return vim.treesitter.get_node_text(child, buf)
+          end
+          local found = sv_first_identifier(child, buf)
+          if found then return found end
+        end
+      end
+
+      -- Port name from a body `port_declaration`: descend to the identifier
+      -- under list_of_port_identifiers (skips the direction keyword and the
+      -- packed dimension), col-aware for `input a, b;`.
+      local function sv_port_name(node, buf, col)
+        for child in node:iter_children() do
+          if child:type() == 'list_of_port_identifiers' then
+            if col then
+              local id = sv_identifier_at_col(child, buf, col)
+              if id and id ~= '' then return id end
+            end
+            return sv_first_identifier(child, buf) or ''
+          end
+          local found = sv_port_name(child, buf, col)
+          if found ~= nil then return found end
+        end
+        return nil
+      end
+
+      -- Direction kind for a port node ('Port' when direction is inherited).
+      local function sv_port_kind(node, buf)
+        if node:type() == 'port_declaration' then
+          for child in node:iter_children() do
+            local ct = child:type()
+            if ct == 'input_declaration' then
+              return 'InputPort'
+            end
+            if ct == 'output_declaration' then
+              return 'OutputPort'
+            end
+            if ct == 'inout_declaration' then
+              return 'InoutPort'
+            end
+          end
+        elseif node:type() == 'ansi_port_declaration' then
+          local dir
+          local function find_dir(n)
+            if dir then
+              return
+            end
+            if n:type() == 'port_direction' then
+              dir = vim.treesitter.get_node_text(n, buf)
+              return
+            end
+            for c in n:iter_children() do
+              find_dir(c)
+            end
+          end
+          find_dir(node)
+          if dir == 'input' then
+            return 'InputPort'
+          end
+          if dir == 'output' then
+            return 'OutputPort'
+          end
+          if dir == 'inout' then
+            return 'InoutPort'
+          end
+        end
+        return 'Port'
+      end
+
       local function sv_node_name(node, buf, col)
         local kind = sv_kinds[node:type()]
         if not kind then
           return nil
         end
+        -- Module instances: the name is the hierarchical_instance's
+        -- name_of_instance, not the first identifier (which is the module
+        -- type). Descend rather than regex the node text, which may embed a
+        -- parameter list, an unpacked dimension (`[255:0]`) or comments.
+        if node:type() == 'module_instantiation' then
+          for inst in node:iter_children() do
+            if inst:type() == 'hierarchical_instance' then
+              for c in inst:iter_children() do
+                if c:type() == 'name_of_instance' then
+                  local id = c:named_child(0)
+                  if id then return vim.treesitter.get_node_text(id, buf) end
+                end
+              end
+            end
+          end
+          return ''
+        end
+        -- Ports: ANSI form carries the identifier as a direct child; the
+        -- non-ANSI body form nests it under list_of_port_identifiers.
+        if node:type() == 'port_declaration' then
+          return sv_port_name(node, buf, col) or ''
+        end
+        if node:type() == 'ansi_port_declaration' then
+          for c in node:iter_children() do
+            if c:type() == 'simple_identifier' then
+              return vim.treesitter.get_node_text(c, buf)
+            end
+          end
+          return ''
+        end
         local text = vim.treesitter.get_node_text(node, buf):gsub('\n', ' '):gsub('%s+', ' ')
         local m = vim.fn.matchlist(text, sv_name_patterns[node:type()])
-        if node:type() == 'class_property' or node:type() == 'data_declaration' then
+        if
+          node:type() == 'class_property'
+          or node:type() == 'data_declaration'
+          or node:type() == 'net_declaration'
+        then
           -- Try cursor-column-aware lookup for multi-variable declarations
           if col then
             local id = sv_identifier_at_col(node, buf, col)
@@ -112,26 +227,96 @@ return {
         return m[3] ~= nil and m[3] ~= '' and m[3] or m[2] or ''
       end
 
-      local function sv_valid(node, buf)
-        return sv_kinds[node:type()] ~= nil and sv_node_name(node, buf) ~= ''
-      end
+      local sv_multi_var_types = {
+        data_declaration = true,
+        class_property = true,
+        net_declaration = true,
+      }
+      local sv_var_assignment_types = {
+        variable_decl_assignment = true,
+        net_decl_assignment = true,
+      }
 
-      -- For multi-variable declarations (e.g. `bit [31:0] hw_val, mask;`),
-      -- return the variable_decl_assignment child nodes when there are ≥ 2.
-      local function sv_multi_vars(node, _)
-        local t = node:type()
-        if t ~= 'data_declaration' and t ~= 'class_property' then
-          return nil
-        end
+      -- Declared names of a net/data declaration (one per assignment).
+      local function sv_decl_names(node, buf)
+        local names = {}
         for list in node:iter_children() do
-          if list:type() == 'list_of_variable_decl_assignments' then
-            local vars = {}
+          local lt = list:type()
+          if lt == 'list_of_variable_decl_assignments' or lt == 'list_of_net_decl_assignments' then
             for va in list:iter_children() do
-              if va:type() == 'variable_decl_assignment' then
-                vars[#vars + 1] = va
+              if sv_var_assignment_types[va:type()] then
+                local n = sv_first_identifier(va, buf)
+                if n then
+                  names[#names + 1] = n
+                end
               end
             end
-            if #vars >= 2 then return vars end
+          end
+        end
+        return names
+      end
+
+      -- True when every name of this declaration is a port -- a redundant
+      -- internal re-declaration (`input foo;` ... `wire foo;`) that must be
+      -- hidden so the same signal does not show up twice.
+      local function sv_port_redecl(node, buf)
+        local t = node:type()
+        local names
+        if t == 'net_declaration' or t == 'data_declaration' then
+          names = sv_decl_names(node, buf)
+        elseif t == 'variable_decl_assignment' or t == 'net_decl_assignment' then
+          local n = sv_first_identifier(node, buf)
+          names = n and { n } or {}
+        else
+          return false
+        end
+        if #names == 0 then
+          return false
+        end
+        local ports = require('box.sv').port_names(buf)
+        for _, n in ipairs(names) do
+          if not ports[n] then
+            return false
+          end
+        end
+        return true
+      end
+
+      local function sv_valid(node, buf)
+        if not sv_kinds[node:type()] then
+          return false
+        end
+        if sv_node_name(node, buf) == '' then
+          return false
+        end
+        return not sv_port_redecl(node, buf)
+      end
+
+      -- For multi-variable declarations (e.g. `bit [31:0] hw_val, mask;` or
+      -- `wire a, b;`), return the assignment child nodes when there are ≥ 2.
+      -- Port re-declarations are excluded so they never surface twice.
+      local function sv_multi_vars(node, buf)
+        if not sv_multi_var_types[node:type()] then
+          return nil
+        end
+        local ports = require('box.sv').port_names(buf)
+        for list in node:iter_children() do
+          local lt = list:type()
+          if lt == 'list_of_variable_decl_assignments' or lt == 'list_of_net_decl_assignments' then
+            local vars = {}
+            local total = 0
+            for va in list:iter_children() do
+              if sv_var_assignment_types[va:type()] then
+                total = total + 1
+                local name = sv_first_identifier(va, buf)
+                if not (name and ports[name]) then
+                  vars[#vars + 1] = va
+                end
+              end
+            end
+            if total >= 2 then
+              return vars
+            end
           end
         end
         return nil
@@ -222,9 +407,18 @@ return {
         local kind = sv_kinds[node:type()]
         local name = sv_node_name(node, buf, col)
 
-        -- variable_decl_assignment: extract name from first child,
-        -- inherit kind from parent declaration.
-        if node:type() == 'variable_decl_assignment' then
+        -- Ports carry their direction in the node type / header.
+        if node:type() == 'port_declaration' or node:type() == 'ansi_port_declaration' then
+          kind = sv_port_kind(node, buf)
+        end
+        -- Hide internal re-declarations of ports (port symbol already shows).
+        if sv_port_redecl(node, buf) then
+          return nil
+        end
+
+        -- variable_decl_assignment / net_decl_assignment: extract name from
+        -- first child, inherit kind from the parent declaration.
+        if node:type() == 'variable_decl_assignment' or node:type() == 'net_decl_assignment' then
           for child in node:iter_children() do
             if child:type() == 'simple_identifier' then
               name = vim.treesitter.get_node_text(child, buf)
