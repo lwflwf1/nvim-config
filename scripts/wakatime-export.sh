@@ -33,13 +33,14 @@
 #   -d  working directory for the .json/.zip (default: ~/wakatime-ferry)
 #   -t  recipient (default: "$(id -un)@asrmicro.com")
 #
-# Env overrides: FERRY (path to ferry.py/.cmd or a command name), WAKATIME_HOME.
+# Env overrides: FERRY (a command name or a path, tried as-is; unset -> resolved
+# by resolve_ferry()), WAKATIME_HOME.
 set -uo pipefail
 
 OUT_DIR="${HOME}/wakatime-ferry"
 RECIPIENT="$(id -un)@asrmicro.com"
 KEEP_Q=0
-FERRY="${FERRY:-ferry}"
+FERRY="${FERRY:-}"   # empty -> resolved in preflight, see resolve_ferry()
 
 while getopts "nd:t:" opt; do
     case "$opt" in
@@ -59,7 +60,28 @@ warn() { printf '[!] %s\n' "$*" >&2; }
 die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 # ---------------------------------------------------------------- preflight
-command -v "$FERRY" >/dev/null 2>&1 || die "ferry not found (set FERRY=/path/to/ferry)"
+# ferry is installed on this box as ~/.local/bin/ferry.py: there is no bare
+# `ferry` command, so resolving only that name fails even though ferry is right
+# there. Try the .py spelling, the bare name (some installs add a wrapper), and
+# the install location, in that order. An explicit FERRY wins and is never
+# second-guessed -- it may be a wrapper script with its own interpreter.
+resolve_ferry() {
+    if [ -n "$FERRY" ]; then
+        command -v "$FERRY" >/dev/null 2>&1 && return 0
+        return 1
+    fi
+    for cand in ferry.py ferry "$HOME/.local/bin/ferry.py" "$HOME/.local/bin/ferry"; do
+        if command -v "$cand" >/dev/null 2>&1; then
+            FERRY="$cand"
+            return 0
+        fi
+    done
+    return 1
+}
+
+resolve_ferry || die "ferry not found (tried: \$FERRY, ferry.py, ferry, ~/.local/bin/ferry.py)
+       set FERRY=/path/to/ferry.py, or make one of those names work"
+log "ferry: $(command -v "$FERRY")"
 [ -x "$CLI" ] || die "wakatime-cli not executable: $CLI
        run the offline installer (it links ~/.local/bin/wakatime-cli-linux-amd64)"
 
