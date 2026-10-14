@@ -304,6 +304,17 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
 - **Noice suppresses `recording @a`** (`msg_showmode` is `skip`-routed). lualine
   shows a `REC @<reg>` indicator instead, refreshed on `RecordingEnter`/`Leave`
   (`plugins/ui.lua`).
+- **The RHEL6 wakatime 104 is permanent noise, and noice routes it out.** The
+  plugin reports every failed heartbeat with `vim.notify` (`lua/wakatime/init.lua`),
+  and on the air-gapped box the failure *cannot* be fixed: `api_url` is the
+  `127.0.0.1:1` placeholder, so wakatime-cli can never validate the api key and
+  exits 104 — once per `heartbeat_rate_limit_seconds` window, forever. Loopback
+  means **zero egress** (do NOT "fix" it by pointing `api_url` at the real wakapi
+  — that is what would generate outbound DNS/TCP). `plugins/ui.lua` drops it via
+  noice's documented `routes` + `opts.skip` (`filter = { event = "notify", find =
+  "%[WakaTime%]" }`), gated on `is_rhel6` so a networked box still sees genuine
+  notifications. Wrapping `vim.notify` instead would fight whoever owns the
+  notify handler. Caveat: noice is `VeryLazy`, so the message echoes once before.
 - **bufferline duplicate prefixes on Windows** (`plugins/ui.lua`, the bufferline
   `config`): nvim *always* normalises buffer names to `/` (even when opened with
   `\`), but bufferline derives `utils.path_sep` from `has("win32")` = `\` and

@@ -406,6 +406,24 @@ return {
                 command_palette = true,
                 long_message_to_split = true,
             },
+            -- The wakatime plugin reports a failed heartbeat through vim.notify.
+            -- On this air-gapped box that failure is permanent and expected --
+            -- api_url is the 127.0.0.1:1 placeholder, so wakatime-cli can never
+            -- validate the api key -- and it recurs once per heartbeat_rate_limit
+            -- window for as long as the editor is open. Routing it out through
+            -- noice's own `skip` filter is what the plugin documents for this
+            -- (doc/noice.nvim.txt ROUTES), and it is the same mechanism that
+            -- drops the `recording @a` messages; wrapping vim.notify instead
+            -- would fight whoever owns the notify handler. Gated on is_rhel6 so
+            -- a networked box still sees genuine wakatime notifications.
+            -- Noice is VeryLazy-loaded, so before that the message still echoes
+            -- through the default handler once.
+            routes = vim.g.is_rhel6 and {
+                {
+                    filter = { event = "notify", find = "%[WakaTime%]" },
+                    opts = { skip = true },
+                },
+            } or {},
         },
     },
 }
