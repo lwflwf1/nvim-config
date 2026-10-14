@@ -6,6 +6,11 @@
 --   RHEL6   :WakaExport  -> bash scripts/wakatime-export.sh
 --              wakatime-cli --print-offline-heartbeats -> ferry pack -> ferry email
 --   here    :WakaSync    -> ferry recv -> ferry merge -> ferry unpack -> POST
+--           :WakaPurge   -> ferry recv --delete, only for archives the ledger
+--                           records as uploaded. Separate command on purpose:
+--                           :WakaSync itself never deletes a message, so the
+--                           "the data lives somewhere at every instant" property
+--                           holds unless someone asks for it by name.
 --
 -- The export half deliberately stays in the shell script, even though :WakaExport
 -- could reimplement it here: that side must keep working when nvim cannot start
@@ -348,6 +353,124 @@ function M.export(args)
     end)
 end
 
+-- Hard-delete the mail for archives already recorded as uploaded. Deliberately a
+-- separate command: :WakaSync never touches the mailbox beyond \Seen, so the
+-- "data lives somewhere at every instant" invariant holds on its own. This is
+-- the one place that breaks it, which is why it needs to be asked for by name.
+--
+-- The ledger is the guard. It is only written after a POST that accepted the
+-- heartbeats, so anything not in it is still only in the mailbox and must not be
+-- deleted -- the match is per archive name, not the shared subject filter, so a
+-- never-uploaded archive sitting in the same folder is untouched.
+function M.purge(raw)
+    local argv = split_args(raw)
+    local only, force = nil, false
+    for _, a in ipairs(argv) do
+        if a == "!" or a == "--force" then
+            force = true
+        elseif a ~= "all" then
+            only = a
+        end
+    end
+
+    local cfg_path = find_cfg()
+    if not cfg_path then
+        return err("no imap.json found (WAKATIME_IMAP_CONFIG, cwd, or " .. scripts_dir() .. ")")
+    end
+    local cfg = read_json(cfg_path)
+    if type(cfg) ~= "table" then
+        return err("imap.json is not valid JSON: " .. cfg_path)
+    end
+    local ferry = find_ferry(cfg)
+    if not ferry then
+        return
+    end
+    local py = find_python()
+    if not py then
+        return
+    end
+    local mailbox = cfg.mailbox or cfg.folder
+    if not mailbox then
+        return err('no mailbox in ' .. cfg_path .. ' (expected "mailbox")')
+    end
+
+    -- The ledger is the guard. It is written only after a POST that accepted the
+    -- heartbeats, so an archive missing from it is still only in the mailbox and
+    -- must not be touched. Matching is per archive name, never the shared subject
+    -- filter, so a never-uploaded archive in the same folder survives.
+    local state_path = (cfg.state_file and vim.fn.expand(cfg.state_file))
+        or (home() .. "/wakatime-ferry/state.json")
+    local ledger = read_json(state_path) or {}
+    ledger.uploaded = ledger.uploaded or {}
+
+    local names = vim.tbl_keys(ledger.uploaded)
+    table.sort(names)
+    if only then
+        names = vim.tbl_filter(function(n)
+            return n == only
+        end, names)
+    end
+    if #names == 0 then
+        return err(("nothing uploaded to purge (ledger: %s)"):format(state_path))
+    end
+
+    local log = {}
+    local function say(s)
+        log[#log + 1] = s
+        show("purge", table.concat(log, "\n"))
+    end
+
+    local total, listing = 0, {}
+    for _, name in ipairs(names) do
+        total = total + (ledger.uploaded[name].heartbeats or 0)
+        listing[#listing + 1] = ("  %-42s %4s heartbeats, uploaded %s"):format(
+            name,
+            tostring(ledger.uploaded[name].heartbeats or "?"),
+            ledger.uploaded[name].at or "?"
+        )
+    end
+    say("about to PERMANENTLY delete from " .. mailbox .. ":")
+    say(table.concat(listing, "\n"))
+    say("")
+    say(("%d archive(s), %d heartbeats already accepted by wakapi."):format(#names, total))
+    say("IMAP EXPUNGE is a server-side hard delete: not in Deleted Items, no undo,")
+    say("and this is the one step that gives up the 'data lives somewhere' guarantee.")
+    say("")
+
+    if not force then
+        vim.fn.inputsave()
+        local choice = vim.fn.confirm("Delete these messages?", "&Yes\n&No", 2)
+        vim.fn.inputrestore()
+        if choice ~= 1 then
+            say("")
+            say("cancelled - nothing was deleted")
+            return
+        end
+    end
+
+    local steps = {}
+    for _, name in ipairs(names) do
+        steps[#steps + 1] = function(next_step)
+            local a = { py, ferry, "recv", "-c", cfg_path, "-m", mailbox, "-s", name, "--delete" }
+            say("$ " .. table.concat(a, " "))
+            sh(a, nil, function(code, out, e)
+                if code ~= 0 then
+                    say("   [!] " .. ((e ~= "" and e or out):gsub("\n", " "):sub(1, 160)))
+                else
+                    say("   " .. (out:gsub("\n.*", "")))
+                end
+                next_step()
+            end)
+        end
+    end
+    steps[#steps + 1] = function(next_step)
+        say("")
+        say("done. Anything not listed above was left alone.")
+        next_step()
+    end
+    chain(steps)
+end
+
 function M.sync(args)
     local opt = { force = false, keep_mails = false, only = nil }
     local argv = split_args(args)
@@ -562,6 +685,12 @@ function M.setup()
     end, { nargs = "*", complete = function()
         return { "--force", "--keep-mails", "-a" }
     end, desc = "Fetch mailed heartbeat archives and upload them to wakapi" })
+
+    vim.api.nvim_create_user_command("WakaPurge", function(a)
+        M.purge(a.args)
+    end, { nargs = "*", complete = function()
+        return { "!", "all" }
+    end, desc = "PERMANENTLY delete the mail of already-uploaded archives" })
 end
 
 return M

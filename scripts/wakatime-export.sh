@@ -20,9 +20,10 @@
 # queue, so leaving it would re-send everything on the next run and the queue
 # would grow without bound until the archive blew past ferry's 10 MiB prompt
 # (which cancels instead of splitting in a non-interactive run). Clearing it on
-# success is safe because by then the parts are in the mailbox, and the receiver
-# does not delete a message until it has been uploaded to wakapi -- at every
-# instant the data lives in at least one place.
+# success is safe because by then the parts are in the mailbox, and nothing
+# deletes a message until someone runs :WakaPurge -- which only deletes archives
+# the receiver's ledger records as uploaded. At every instant the data lives in
+# at least one place.
 #
 # IMPORTANT: do not edit files while this runs. The queue is deleted on success,
 # so a heartbeat appended between the dump and the delete would go with it. The

@@ -622,11 +622,21 @@ CursorHold with activity in the last 120s, on every BufWritePost and on BufEnter
   `--print-offline-heartbeats` always dumps the *whole* queue, so leaving it
   would re-send everything next time and grow until the archive exceeded ferry's
   10 MiB prompt (which *cancels* instead of splitting when non-interactive).
-  Safe because by then the parts are in the mailbox, and the receiver does not
-  delete a message until the upload succeeded — at every instant the data lives
+  Safe because by then the parts are in the mailbox, and **nothing deletes a
+  message until `:WakaPurge` is run** — at every instant the data lives
   somewhere. `--keep-queue` skips it. Corollary: **do not edit while exporting**,
   a heartbeat appended between the dump and the delete goes with it (the script
   warns when a `wakatime-cli` process is running).
+- **Deleting the mail is a separate command, `:WakaPurge`, on purpose.** It is
+  the only step that gives up the invariant above, so it must be asked for by
+  name: `:WakaSync` itself touches nothing but `\Seen`. It hard-deletes via
+  `ferry recv --delete` (IMAP `STORE +FLAGS (\Deleted)` then `EXPUNGE` — a
+  **server-side** delete, *not* the client's Deleted Items, no undo), guarded
+  three ways: it iterates the **ledger**, so an archive whose POST failed is
+  never touched; it matches **per archive name**, not the shared
+  `subject_filter` (which matches every archive in the folder, including ones
+  that have not been uploaded yet); and it asks for confirmation unless `!` is
+  given. `:WakaPurge <archive>` narrows it to one.
 - **Integrity is checked, not assumed.** `ferry merge` validates the part
   sequence and `ferry unpack` proves the zip CRC, so an MTA that rewrites line
   endings surfaces as `INTEGRITY FAILURE` instead of silently corrupting
