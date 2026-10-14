@@ -192,9 +192,9 @@ return {
             require("mini.move").setup({
                 mappings = {
                     left  = "<M-H>", right = "<M-L>",
-                    down  = "<M-N>", up    = "<M-P>",
+                    down  = "<M-J>", up    = "<M-K>",
                     line_left  = "<M-H>", line_right = "<M-L>",
-                    line_down  = "<M-N>", line_up    = "<M-P>",
+                    line_down  = "<M-J>", line_up    = "<M-K>",
                 },
             })
 
@@ -268,22 +268,22 @@ return {
         },
         keys = {
             { "M", mode = { "n", "x", "o" }, function() require("flash").jump() end, desc = "Flash" },
-            { "<M-K>", mode = { "n" }, function()
-                require("flash").jump({
-                    action = function(match)
-                        local bufnr = vim.api.nvim_win_get_buf(match.win)
-                        local line = vim.api.nvim_buf_get_lines(bufnr, match.pos[1] - 1, match.pos[1], false)[1] or ""
-                        vim.lsp.buf_request(bufnr, "textDocument/hover", function(client)
-                            local p = vim.lsp.util.make_position_params(match.win, client.offset_encoding)
-                            p.position = {
-                                line = match.pos[1] - 1,
-                                character = vim.str_utfindex(line, client.offset_encoding, match.pos[2]),
-                            }
-                            return p
-                        end, require("noice.lsp.hover").on_hover)
-                    end,
-                })
-            end, desc = "Flash hover" },
+            -- { "<M-K>", mode = { "n" }, function()
+            --     require("flash").jump({
+            --         action = function(match)
+            --             local bufnr = vim.api.nvim_win_get_buf(match.win)
+            --             local line = vim.api.nvim_buf_get_lines(bufnr, match.pos[1] - 1, match.pos[1], false)[1] or ""
+            --             vim.lsp.buf_request(bufnr, "textDocument/hover", function(client)
+            --                 local p = vim.lsp.util.make_position_params(match.win, client.offset_encoding)
+            --                 p.position = {
+            --                     line = match.pos[1] - 1,
+            --                     character = vim.str_utfindex(line, client.offset_encoding, match.pos[2]),
+            --                 }
+            --                 return p
+            --             end, require("noice.lsp.hover").on_hover)
+            --         end,
+            --     })
+            -- end, desc = "Flash hover" },
             { "S", function() require("flash").treesitter() end, desc = "Flash Treesitter", mode = { "n" } },
             { "s", function() require("flash").treesitter() end, desc = "Flash Treesitter", mode = { "o" } },
             { "R", function() require("flash").treesitter_search() end, desc = "Flash Remote Treesitter", mode = { "o", "x" } },

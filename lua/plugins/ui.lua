@@ -1,25 +1,25 @@
 -- Mode component: just a glyph table keyed by vim.fn.mode(). The per-mode
 -- color comes from the lualine theme preset (see the theme function below,
 -- which moves each mode's a-section color from bg to fg).
-local mode_icons = {
-    n = "󱍀",
-    i = "",
-    v = "󰒅",
-    V = "󰜩",
-    ["\22"] = "󰕰",
-    R = "󰈸",
-    c = "",
-    t = "",
-    s = "",
-    S = "",
-    ["\19"] = "",
-    no = "",
-    ic = "",
-    ix = "",
-    Rv = "",
-    cv = "",
-    cr = "",
-}
+-- local mode_icons = {
+--     n = "󱍀",
+--     i = "",
+--     v = "󰒅",
+--     V = "󰜩",
+--     ["\22"] = "󰕰",
+--     R = "󰈸",
+--     c = "",
+--     t = "",
+--     s = "",
+--     S = "",
+--     ["\19"] = "",
+--     no = "",
+--     ic = "",
+--     ix = "",
+--     Rv = "",
+--     cv = "",
+--     cr = "",
+-- }
 
 local function group_fg(name)
     local fg = vim.api.nvim_get_hl(0, { name = name }).fg
@@ -28,9 +28,9 @@ end
 
 local battery = require("box.battery")
 
-local function mode_component()
-    return mode_icons[vim.fn.mode()] or vim.fn.mode()
-end
+-- local function mode_component()
+--     return mode_icons[vim.fn.mode()] or vim.fn.mode()
+-- end
 
 local function in_visual_select()
     return vim.tbl_contains({ "v", "V", "\22", "s", "S", "\19" }, vim.fn.mode(true))
@@ -210,7 +210,8 @@ return {
             sections = {
                 lualine_a = {
                     {
-                        mode_component,
+                        -- mode_component,
+                        function () return "" end,
                         right_padding = 1,
                     },
                 },
