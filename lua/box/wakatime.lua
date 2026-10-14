@@ -306,11 +306,10 @@ local function post_heartbeats(api_url, key, path, cb)
         if type(parsed) ~= "table" or type(parsed.responses) ~= "table" then
             return cb(nil, ("HTTP-layer failure (curl %d): %s"):format(code, (out .. e):sub(1, 200)))
         end
-        local tally, accepted, rejected = {}, 0, 0
+        local accepted, rejected = 0, 0
         for _, item in ipairs(parsed.responses) do
             if type(item) == "table" and #item >= 2 then
                 local status = item[#item]
-                tally[status] = (tally[status] or 0) + 1
                 if status == 201 then
                     accepted = accepted + 1
                 elseif status == 400 then
@@ -318,12 +317,108 @@ local function post_heartbeats(api_url, key, path, cb)
                 end
             end
         end
-        cb({ accepted = accepted, rejected = rejected, tally = tally })
+        -- Anything that is neither 201 nor 400 -- a 5xx, or a proxy's HTML error
+        -- page parsed as JSON -- stays unaccounted for, and must not be mistaken
+        -- for a success: the archive would be recorded and never retried.
+        cb({
+            accepted = accepted,
+            rejected = rejected,
+            unaccounted = #parsed.responses - accepted - rejected,
+        })
+    end)
+end
+
+-- ---------------------------------------------------------------- context
+
+-- Everything both mailbox commands resolve up front. Returns nil, after
+-- reporting why, when this box cannot drive ferry at all.
+local function bridge()
+    local cfg_path = find_cfg()
+    if not cfg_path then
+        err("no imap.json found (WAKATIME_IMAP_CONFIG, cwd, or " .. scripts_dir() .. ")")
+        return nil
+    end
+    local cfg = read_json(cfg_path)
+    if type(cfg) ~= "table" then
+        err("imap.json is not valid JSON: " .. cfg_path)
+        return nil
+    end
+    local ferry = find_ferry(cfg)
+    if not ferry then
+        return nil
+    end
+    local py = find_python()
+    if not py then
+        return nil
+    end
+    local state_path = (cfg.state_file and vim.fn.expand(cfg.state_file))
+        or (home() .. "/wakatime-ferry/state.json")
+    local ledger = read_json(state_path) or {}
+    ledger.uploaded = ledger.uploaded or {}
+    return {
+        cfg_path = cfg_path,
+        cfg = cfg,
+        ferry = ferry,
+        py = py,
+        state_path = state_path,
+        ledger = ledger,
+    }
+end
+
+-- Accumulates lines and repaints, so progress is visible while the slow
+-- ferry/curl calls run.
+local function reporter(title)
+    local lines = {}
+    return function(s)
+        lines[#lines + 1] = s
+        show(title, table.concat(lines, "\n"))
+    end
+end
+
+-- ---------------------------------------------------------------- one archive
+
+-- Unpack one archive and POST it. cb(summary, err) -- exactly one is non-nil.
+-- Only a success records the ledger, so a failure leaves the archive in the
+-- staging dir to be retried on the next run.
+local function deliver(ctx, name, archive, extracted, cb)
+    vim.fn.delete(extracted, "rf")
+    sh({ ctx.py, ctx.ferry, "unpack", "-i", archive, "-o", extracted }, nil, function(uc, uo, ue)
+        if uc ~= 0 then
+            return cb(nil, "unpack rejected the archive (incomplete or corrupted in"
+                .. " transit); keeping the parts\n       "
+                .. ((ue ~= "" and ue or uo):gsub("\n", "\n       "))
+                .. "\n       if this repeats, the mail path is mangling the attachment"
+                .. " - switch the RHEL6 side to ferry's -f text")
+        end
+        local jsons = find_files(extracted, "[^/]%.json$")
+        if #jsons == 0 then
+            return cb(nil, "unpack produced no .json")
+        end
+        post_heartbeats(ctx.api_url, ctx.api_key, jsons[1], function(res, perr)
+            if perr then
+                return cb(nil, perr)
+            end
+            if res.rejected > 0 or res.unaccounted > 0 then
+                return cb(nil, ("POST accepted=%d rejected=%d unaccounted=%d -- rejected"
+                    .. " ones are usually older than heartbeat_max_age (180d) or"
+                    .. " malformed"):format(res.accepted, res.rejected, res.unaccounted))
+            end
+            ctx.ledger.uploaded[name] = {
+                at = os.date("%Y-%m-%dT%H:%M:%S"),
+                heartbeats = res.accepted,
+            }
+            write_json(ctx.state_path, ctx.ledger)
+            cb(("integrity OK -> %s\n   POST accepted=%d rejected=%d"):format(
+                vim.fn.fnamemodify(jsons[1], ":t"), res.accepted, res.rejected))
+        end)
     end)
 end
 
 -- ---------------------------------------------------------------- commands
 
+-- Runs scripts/wakatime-export.sh. The export logic lives in that shell script
+-- on purpose: it has to keep working when nvim cannot start on the air-gapped
+-- box, so it has exactly one implementation and does not depend on this file.
 function M.export(args)
     local script = scripts_dir() .. "/wakatime-export.sh"
     if vim.fn.filereadable(script) ~= 1 then
@@ -335,37 +430,178 @@ function M.export(args)
     local argv = { "bash", script }
     vim.list_extend(argv, split_args(args))
     local cmd = table.concat(argv, " ")
-    show("export", "running: " .. cmd .. "\n")
+
+    local say = reporter("export")
+    say("$ " .. cmd)
     sh(argv, nil, function(code, out, e)
-        -- The script's warn() goes to stderr, and its two most important
-        -- messages ("mailing failed, artifacts kept" / "queue grew, keeping it")
-        -- are warnings -- so stderr first, or they read as an afterthought.
-        show("export", table.concat({
-            "$ " .. cmd,
-            "exit: " .. code,
-            "",
-            e,
-            out,
-        }, "\n"))
+        say("exit: " .. code)
+        -- stderr first: the script's warn() carries the two messages that decide
+        -- the outcome ("mailing failed, artifacts kept" / "queue grew, keeping it"),
+        -- and they read as an afterthought when they come after the whole log.
+        if e ~= "" then
+            say(e)
+        end
+        say(out)
         if code ~= 0 then
             err(cmd .. " exited " .. code .. " - see the wakatime://export buffer")
         end
     end)
 end
 
--- Hard-delete the mail for archives already recorded as uploaded. Deliberately a
--- separate command: :WakaSync never touches the mailbox beyond \Seen, so the
--- "data lives somewhere at every instant" invariant holds on its own. This is
--- the one place that breaks it, which is why it needs to be asked for by name.
+function M.sync(args)
+    local opt = { force = false, keep_mails = false, only = nil }
+    local argv = split_args(args)
+    for i = 1, #argv do
+        local a = argv[i]
+        if a == "--force" then
+            opt.force = true
+        elseif a == "--keep-mails" then
+            opt.keep_mails = true
+        elseif (a == "-a" or a == "--archive") and argv[i + 1] then
+            opt.only = argv[i + 1]
+        end
+    end
+
+    local ctx = bridge()
+    if not ctx then
+        return
+    end
+    if vim.fn.executable("curl") ~= 1 then
+        return err("curl not found - :WakaSync needs it to POST to wakapi")
+    end
+    local api_url, key, why = wakatime_credentials()
+    if not api_url then
+        return err(why)
+    end
+    ctx.api_url, ctx.api_key = api_url, key
+
+    local staging = (ctx.cfg.staging and vim.fn.expand(ctx.cfg.staging))
+        or (home() .. "/wakatime-ferry/incoming")
+    local work = staging .. "/.work"
+    vim.fn.mkdir(staging, "p")
+    vim.fn.mkdir(work, "p")
+
+    local say = reporter("sync")
+    say("api_url : " .. api_url)
+    say("config  : " .. ctx.cfg_path)
+    say("staging : " .. staging)
+    say("")
+
+    local recv_argv = {
+        ctx.py, ctx.ferry, "recv", "-c", ctx.cfg_path, "-o", staging,
+        "-s", ctx.cfg.subject_filter or DEFAULT_FILTER,
+    }
+    if not opt.keep_mails then
+        recv_argv[#recv_argv + 1] = "--mark-seen"
+    end
+
+    say("$ " .. table.concat(recv_argv, " "))
+    sh(recv_argv, nil, function(code, out, e)
+        -- stderr first, same reason: ferry's "connecting/connected" lines read
+        -- wrong after the result report.
+        if e ~= "" then
+            say(e)
+        end
+        say(out)
+        if code ~= 0 then
+            say(("recv exited %d - stopping (nothing was uploaded)"):format(code))
+            return
+        end
+        say("")
+
+        local groups = group_archives(staging)
+        local names = vim.tbl_keys(groups)
+        table.sort(names)
+        if #names == 0 then
+            return say("no archives in the staging dir")
+        end
+
+        local todo = {}
+        for _, name in ipairs(names) do
+            if opt.only and name ~= opt.only then
+                -- not selected, but still reported below
+            elseif ctx.ledger.uploaded[name] and not opt.force then
+                say(("skip %s (uploaded %s)"):format(name, ctx.ledger.uploaded[name].at or "?"))
+            else
+                todo[#todo + 1] = name
+            end
+        end
+        if #todo == 0 then
+            return say("nothing new to upload" .. (opt.force and "" or " (--force re-uploads)"))
+        end
+
+        local uploaded, failed = {}, {}
+        local steps = {}
+        for _, name in ipairs(todo) do
+            steps[#steps + 1] = function(next_step)
+                local g = groups[name]
+                say(("== %s ==="):format(name))
+                say(("   %d part file(s) present"):format(count_have(g)))
+
+                local extracted = work .. "/" .. name .. ".d"
+                local function report(summary, e)
+                    if e then
+                        say("   [!] " .. e)
+                        failed[#failed + 1] = name
+                    else
+                        say("   " .. summary)
+                        say("   recorded in the ledger")
+                        uploaded[#uploaded + 1] = name
+                    end
+                    next_step()
+                end
+
+                if not g.is_part then
+                    return deliver(ctx, name, staging .. "/" .. name, extracted, report)
+                end
+
+                local parts = find_files(staging, "^" .. vim.pesc(name) .. "%.part%d+%.?[^/]*$")
+                table.sort(parts)
+                if #parts == 0 then
+                    say("   [!] no part files found")
+                    failed[#failed + 1] = name
+                    return next_step()
+                end
+                local merged = work .. "/" .. name
+                say("$ " .. ctx.py .. " " .. ctx.ferry .. " merge -i " .. parts[1])
+                sh({ ctx.py, ctx.ferry, "merge", "-i", parts[1], "-o", merged }, nil,
+                    function(mc, mo, me)
+                        if mc ~= 0 then
+                            say("   [!] merge failed (a part is still missing?): "
+                                .. ((me ~= "" and me or mo):gsub("\n", " "):sub(1, 160)))
+                            failed[#failed + 1] = name
+                            return next_step()
+                        end
+                        deliver(ctx, name, merged, extracted, report)
+                    end)
+            end
+        end
+
+        steps[#steps + 1] = function(next_step)
+            say("")
+            if #uploaded > 0 then
+                say("uploaded: " .. table.concat(uploaded, ", "))
+            end
+            if #failed > 0 then
+                say("not uploaded (left in the staging dir, re-runs are safe): "
+                    .. table.concat(failed, ", "))
+            end
+            next_step()
+        end
+        chain(steps)
+    end)
+end
+
+-- Hard-delete the mail of archives the ledger records as uploaded. A separate
+-- command on purpose: :WakaSync never deletes a message, so "the data lives
+-- somewhere at every instant" holds unless someone asks for it by name.
 --
--- The ledger is the guard. It is only written after a POST that accepted the
--- heartbeats, so anything not in it is still only in the mailbox and must not be
--- deleted -- the match is per archive name, not the shared subject filter, so a
--- never-uploaded archive sitting in the same folder is untouched.
-function M.purge(raw)
-    local argv = split_args(raw)
+-- The ledger is the guard -- it is written only after a POST that accepted the
+-- heartbeats -- and the match is per archive name, never the shared
+-- subject_filter, which also matches archives that were never uploaded.
+function M.purge(args)
     local only, force = nil, false
-    for _, a in ipairs(argv) do
+    for _, a in ipairs(split_args(args)) do
         if a == "!" or a == "--force" then
             force = true
         elseif a ~= "all" then
@@ -373,60 +609,36 @@ function M.purge(raw)
         end
     end
 
-    local cfg_path = find_cfg()
-    if not cfg_path then
-        return err("no imap.json found (WAKATIME_IMAP_CONFIG, cwd, or " .. scripts_dir() .. ")")
-    end
-    local cfg = read_json(cfg_path)
-    if type(cfg) ~= "table" then
-        return err("imap.json is not valid JSON: " .. cfg_path)
-    end
-    local ferry = find_ferry(cfg)
-    if not ferry then
+    local ctx = bridge()
+    if not ctx then
         return
     end
-    local py = find_python()
-    if not py then
-        return
-    end
-    local mailbox = cfg.mailbox or cfg.folder
+    local mailbox = ctx.cfg.mailbox or ctx.cfg.folder
     if not mailbox then
-        return err('no mailbox in ' .. cfg_path .. ' (expected "mailbox")')
+        return err('no mailbox in ' .. ctx.cfg_path .. ' (expected "mailbox")')
     end
 
-    -- The ledger is the guard. It is written only after a POST that accepted the
-    -- heartbeats, so an archive missing from it is still only in the mailbox and
-    -- must not be touched. Matching is per archive name, never the shared subject
-    -- filter, so a never-uploaded archive in the same folder survives.
-    local state_path = (cfg.state_file and vim.fn.expand(cfg.state_file))
-        or (home() .. "/wakatime-ferry/state.json")
-    local ledger = read_json(state_path) or {}
-    ledger.uploaded = ledger.uploaded or {}
-
-    local names = vim.tbl_keys(ledger.uploaded)
+    local names = vim.tbl_keys(ctx.ledger.uploaded)
     table.sort(names)
+    if only and not vim.tbl_contains(names, only) then
+        return err(("nothing uploaded matches %q; the ledger has: %s"):format(
+            only, #names > 0 and table.concat(names, ", ") or "nothing"))
+    end
     if only then
-        names = vim.tbl_filter(function(n)
-            return n == only
-        end, names)
+        names = { only }
     end
     if #names == 0 then
-        return err(("nothing uploaded to purge (ledger: %s)"):format(state_path))
+        return err("nothing uploaded yet (ledger: " .. ctx.state_path .. ")")
     end
 
-    local log = {}
-    local function say(s)
-        log[#log + 1] = s
-        show("purge", table.concat(log, "\n"))
-    end
-
+    local say = reporter("purge")
     local total, listing = 0, {}
     for _, name in ipairs(names) do
-        total = total + (ledger.uploaded[name].heartbeats or 0)
+        total = total + (ctx.ledger.uploaded[name].heartbeats or 0)
         listing[#listing + 1] = ("  %-42s %4s heartbeats, uploaded %s"):format(
             name,
-            tostring(ledger.uploaded[name].heartbeats or "?"),
-            ledger.uploaded[name].at or "?"
+            tostring(ctx.ledger.uploaded[name].heartbeats or "?"),
+            ctx.ledger.uploaded[name].at or "?"
         )
     end
     say("about to PERMANENTLY delete from " .. mailbox .. ":")
@@ -443,15 +655,17 @@ function M.purge(raw)
         vim.fn.inputrestore()
         if choice ~= 1 then
             say("")
-            say("cancelled - nothing was deleted")
-            return
+            return say("cancelled - nothing was deleted")
         end
     end
 
     local steps = {}
     for _, name in ipairs(names) do
         steps[#steps + 1] = function(next_step)
-            local a = { py, ferry, "recv", "-c", cfg_path, "-m", mailbox, "-s", name, "--delete" }
+            local a = {
+                ctx.py, ctx.ferry, "recv", "-c", ctx.cfg_path, "-m", mailbox,
+                "-s", name, "--delete",
+            }
             say("$ " .. table.concat(a, " "))
             sh(a, nil, function(code, out, e)
                 if code ~= 0 then
@@ -469,210 +683,6 @@ function M.purge(raw)
         next_step()
     end
     chain(steps)
-end
-
-function M.sync(args)
-    local opt = { force = false, keep_mails = false, only = nil }
-    local argv = split_args(args)
-    for i = 1, #argv do
-        local a = argv[i]
-        if a == "--force" then
-            opt.force = true
-        elseif a == "--keep-mails" then
-            opt.keep_mails = true
-        elseif (a == "-a" or a == "--archive") and argv[i + 1] then
-            opt.only = argv[i + 1]
-        end
-    end
-
-    local cfg_path = find_cfg()
-    if not cfg_path then
-        return err("no imap.json found (WAKATIME_IMAP_CONFIG, cwd, or " .. scripts_dir() .. ")")
-    end
-    local cfg = read_json(cfg_path)
-    if type(cfg) ~= "table" then
-        return err("imap.json is not valid JSON: " .. cfg_path)
-    end
-
-    local ferry = find_ferry(cfg)
-    if not ferry then
-        return
-    end
-    local py = find_python()
-    if not py then
-        return
-    end
-    if vim.fn.executable("curl") ~= 1 then
-        return err("curl not found - :WakaSync needs it to POST to wakapi")
-    end
-
-    local api_url, key, why = wakatime_credentials()
-    if not api_url then
-        return err(why)
-    end
-
-    local filter = cfg.subject_filter or DEFAULT_FILTER
-    local staging = (cfg.staging and vim.fn.expand(cfg.staging))
-        or (home() .. "/wakatime-ferry/incoming")
-    local state_path = (cfg.state_file and vim.fn.expand(cfg.state_file))
-        or (home() .. "/wakatime-ferry/state.json")
-    local work = staging .. "/.work"
-
-    vim.fn.mkdir(staging, "p")
-    vim.fn.mkdir(work, "p")
-    local ledger = read_json(state_path) or {}
-    ledger.uploaded = ledger.uploaded or {}
-
-    local log = {}
-    local function say(s)
-        log[#log + 1] = s
-        show("sync", table.concat(log, "\n"))
-    end
-
-    say("api_url : " .. api_url)
-    say("config  : " .. cfg_path)
-    say("staging : " .. staging)
-    say("")
-
-    local recv_argv = { py, ferry, "recv", "-c", cfg_path, "-o", staging, "-s", filter }
-    if not opt.keep_mails then
-        recv_argv[#recv_argv + 1] = "--mark-seen"
-    end
-
-    say("$ " .. table.concat(recv_argv, " "))
-    sh(recv_argv, nil, function(code, out, e)
-        -- stderr first: it carries ferry's "connecting/connected" diagnostics,
-        -- which read wrong after the result report.
-        if e ~= "" then
-            say(e)
-        end
-        say(out)
-        if code ~= 0 then
-            say(("recv exited %d - stopping (nothing was uploaded)"):format(code))
-            return
-        end
-        say("")
-
-        local groups = group_archives(staging)
-        local names = vim.tbl_keys(groups)
-        table.sort(names)
-        if #names == 0 then
-            say("no archives in the staging dir")
-            return
-        end
-
-        local todo = {}
-        for _, name in ipairs(names) do
-            if opt.only and name ~= opt.only then
-                -- still reported below, just not processed
-            elseif ledger.uploaded[name] and not opt.force then
-                say(("skip %s (uploaded %s)"):format(name, ledger.uploaded[name].at or "?"))
-            else
-                todo[#todo + 1] = name
-            end
-        end
-        if #todo == 0 then
-            say("nothing new to upload" .. (opt.force and "" or " (--force re-uploads)"))
-            return
-        end
-
-        local steps = {}
-        local uploaded, failed = {}, {}
-        for _, name in ipairs(todo) do
-            steps[#steps + 1] = function(next_step)
-                local g = groups[name]
-                say(("== %s ==="):format(name))
-                say(("   %d part file(s) present"):format(count_have(g)))
-
-                local merged = work .. "/" .. name
-                local extracted = work .. "/" .. name .. ".d"
-
-                local function unpack(archive)
-                    vim.fn.delete(extracted, "rf")
-                    sh({ py, ferry, "unpack", "-i", archive, "-o", extracted }, nil,
-                        function(uc, uo, ue)
-                            if uc ~= 0 then
-                                say("   [X] unpack rejected the archive (incomplete or"
-                                    .. " corrupted in transit); keeping the parts")
-                                say("       " .. ((ue ~= "" and ue or uo):gsub("\n", "\n       ")))
-                                say("       if this repeats, the mail path is mangling the"
-                                    .. " attachment - switch the RHEL6 side to ferry's"
-                                    .. " -f text")
-                                failed[#failed + 1] = name
-                                return next_step()
-                            end
-                            local jsons = find_files(extracted, "[^/]%.json$")
-                            if #jsons == 0 then
-                                say("   [!] unpack produced no .json")
-                                failed[#failed + 1] = name
-                                return next_step()
-                            end
-                            say("   integrity OK -> " .. vim.fn.fnamemodify(jsons[1], ":t"))
-                            post_heartbeats(api_url, key, jsons[1], function(res, perr)
-                                if perr then
-                                    say("   [!] " .. perr)
-                                    failed[#failed + 1] = name
-                                    return next_step()
-                                end
-                                say(("   POST accepted=%d rejected=%d"):format(
-                                    res.accepted, res.rejected))
-                                if res.rejected > 0 then
-                                    say("   [!] rejected heartbeats are usually older than"
-                                        .. " heartbeat_max_age (180d) or malformed")
-                                    failed[#failed + 1] = name
-                                    return next_step()
-                                end
-                                ledger.uploaded[name] = {
-                                    at = os.date("%Y-%m-%dT%H:%M:%S"),
-                                    heartbeats = res.accepted,
-                                }
-                                write_json(state_path, ledger)
-                                uploaded[#uploaded + 1] = name
-                                say("   recorded in the ledger")
-                                next_step()
-                            end)
-                        end)
-                end
-
-                if g.is_part then
-                    local parts = find_files(staging, "^" .. vim.pesc(name) .. "%.part%d+%.?[^/]*$")
-                    table.sort(parts)
-                    if #parts == 0 then
-                        say("   [!] no part files found for " .. name)
-                        failed[#failed + 1] = name
-                        return next_step()
-                    end
-                    say("$ " .. py .. " " .. ferry .. " merge -i " .. parts[1])
-                    sh({ py, ferry, "merge", "-i", parts[1], "-o", merged }, nil,
-                        function(mc, mo, me)
-                            if mc ~= 0 then
-                                say("   [!] merge failed (a part is still missing?): "
-                                    .. ((me ~= "" and me or mo):gsub("\n", " "):sub(1, 160)))
-                                failed[#failed + 1] = name
-                                return next_step()
-                            end
-                            unpack(merged)
-                        end)
-                else
-                    unpack(staging .. "/" .. name)
-                end
-            end
-        end
-
-        steps[#steps + 1] = function(next_step)
-            say("")
-            if #uploaded > 0 then
-                say("uploaded: " .. table.concat(uploaded, ", "))
-            end
-            if #failed > 0 then
-                say("not uploaded (left in the staging dir, re-runs are safe): "
-                    .. table.concat(failed, ", "))
-            end
-            next_step()
-        end
-
-        chain(steps)
-    end)
 end
 
 function M.setup()
