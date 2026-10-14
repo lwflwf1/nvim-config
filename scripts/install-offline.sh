@@ -411,8 +411,14 @@ debug = false
 ; that fails instantly instead of hanging on a dead route or on DNS.
 ; Point it at a real URL only if this box ever gets network access.
 api_url = http://127.0.0.1:1/api
-; send only the project-relative path (rtl/foo.sv), never /home/.../rtl/foo.sv
-hide_project_folder = true
+; Send the full absolute path (rtl/foo.sv AND its project directories), not just
+; the basename. `hide_project_folder = true` would compute the relative path
+; against `project_folder`, and that is only correct when the project detector
+; found a project root -- the [projectmap] detector returns
+; filepath.Dir(entity), i.e. the directory the file itself is in, so with this
+; on, every file would be sent as a bare filename and the directory structure
+; would be lost. Our projects are not git repos and use [projectmap], so off.
+hide_project_folder = false
 ; no AI transcripts exist offline; skip scanning for them entirely
 sync_ai_disabled = true
 ; Save code stats to ~/.wakatime/offline_heartbeats.bdb while offline and sync

@@ -548,8 +548,17 @@ CursorHold with activity in the last 120s, on every BufWritePost and on BufEnter
   that late merge (it is re-read on every `statusline()` call).
 - **`~/.wakatime.cfg` is only written when absent, never edited** — it holds the api
   key set via `:WakaTimeApiKey` (or `$WAKATIME_API_KEY`, the one setting the CLI
-  does read from the environment). `hide_project_folder` is on so only
-  project-relative paths are sent; `sync_ai_disabled` is set on RHEL6 only.
+  does read from the environment). `sync_ai_disabled` is set on RHEL6 only.
+- **`hide_project_folder` is OFF, deliberately.** It is the wrong default here:
+  it computes the relative path against `project_folder`, and only a detector
+  that found a real project root sets that correctly. RHEL6's projects are not
+  git repos, so they use `[projectmap]`, and the Map detector returns
+  `filepath.Dir(entity)` (`pkg/project/map.go` — the whole `Result` literal) —
+  the directory the file itself is in. With the setting on, every file would be
+  sent as a bare basename and the directory structure lost. Off means the full
+  path travels, which also puts `/proj/crane/wa/yingfangong/` (i.e. the username)
+  in the data — fine for a self-hosted wakapi, worth remembering when sharing
+  exports or screenshots.
 - **RHEL6 `api_url` is `http://127.0.0.1:1/api`**: a routable-but-unreachable URL
   would block every heartbeat for the full `timeout` (default 120s) on a dead route
   or on a DNS query the intranet resolver never answers. Loopback port 1 is refused
