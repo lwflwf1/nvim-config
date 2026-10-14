@@ -28,7 +28,10 @@ local auto_enabled = true
 -- callback, cleared when auto-cwd is toggled back on.
 local pinned_root = nil
 
----@type table<string, string>
+-- dir -> { target = effective root, marked = target carries a marker }.
+-- `marked` tells a real marker root from the "no project, stay in dir"
+-- fallback, so the cache can tell when the marker it was derived from changed.
+---@type table<string, { target: string, marked: boolean }>
 local cwd_cache = {}
 
 ---@return boolean
@@ -94,22 +97,28 @@ local function apply_cwd()
         return
     end
     local dir = vim.fs.dirname(path)
-    if cwd_cache[dir] == nil then
-        cwd_cache[dir] = find_root(0) or dir
+    local entry = cwd_cache[dir]
+    -- Trust a cached root only while the marker it came from is unchanged:
+    -- deleting one used to leave getcwd() on the dead root while get_root()
+    -- (uncached) already reported the new one.
+    if not entry or has_marker(entry.target) ~= entry.marked then
+        local target = find_root(0) or dir
+        entry = { target = target, marked = has_marker(target) }
+        cwd_cache[dir] = entry
     end
-    local target = cwd_cache[dir]
-    if vim.fn.getcwd() ~= target then
-        vim.fn.chdir(target)
+    if vim.fn.getcwd() ~= entry.target then
+        vim.fn.chdir(entry.target)
     end
 end
 
--- Pure state flip, except that turning auto ON also re-derives the cwd now.
--- M.toggle_cwd below is the user-facing entry for both <leader>pa and the
--- lualine cwd click (ui.lua).
+-- Pure state flip, except that turning auto ON also re-derives the cwd now and
+-- drops the cache, making the toggle a hard refresh. M.toggle_cwd below is the
+-- user-facing entry for both <leader>pa and the lualine cwd click (ui.lua).
 function M.toggle_auto()
     auto_enabled = not auto_enabled
     if auto_enabled then
         pinned_root = nil
+        cwd_cache = {}
         apply_cwd()
     end
 end
