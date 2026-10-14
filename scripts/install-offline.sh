@@ -722,10 +722,20 @@ fi
 # O7 fix (part 2): also copy nvim-treesitter's own bundled queries (its runtime/
 # dir is not on the runtimepath by default) so every language gets highlights/
 # folds/indents etc. matching the machine the bundle was packaged on.
+#
+# -n, never overwrite: this runtime/ copy is nvim-treesitter's UPSTREAM queries,
+# and for a language whose parser source ships its own (systemverilog is the
+# external fork), part 1 above already put the right ones in site/queries/<lang>.
+# Plain `cp -a` here replaced the fork's folds/highlights/injections with
+# upstream's -- silently, and only on machines where that parser happened to be
+# skipped as unchanged (line ~702), because part 1 only runs for parsers that are
+# actually compiled. That is the whole point of the fork: highlights.scm differs
+# from upstream's while folds/injections happen to be identical, so the damage is
+# invisible until you diff them. Top up what is missing; never replace.
 if [ -d "$DATA_DIR/lazy/nvim-treesitter/runtime/queries" ]; then
     mkdir -p "$DATA_DIR/site/queries"
-    cp -a "$DATA_DIR/lazy/nvim-treesitter/runtime/queries/." "$DATA_DIR/site/queries/" 2>/dev/null || true
-    ok "treesitter queries copied -> $DATA_DIR/site/queries"
+    cp -an "$DATA_DIR/lazy/nvim-treesitter/runtime/queries/." "$DATA_DIR/site/queries/" 2>/dev/null || true
+    ok "treesitter queries topped up -> $DATA_DIR/site/queries (existing files kept)"
 fi
 fi
 
