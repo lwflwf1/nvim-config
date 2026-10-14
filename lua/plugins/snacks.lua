@@ -24,8 +24,17 @@ return {
             indent       = { enabled = true, scope = {enabled = false}, animate = { enabled = false } },
             input        = { enabled = true                 },
             notifier     = { enabled = true, timeout = 5000, style = "fancy" },
-            picker       = {
+            picker = {
                 enabled = true,
+                -- No tree guide lines: they are icons, not a toggle
+                -- (picker/config/defaults.lua icons.tree). Each slot is 2 cells
+                -- wide -- format.lua M.tree gives a non-line ancestor slot a
+                -- hardcoded "  ", and the default middle/last are "├╴"/"└╴" --
+                -- so they must be replaced by two spaces. "" would collapse the
+                -- indent and overlap the levels.
+                icons = {
+                    tree = { vertical = "  ", middle = "  ", last = "  " },
+                },
                 sources = {
                     -- RHEL6 trees live behind symlinks (fzf-lua shipped --follow;
                     -- snacks defaults to no-follow) and fzf-lua showed hidden files
@@ -34,6 +43,9 @@ return {
                     files = { follow = true, hidden = true },
                     smart = { follow = true, hidden = true, ignored = true },
                     explorer = {
+                        -- files/smart already show hidden files; the explorer is a
+                        -- separate source and defaults to hiding them
+                        hidden = true,
                         -- file watcher is unreliable on RHEL6 NFS trees (cf. snacks.scroll)
                         watch = not vim.g.is_rhel6,
                         -- upstream disables fuzzy for the tree
