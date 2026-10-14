@@ -581,6 +581,19 @@ CursorHold with activity in the last 120s, on every BufWritePost and on BufEnter
   only wraps it (locate, check bash, pass argv through, show output). Do not
   "unify" the two halves; if you find yourself reimplementing a queue count or a
   size check in Lua, it belongs in the script.
+- **`vim.fn.glob` honours `'wildignore'`, and this config wildignores `*.zip`** —
+  so every file lookup in `:WakaSync` must go through `readdir`
+  (`list_files`/`find_files` in `box/wakatime.lua`), not `glob()`. The archives
+  this feature looks for are `.zip`, exactly what `core/options.lua` appends to
+  `wildignore`, and the failure is silent and misleading: `group_archives`
+  returned empty and the sync reported `no archives in the staging dir` *while
+  the downloaded archive was sitting in that directory*, with `ferry recv`
+  having just logged `1 newly written`. Two wrong guesses cost a cycle — first
+  blaming a filesystem race (it reproduced with the file already present), then
+  blaming a broken download. Reproduce by running `:WakaSync` with a `.zip` in
+  `~/wakatime-ferry/incoming`. Do NOT "fix" it by dropping `*.zip` from
+  `wildignore` — ignoring archives in the editor's own completion/quickfix is
+  correct; the lookup was wrong.
 - **The mailbox half lives in ferry, not here.** `ferry recv` (`G:\ai\scripts\
   ferry\ferry.py`, an external tool this repo depends on) is the receiving
   counterpart of `ferry email`: it lists mailboxes, searches by subject, and

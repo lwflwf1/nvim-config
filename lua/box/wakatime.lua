@@ -208,6 +208,50 @@ end
 
 -- ---------------------------------------------------------------- staging
 
+-- 'wildignore' (see core/options.lua) lists *.zip, and vim.fn.glob() honours it --
+-- so globbing for the downloaded archives returned nothing at all and the sync
+-- reported "no archives in the staging dir" while the file sat right there.
+-- readdir() does no filtering, so this is what every file lookup here goes through.
+local function list_files(dir)
+    local out = {}
+    local ok, names = pcall(vim.fn.readdir, dir)
+    if not ok or type(names) ~= "table" then
+        return out
+    end
+    for _, name in ipairs(names) do
+        if name ~= "." and name ~= ".." then
+            local full = dir .. "/" .. name
+            if vim.fn.filereadable(full) == 1 then
+                out[#out + 1] = full
+            end
+        end
+    end
+    return out
+end
+
+-- Recursive, because ferry restores the paths it packed and nothing here can
+-- assume a flat archive.
+local function find_files(dir, pattern)
+    local out = {}
+    for _, full in ipairs(list_files(dir)) do
+        if full:match(pattern) then
+            out[#out + 1] = full
+        end
+    end
+    local ok, names = pcall(vim.fn.readdir, dir)
+    if ok and type(names) == "table" then
+        for _, name in ipairs(names) do
+            if name ~= "." and name ~= ".." then
+                local sub = dir .. "/" .. name
+                if vim.fn.isdirectory(sub) == 1 then
+                    vim.list_extend(out, find_files(sub, pattern))
+                end
+            end
+        end
+    end
+    return out
+end
+
 -- Group the downloaded attachments by archive. ferry names split parts
 -- "<archive>.partNNN.<ext>", so ".partNNN" identifies them; anything else is a
 -- single-part archive (ferry skips splitting when the zip fits in 1 MiB).
@@ -221,15 +265,13 @@ local function group_archives(dir)
         end
         g.have[idx] = true
     end
-    for _, full in ipairs(vim.fn.glob(dir .. "/*", false, true)) do
-        if vim.fn.filereadable(full) == 1 then
-            local name = vim.fn.fnamemodify(full, ":t")
-            local base, idx = name:match("^(.-)%.part(%d+)%.[^.]*$")
-            if base then
-                add(base, tonumber(idx), true)
-            else
-                add(name, 1, false)
-            end
+    for _, full in ipairs(list_files(dir)) do
+        local name = vim.fn.fnamemodify(full, ":t")
+        local base, idx = name:match("^(.-)%.part(%d+)%.[^.]*$")
+        if base then
+            add(base, tonumber(idx), true)
+        else
+            add(name, 1, false)
         end
     end
     return groups
@@ -436,7 +478,7 @@ function M.sync(args)
                                 failed[#failed + 1] = name
                                 return next_step()
                             end
-                            local jsons = vim.fn.glob(extracted .. "/**/*.json", false, true)
+                            local jsons = find_files(extracted, "[^/]%.json$")
                             if #jsons == 0 then
                                 say("   [!] unpack produced no .json")
                                 failed[#failed + 1] = name
@@ -470,7 +512,7 @@ function M.sync(args)
                 end
 
                 if g.is_part then
-                    local parts = vim.fn.glob(staging .. "/" .. name .. ".part[0-9][0-9][0-9]*", false, true)
+                    local parts = find_files(staging, "^" .. vim.pesc(name) .. "%.part%d+%.?[^/]*$")
                     table.sort(parts)
                     if #parts == 0 then
                         say("   [!] no part files found for " .. name)
