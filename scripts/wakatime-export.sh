@@ -82,6 +82,17 @@ resolve_ferry() {
 resolve_ferry || die "ferry not found (tried: \$FERRY, ferry.py, ferry, ~/.local/bin/ferry.py)
        set FERRY=/path/to/ferry.py, or make one of those names work"
 log "ferry: $(command -v "$FERRY")"
+
+# `command -v` only proves the file exists. A Python too old for ferry's syntax,
+# or a shebang pointing at the wrong interpreter, makes every subcommand die
+# before doing anything -- which surfaced as a traceback from `ferry pack` deep
+# in the run, after the queue had already been dumped. `--help` is the cheapest
+# call that proves the interpreter can load and parse it (ferry has no
+# --version); it does not prove anything about ssl, which pack/email no longer
+# need and which therefore cannot break them.
+"$FERRY" --help >/dev/null 2>&1 || die "ferry found at $FERRY but it will not run:
+       $("$FERRY" --help 2>&1 | tail -n 3 | sed 's/^/       /')
+       (it is a python3 script -- check python3 --version)"
 [ -x "$CLI" ] || die "wakatime-cli not executable: $CLI
        run the offline installer (it links ~/.local/bin/wakatime-cli-linux-amd64)"
 

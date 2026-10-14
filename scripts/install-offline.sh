@@ -384,12 +384,17 @@ apply_tools() {
     else
         warn "wakatime-cli not installed ($wt_target missing) - heartbeats will not be recorded; re-run without --config-only"
     fi
-    # 2) Config. Never overwrite: it holds the api key the user set via
+# 2) Config. Never overwrite: it holds the api key the user set via
     #    :WakaTimeApiKey. api_url points at a loopback dead end on purpose --
     #    a routable-but-unreachable URL would block every heartbeat for the full
-    #    `timeout` (default 120s) on a dead route or a DNS query the intranet
-    #    resolver never answers; port 1 is refused instantly and the heartbeat is
-    #    queued either way.
+    #    `timeout` (default 120s) on a dead route or on a DNS query the intranet
+    #    resolver never answers, and it would be the one thing IT sees from an
+    #    otherwise silent box. Port 1 is refused by the kernel before the packet
+    #    leaves the machine: zero egress.
+    #    What that costs: every heartbeat exits 104 (the CLI cannot validate the
+    #    api key against a dead endpoint) and vim-wakatime prints it, which
+    #    plugins/ui.lua routes out on this platform. The heartbeats themselves
+    #    still reach offline_heartbeats.bdb -- the queue does fill.
     wt_cfg="$wt_home/.wakatime.cfg"
     if [ -f "$wt_cfg" ]; then
         if grep -qiE '^[[:space:]]*api_url[[:space:]]*=' "$wt_cfg"; then
@@ -410,7 +415,9 @@ api_url = http://127.0.0.1:1/api
 hide_project_folder = true
 ; no AI transcripts exist offline; skip scanning for them entirely
 sync_ai_disabled = true
-; keep heartbeats in ~/.wakatime/offline_heartbeats.bdb instead of dropping them
+; Save code stats to ~/.wakatime/offline_heartbeats.bdb while offline and sync
+; them to the dashboard once back online (wakatime-cli USAGE.md, `offline`).
+; Already the default, kept explicit so the intent survives a default change.
 offline = true
 WAKATIME_EOF
         ok "wakatime config written -> $wt_cfg"
