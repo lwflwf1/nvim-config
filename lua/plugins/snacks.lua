@@ -287,6 +287,8 @@ return {
             -- Picker-window background patching (winhl + the float-bg fallbacks).
             -- The notifier body groups live in box/hl.lua.
             require("box.picker_hl").setup()
+            -- Dashboard `s` opens the session picker instead of mini.sessions.read()
+            require("box.dashboard").setup()
         end,
         keys = {
             { "<leader>ee", function() Snacks.explorer() end,                desc = "Explorer (sidebar)" },
