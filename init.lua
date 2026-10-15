@@ -111,7 +111,12 @@ require("lazy").setup({
     defaults = { lazy = true, version = false },
     install = { colorscheme = { "habamax" } },
     checker = { enabled = false, notify = false },
-    change_detection = { notify = false },
+    -- Watches only `Config.spec.modules` (here just "plugins"), so this covers
+    -- lua/plugins/*.lua only -- lua/box and lua/core are NOT reloaded by it.
+    -- Keep notify on so a reload says what it reloaded; <leader>ur handles the
+    -- personal module. (Default is {enabled = true, notify = true}; only
+    -- notify is being stated here.)
+    change_detection = { enabled = true, notify = true },
     rocks = {
         hererocks = true,
     },

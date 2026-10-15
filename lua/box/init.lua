@@ -13,6 +13,8 @@
 --   toggle_value     SystemVerilog value toggling (<leader>sw)
 --   trim             trim trailing whitespace / CRs (<leader>ue)
 --   path             <C-g> = file info + copy path (also lualine filename)
+--   colemak          Colemak-DH: keep hjkl on H/J/K/L physical keys (<leader>uk,
+--                    off by default = plain qwerty)
 --   wins             window move/resize (<M-hjkl>, arrows)
 --   multicursor      nvim 0.13 multicursor glue (<C-j/k/n/p>, <Esc>)
 --   smart_gf         file:line-aware gf/gF
@@ -36,6 +38,7 @@ local M = {}
 
 function M.setup()
     require("box.hl").setup()
+    require("box.colemak").setup()
     require("box.multicursor").setup()
     require("box.smart_gf").setup()
     require("box.wins").setup()

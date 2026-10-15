@@ -29,10 +29,20 @@ return {
                 return os.getenv("OPENCODE_GO_API_KEY") or ""
             end
 
-            -- the /go endpoint requires a session header (401/InvalidRequest
-            -- "MissingSessionID" otherwise); any stable identifier works
+            -- the /go endpoint needs x-opencode-session (else MissingSessionID,
+            -- mandatory since 2026-09-05), and that value is opencode's *backend
+            -- affinity* key: requests sharing it stay pinned to one backend,
+            -- which is what keeps the prompt cache warm. So it must not be a
+            -- constant -- the old fixed value pinned every minuet user to one
+            -- shared backend, interleaving our traffic with strangers' so the
+            -- cache rarely hit. One opaque id per nvim run gives this instance
+            -- exclusive affinity and is stable for the run; opencode treats the
+            -- value as opaque (pi hardcodes "wsl"). %x, not tostring: hrtime is
+            -- past 2^53 and tostring would render it as "1.29e+15". Minted here,
+            -- not inside the transform, which sits on minuet's request path.
+            local opencode_session = string.format("%x", vim.uv.hrtime())
             local function add_opencode_session(data)
-                data.headers["x-opencode-session"] = "nvim-minuet"
+                data.headers["x-opencode-session"] = opencode_session
                 return data
             end
 

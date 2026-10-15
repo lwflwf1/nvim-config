@@ -19,7 +19,6 @@ return {
             { "<leader>p",  group = "Project/Session", },
             { "<leader>g",  group = "Git",            },
             { "<leader>w",  group = "Window",         },
-            { "<leader>ws", group = "Window swap",    },
             { "<leader>m",  group = "Markdown",       },
             { "<leader>d",  group = "Debug",          },
             { "<leader>t",  group = "TODO/Tab/Table", },

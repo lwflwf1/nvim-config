@@ -116,6 +116,51 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   probe then hangs instead of erroring). The `/go` endpoint 401s
   (`MissingSessionID`) without `x-opencode-session`, which is added via
   `provider_options.openai_compatible.transform` — not via curl args.
+  - **That header is backend affinity, not just a gate.** opencode pins every
+    request carrying the same value to the same upstream backend, which is what
+    keeps the prompt cache warm (same value → cached-read rates). It became
+    mandatory for Go on 2026-09-05. So it must NOT be a hardcoded constant: the
+    old `"nvim-minuet"` satisfied the header but pinned *every minuet user* to
+    one shared backend, so our traffic interleaved with strangers' and rarely
+    hit the cache (the same tradeoff pi hit — a hardcoded value binds the whole
+    install, not a conversation).
+  - So the value is **one opaque id per nvim run** (`vim.uv.hrtime()`), stable
+    for the run. Do not "improve" it: opencode treats the value as opaque (pi
+    hardcodes `"wsl"`), so a `ses_`-shaped id is decoration, and splitting it per
+    front (virtualtext vs duet) or rotating it on `DirChanged` buys nothing —
+    the two fronts' prompts share no prefix so they cannot evict each other, and
+    rotating a *worse* cache. Only an actual conversation boundary would justify
+    rotation, and minuet has none.
+  - Mint it in `config = function()`, never inside the transform: that sits on
+    minuet's request path, where RNG/buffer API calls are not safe.
+- **opencode.nvim** (`plugins/opencode.lua`, replaced sidekick.nvim which only
+  wrapped the opencode TUI in a terminal — its NES was off and minuet's duet
+  already covers NES, from the same Go subscription). It drives the *installed*
+  opencode CLI, so it is gated off on RHEL6 like minuet/avante.
+  - **Pinned to the 1.x tags (`version = "~1"`), on purpose.** Upstream's README
+    states the split: the default branch is the OpenCode **v2** line, the tags
+    are **v1**. This box stays on CLI v1 (1.19.0) because v2 is beta with
+    reported V1→V2 session-history loss — so the plugin must follow v1 too.
+  - **`"*"` is NOT "latest tag"** — it resolved to `main`'s tip (8 commits past
+    v1.0.2), i.e. the v2 line. Use `~1`, which tracks the newest 1.x tag and can
+    never select a v2 tag.
+  - **`version` must be a string.** The upstream README suggests
+    `vim.version.range("*")`; that returns a *table* and lazy dies in
+    `manage/semver.lua:138` (`spec:find`) — it is not a lazy version spec.
+  - **Config goes in `init`, not `opts`.** The plugin has no `setup()`; lazy
+    silently drops `opts` for such specs, and the plugin reads `vim.g.opencode_opts`
+    instead (same trap class as the wakatime bullet above).
+  - **Only `server.start` is overridden** (snacks terminal instead of the default
+    bare `vsplit term://opencode`, and the toggle key reuses the same cmd string
+    so it finds the same terminal). `ask()`/`select()` need no config: the plugin
+    auto-detects snacks by itself (`snacks.config.get("input",{}).enabled`), both
+    of which `plugins/snacks.lua` already enables.
+  - **lazy does not reconcile an already-installed plugin when the lockfile
+    changes** — it only checks out on install/update. After editing the pin the
+    worktree stayed on `main`, so it had to be `git checkout <locked-commit>`d by
+    hand. Remember this when bumping the version.
+  - Requires `opencode` >= 1.17 in `$PATH` (1.19.0 here); `:checkhealth opencode`
+    reports version, curl, and snacks status.
 - **`request_timeout` is curl's `--max-time` for the whole request**
   (`utils.make_curl_args`), streaming included, so it must cover first-token latency.
   Through this box's local proxy `glm-5.3-flash` measures 2.0-2.8s (cold ~5s), which
@@ -460,6 +505,56 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   already animates scrolling), `open`/`close` off (their default predicate matches
   ALL windows incl. floats, which would fight the picker/notifier animations).
   Gated off on `vim.g.is_rhel6`.
+- **Colemak-DH** (`box/colemak.lua`, `<leader>uk`, **off by default** = qwerty).
+  The layout is installed system-wide, not from this config, so the toggle is the
+  only coupling. Derived from the official `colemak_dh_ansi_us.klc`, read off its SC column against
+  the standard PC/AT set-1 scan codes (0x1e-0x27 is the home row, 0x28 is the
+  apostrophe, 0x2b is the backslash, 0x39 is space). Its VK_ column is **not** a
+  position oracle -- it has been rewritten to the produced character, so reading
+  it shifts the whole bottom row one key. That puts **`m`@H `n`@J `e`@K `i`@L** and **`h`@M `j`@Y `k`@N `l`@U `u`@I** —
+  so vim's `h` ends up on the M key, and hjkl is the one thing worth fixing. The
+  module translates each produced letter back to the command its QWERTY key ran,
+  in normal mode only: **`i`/`a` are prefixes for text objects in visual and
+  operator-pending mode**, so remapping `i` there would break every `viw`/`di(`.
+  `u`/`i` are a 3-cycle (`i`@L, `l`@U, `u`@I) and all three are mapped, or insert
+  mode becomes unreachable. Deliberately NOT remapped: `y`, whose slot moves too
+  (Colemak-DH puts it on the O key), so physical O stays a yank key.
+  - **Overlapping mappings are snapshotted and restored, not re-declared.**
+    `h`/`j`/`k`/`l` are not ours: `hardtime` rate-limits them with an expr
+    mapping wrapping a Lua callback (`restricted_keys` covers `"n"` **and**
+    `"x"`), and hardtime is `lazy = false`, so it installs them *after*
+    `box.setup()`. Re-declaring `j` would kill hardtime's mapping for good, and a
+    re-declared     mapping cannot be un-done. So `enable()` does
+    `maparg(lhs, "n", false, true)` first and `disable()` rebuilds it — that dict
+    *does* hand back `callback`/`expr`/`noremap`/`silent`/`desc`. Verified by
+    round-tripping a synthetic expr mapping. `plugins/hardtime.lua` is therefore
+    left alone, and an install that never presses the toggle sees nothing at all
+    (`M.setup()` only registers the key).
+  - Caveat: `<leader>um` (hardtime disable/enable) re-runs hardtime's own
+    `enable()`, which re-declares `h`/`j`/`k`/`l` and so overwrites 4 of the 9
+    swap entries. Toggle off and on again after touching it.
+  - In the **ON** state hardtime's `hints` also go silent by construction: they
+    are matched by `vim.on_key()` (`hardtime/init.lua:251`), a raw key hook that
+    runs *before* mapping resolution, against `config.hints` -- a table entirely
+    separate from `restricted_keys`. Pressing physical H/J/K/L emits `m/n/e/i`,
+    so patterns like `%D1[hjkl]` and `[^fFtT]li` ("Use a instead of li") can no
+    longer match. Nothing to fix, but do not be surprised by it.
+  - **There is deliberately no "start enabled" path.** hardtime's own `M.setup()`
+    defers 500 ms (`hardtime/init.lua:313`) and it is `lazy = false`, so its
+    mappings land ~1.1 s past `VimEnter` — measured, and also after `LazyDone`
+    (162 ms), the first `BufEnter` (275 ms) and `User VeryLazy` (which does not
+    fire headless at all). No startup event is reliably after it, so enabling
+    from a hook would snapshot the wrong mappings and hardtime would then
+    overwrite 4 of the 9. The `<leader>uk` press is the only entry point;
+    `vim.g.colemak_keymaps` is session state only, never read at startup.
+  - **`<leader>uk` is a `Snacks.toggle`** (`id = "colemak_keymaps"`), built lazily
+    on first press exactly like `box/project.lua`'s auto_cwd: `box.setup()` runs
+    before `lazy.setup()`, so `Snacks` does not exist yet, and the toggle's
+    `:map` then overwrites the plain keymap `M.setup()` registered. It buys the
+    on/off icon + colour in which-key's `<leader>u` group and snacks' own
+    "Enabled/Disabled Colemak-DH" notification, so the hand-rolled
+    `vim.notify` in `flip()` is gone. `Toggle:toggle()` passes the *target*
+    state to `set`, which is why `flip()` no longer reads the flag itself.
 
 ## Treesitter parsers & the systemverilog fork
 
