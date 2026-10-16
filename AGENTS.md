@@ -505,6 +505,21 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   already animates scrolling), `open`/`close` off (their default predicate matches
   ALL windows incl. floats, which would fight the picker/notifier animations).
   Gated off on `vim.g.is_rhel6`.
+- **hardtime breaks any wrapped key whose `lhs` nvim normalizes — measured on
+  `<`.** `enable()` wraps every key of `resetting_keys` + `restricted_keys` +
+  `disabled_keys` (ALL THREE groups, `init.lua:189-193`) in an expr mapping that
+  resolves the original through `get_return_key`, matching `lhs` against its
+  `nvim_get_keymap("n")` snapshot. That snapshot spells a `<` mapping as **`<lt>`**,
+  so the lookup for `"<"` misses, the wrapper returns the bare key, and normal
+  `<` (Indent left, `core/keymaps.lua`) silently does nothing — while `>` kept
+  working only because `>>` is a builtin. `<`/`>` are in the default
+  `resetting_keys` (`config.lua:36-37`), so exempting them under
+  `restricted_keys` changes **nothing** (measured). Both are exempted in
+  `plugins/hardtime.lua` under `resetting_keys`; `false` means "remove" because
+  of the `tbl_deep_extend("force", ...)` merge (`init.lua:243`) plus `if mode then`
+  (`init.lua:197`). hardtime's `setup()` merges user opts in a **500 ms timer**,
+  so a probe that calls `enable()` by hand wraps the keys with the DEFAULTS and
+  the exemption appears to do nothing — wait for `is_plugin_enabled` instead.
 - **Colemak-DH** (`box/colemak.lua`, `<leader>uk`, **off by default** = qwerty).
   The layout is installed system-wide, not from this config, so the toggle is the
   only coupling. Derived from the official `colemak_dh_ansi_us.klc`, read off its SC column against
@@ -1072,10 +1087,18 @@ cargo-zigbuild produce an ELF with max `GLIBC_ 2.17` and no bad undefined refs.
 
 ### Terminal key handling
 
-- **`<C-i>` and `<Tab>` are the same byte** (`\t`). Do NOT map `<Tab>` in normal
-  mode — it shadows the built-in jumplist-forward `<C-i>`. Windows Terminal does
-  not send CSI-u/modifyOtherKeys, so the two cannot be distinguished there.
-  Tab navigation uses `gt`/`gT` + `<leader>t*`.
+- **`<C-i>` and `<Tab>` are the same byte** (`\t`). Do NOT map `<Tab>` in
+  **insert** mode — it would shadow both the built-in jumplist-forward `<C-i>`
+  and the tab-out / multistep chains. Windows Terminal does not send
+  CSI-u/modifyOtherKeys, so the two cannot be distinguished there. Tab
+  navigation uses `gt`/`gT` + `<leader>t*`.
+- **Normal-mode `<Tab>` is the one deliberate exception**: a mini.keymap
+  multistep whose only step is the duet preview's apply (`editing.lua`), so the
+  accept reads like VS Code's `Tab`. It does *not* shadow `<C-i>`: mini.keymap's
+  fallback returns the original keycode when no step matches, and that was
+  verified to behave identically to a bare `<C-i>` (jumplist forward). Remember
+  the fallback before adding a second step — the raw key is what makes this
+  mapping safe.
 
 ### fff (engine + index)
 
