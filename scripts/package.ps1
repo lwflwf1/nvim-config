@@ -342,7 +342,10 @@ Log "== Treesitter parser sources (pinned revisions) =="
 $parsersLuaPath = Join-Path $script:DataDir "lazy\nvim-treesitter\lua\nvim-treesitter\parsers.lua"
 if (-not (Test-Path $parsersLuaPath)) { Err "nvim-treesitter not found: $parsersLuaPath" }
 $script:parsersLua = Get-Content $parsersLuaPath -Raw
-$cfgParsers = Get-Content (Join-Path $script:ConfigDir "lua\config\parsers.lua") -Raw
+# lua/box/parsers.lua, not lua/config/parsers.lua: the three-block refactor
+# (box/ is the personal module) moved it, and this stale path aborted the whole
+# bundle at the parser stage.
+$cfgParsers = Get-Content (Join-Path $script:ConfigDir "lua\box\parsers.lua") -Raw
 $langs = @([regex]::Matches($cfgParsers, '"([a-z_]+)"') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
 if ($langs.Count -eq 0) { Err "Failed to read config.parsers" }
 Log "$($langs.Count) parsers: $($langs -join ' ')"

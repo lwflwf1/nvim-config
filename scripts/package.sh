@@ -237,7 +237,7 @@ PARSERS_LUA="$DATA_DIR/lazy/nvim-treesitter/lua/nvim-treesitter/parsers.lua"
 LANGS=()
 while IFS= read -r line; do
     LANGS+=("$line")
-done < <(grep -oE '"[a-z_]+"' "$CONFIG_DIR/lua/config/parsers.lua" | tr -d '"')
+done < <(grep -oE '"[a-z_]+"' "$CONFIG_DIR/lua/box/parsers.lua" | tr -d '"')
 [ ${#LANGS[@]} -gt 0 ] || err "Failed to read config.parsers"
 log "${#LANGS[@]} parsers: ${LANGS[*]}"
 
