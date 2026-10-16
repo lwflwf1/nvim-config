@@ -41,7 +41,7 @@ return {
                 expr = true,
             },
             {
-                "<leader>as",
+                "<leader>aT",
                 function() require("snacks.terminal").toggle(server_cmd) end,
                 desc = "Toggle OpenCode terminal",
                 mode = { "n", "t" },

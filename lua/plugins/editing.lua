@@ -104,6 +104,22 @@ return {
                 return ok and duet.action.is_visible()
             end
 
+            -- smart <Tab> (normal): minuet duet preview > raw <Tab> (= <C-i>,
+            -- jumplist forward). The insert chain below owns ghost text; in
+            -- normal mode the only AI preview is the duet one, so this is where
+            -- it gets applied. The action must be a FUNCTION: a bare
+            -- `require(...).action.apply()` would be called while this table is
+            -- built (i.e. at startup) -- minuet is disabled on RHEL6, so the
+            -- require would throw and take the rest of this config with it.
+            keymap.map_multistep("n", "<Tab>", {
+                {
+                    condition = duet_visible,
+                    action = function()
+                        pcall(function() require("minuet.duet").action.apply() end)
+                    end,
+                },
+            })
+
             -- smart <Tab> (insert): minuet ghost text > blink next > TabOut >
             -- raw.
             keymap.map_multistep("i", "<Tab>", {
@@ -149,26 +165,20 @@ return {
                 "minipairs_cr",
             })
 
-            -- smart <Esc> (insert): progressive exit — (1) blink completion menu visible
-            -- -> hide it and STAY in insert (blink itself never consumes Esc,
-            -- so this is the nvim-cmp-community behavior); (2) minuet ghost
-            -- text -> dismiss (it auto-hides while the menu is open, so after
-            -- (1) the suggestion may reappear for this press to clear);
-            -- (3) raw <Esc> -> leave insert mode.
-            -- keymap.map_multistep("i", "<Esc>", {
-            --     {
-            --         condition = blink_menu_visible,
-            --         action = function() pcall(function() require("blink.cmp").hide() end) end,
-            --     },
-            --     { condition = minuet_visible, action = minuet_dismiss },
-            -- })
+            keymap.map_multistep("i", "<c-h>", {
+                {
+                    condition = blink_menu_visible,
+                    action = function() pcall(function() require("blink.cmp").hide() end) end,
+                },
+                { condition = minuet_visible, action = minuet_dismiss },
+                {
+                    condition = duet_visible,
+                    action = function()
+                        pcall(function() require("minuet.duet").action.dismiss() end)
+                    end,
+                }
+            })
 
--- smart <Esc> (normal + visual): one progressive exit per press —
-            -- (1) extra multicursor cursors -> clear them; (2) minuet duet
-            -- preview -> dismiss it (the ghost text is insert-only, cleared on
-            -- InsertLeave); (3) search highlight -> :noh; nothing pending ->
-            -- raw <Esc> (aborts pending operators etc.)
-            -- Supersedes the old <Esc><Esc> combo, which is no longer mapped.
             keymap.map_multistep({ "n", "x" }, "<Esc>", {
                 { condition = mc.is_active, action = mc.clear },
                 {

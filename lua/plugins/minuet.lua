@@ -97,13 +97,9 @@ return {
                     -- prose / note buffers: no ghost text
                     auto_trigger_ignore_ft = { "org", "markdown", "text", "help", "gitcommit" },
                     keymap = {
-                        -- README defaults (all free of existing <M-*> maps)
-                        accept = "<A-A>",
-                        accept_line = "<A-a>",
-                        accept_n_lines = "<A-z>",
-                        next = "<A-]>",
+                        accept_line = "<A-a>", -- one line only (JetBrains' End)
+                        next = "<A-]>", -- VSCode Alt+] - cycle candidates
                         prev = "<A-[>",
-                        dismiss = "<A-e>",
                     },
                 },
                 duet = {
@@ -143,11 +139,7 @@ return {
             end
             map("n", "<leader>ua", ai_toggle, { desc = "Toggle Minuet AI (ghost text + duet)" })
 
-            -- duet keys live in the <leader>a family (Avante owns aa/ae/at)
-            map("n", "<leader>ap", "<cmd>Minuet duet predict<cr>", { desc = "Duet predict (NES)" })
-            map("n", "<leader>aA", "<cmd>Minuet duet apply<cr>", { desc = "Duet apply" })
-            map("n", "<leader>ax", "<cmd>Minuet duet dismiss<cr>", { desc = "Duet dismiss" })
-            map("n", "<leader>aT", "<cmd>Minuet duet toggle<cr>", { desc = "Duet auto toggle (buffer)" })
+            map("n", "<leader>aD", "<cmd>Minuet duet toggle<cr>", { desc = "Duet auto toggle (buffer)" })
         end,
     },
 }

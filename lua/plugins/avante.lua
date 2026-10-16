@@ -18,7 +18,7 @@ return {
         keys = {
             { "<leader>aa", "<cmd>AvanteAsk<CR>", desc = "Avante ask", mode = { "n", "v" } },
             { "<leader>ae", "<cmd>AvanteEdit<CR>", desc = "Avante edit", mode = { "n", "v" } },
-            { "<leader>at", "<cmd>AvanteToggle<CR>", desc = "Toggle Avante" },
+            { "<leader>at", "<cmd>AvanteToggle<CR>", desc = "Toggle Avante sidebar" },
         },
         opts = {
             provider = "deepseek",

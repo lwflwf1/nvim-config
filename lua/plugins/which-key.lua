@@ -31,7 +31,7 @@ return {
             { "<leader>h",  group = "Harpoon",        },
             { "<leader>c",  group = "Candela", },
             { "<leader>r",  group = "Rust",            },
-            { "<leader>a",  group = "Avante",         },
+            { "<leader>a",  group = "AI",             },
             { "<leader>z",  group = "Zen",            },
             { "g",          group = "Goto",           },
             { "]",          group = "Jump next",      },
