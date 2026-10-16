@@ -1,6 +1,8 @@
 return {
     {
-        "yetone/avante.nvim",
+        -- moved out of yetone/ into the avante-corp org; the old path still
+        -- redirects on GitHub, but the canonical URL is the org one
+        "avante-corp/avante.nvim",
         enabled = not vim.g.is_rhel6,
         version = false,
         build = vim.fn.has("win32") ~= 0

@@ -15,6 +15,23 @@ return {
             ["gj"] = false,
             ["gk"] = false,
         },
+        -- hardtime's defaults list BOTH indent keys, and that silently kills
+        -- `<`: enable() wraps a key from ANY of its three groups (it iterates
+        -- resetting_keys + restricted_keys + disabled_keys) in an expr mapping
+        -- that resolves the original via `get_return_key`, which matches `lhs`
+        -- against its `nvim_get_keymap("n")` snapshot -- and that snapshot
+        -- spells a `<` mapping as `<lt>`. The lookup misses, the wrapper returns
+        -- the bare key, and `<` (Indent left, core/keymaps.lua) does nothing.
+        -- `>` survived only because `>>` is a builtin, so the snapshot entry has
+        -- the exact lhs; measured with hardtime enabled: `>` indented, `<` did
+        -- not. `<`/`>` are in the DEFAULT resetting_keys (config.lua:36-37), so
+        -- exempting them under restricted_keys alone changes nothing.
+        -- Both are exempted, not just `<`: the rate limit buys nothing on an
+        -- indent key and only blocks fast repeat-indent.
+        resetting_keys = {
+            ["<"] = false,
+            [">"] = false,
+        },
         -- The arrows aren't restricted but hard-BLOCKED by hardtime's default
         -- disabled_keys (the key is swallowed with a "The <Up> key is disabled!"
         -- notice); false removes them from that list.
