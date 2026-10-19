@@ -14,3 +14,6 @@ scripts/prebuilt/
 # to live outside the repo (next to ferry.py); this rule is only a backstop
 # against `git add -A` publishing it.
 imap.json
+
+# ferry upload logs, dropped in whatever cwd the upload ran from
+ftp_upload_*.log
