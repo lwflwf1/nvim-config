@@ -2,7 +2,7 @@
   "tools": [
     {
       "name": "nvim",
-      "version": "",
+      "version": "nightly",
       "glibc234": false,
       "source": "github-release",
       "owner": "neovim",

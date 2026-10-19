@@ -16,9 +16,11 @@
 #     in ~/.nvim-offline-state by a previous run)
 #     - Replaces config (with automatic backup), merges data (keeps user data)
 #     - Recompiles only changed/new parsers (rev-compared against the last manifest)
-#     - Installs only missing tools from the bundle cache; refreshes npm tools
-#       only when their content changed
-#     - Replaces nvim only when the bundled version differs
+#     - Updates external tools whose installed version differs from the bundled
+#       one (manifest `tool <name> <version> <url>`, compared against the binary's
+#       --version); up-to-date and missing-bundled-version tools are left alone
+#     - Replaces nvim only when the bundled version differs (a rolling tag such
+#       as "nightly" is satisfied by any dev build)
 #     - Falls back to a full install when no previous state exists
 #   config-parsers bundle (packaged with `package.ps1 -WithParsers`; carries
 #     config / data / parser-sources / lazy-lock but NO nvim / tools):
@@ -106,32 +108,56 @@ confirm() {
     return 0
 }
 
-need() { # need <name> [install-command] [description] [probe]
-    local name="$1" inst="$2" desc="${3:-}" probe="${4:-}"
-    # O2 fix: smoke-test the binary (--version) — "present on PATH" is not
-    # enough (a non-executable binary would pass `command -v` and fail later).
-    # NB: $probe must be UNQUOTED so "git --version" splits into command+args.
-    # RHEL6 freeze fix: a broken/hanging binary (e.g. glibc-mismatched pandoc on
-    # PATH) must not freeze the installer — every probe runs under `timeout 20`,
-    # and a present-but-not-runnable tool is skipped instead of reinstalled.
-    if command -v "$name" >/dev/null 2>&1 \
-       && { [ -z "$probe" ] || timeout 20 $probe >/dev/null 2>&1; }; then
-        ok "$name ($(command -v "$name"))"; return 0
+# Version of a bundled tool, read from the bundle manifest (package.ps1 emits
+# `tool <name> <version> <url>`). Empty when the manifest has no line for it,
+# which turns the comparison off and falls back to "present is good enough".
+expected_version() { # expected_version <name>
+    [ -f "$TMP/manifest.txt" ] || return 0
+    awk -v n="$1" '$1 == "tool" && $2 == n { print $3; exit }' "$TMP/manifest.txt" 2>/dev/null || true
+}
+
+need() { # need <name> [install-command] [description] [probe] [want-version]
+    local name="$1" inst="$2" desc="${3:-}" probe="${4:-}" want="${5:-}"
+    local out="" verb="Install" bare
+    # The probe output doubles as the smoke test and as the value compared
+    # against the bundled version, so capture it once.
+    if [ -n "$probe" ]; then
+        out="$(timeout 20 $probe 2>/dev/null || true)"
     fi
     if command -v "$name" >/dev/null 2>&1; then
-        warn "$name present but not runnable ($(command -v "$name")) — skipped"
-        return 0
+        if [ -n "$probe" ] && [ -z "$out" ]; then
+            warn "$name present but not runnable ($(command -v "$name")) - skipped"
+            return 0
+        fi
+        if [ -n "$want" ]; then
+            # Tags carry a leading "v" that --version does not, so compare the
+            # bare number as a substring. Every bundled tool reports its release
+            # version that way: "ripgrep 15.2.0 (rev ...)", "fd 10.5.0",
+            # "0.74.5 (6765f464)", "ty 0.0.89 (...)", "ruff 0.17.1",
+            # "stylua 2.5.2", "v18.20.4".
+            bare="${want#v}"
+            if printf '%s' "$out" | grep -qF "$bare"; then
+                ok "$name $want (up to date, $(command -v "$name"))"
+                return 0
+            fi
+            verb="Update"
+            warn "$name: bundled $want, installed reports \"$(printf '%s' "$out" | head -1)\""
+        else
+            ok "$name ($(command -v "$name"))"
+            return 0
+        fi
+    else
+        warn "$name not found${desc:+ ($desc)}"
     fi
-    warn "$name not found${desc:+ ($desc)}"
-    if ! confirm "  Install $name${desc:+ ($desc)}? [y/N] "; then
+    if ! confirm "  $verb $name${desc:+ ($desc)}? [y/N] "; then
         warn "$name skipped"
         return 0
     fi
     if [ -n "$inst" ]; then
-        echo "  Installing $name ..."
+        echo "  ${verb}ing $name ..."
         eval "$inst" && command -v "$name" >/dev/null 2>&1 \
             && { [ -z "$probe" ] || timeout 20 $probe >/dev/null 2>&1; } \
-            && { ok "$name installed"; return 0; }
+            && { ok "$name $want installed"; return 0; }
     fi
     warn "$name not installed (skipped)"
     return 0
@@ -323,7 +349,7 @@ apply_tools() {
     need git   "" "required for lazy plugin repositories" "git --version"
     need gcc   "" "required to compile treesitter parsers" "gcc --version"
     need make  "" "compile helper" "make --version"
-    need node  "install_node_from_cache node.tar.xz" "mason npm packages (bash/json/yaml-lsp, prettier)" "node --version"
+    need node  "install_node_from_cache node.tar.xz" "mason npm packages (bash/json/yaml-lsp, prettier)" "node --version" "$(expected_version node)"
     need python3 "" "optional: zip unpack fallback if unzip is missing" "python3 --version"
 
     # Required tools must be present and RUNNABLE or the install is aborted with a
@@ -350,10 +376,11 @@ apply_tools() {
         safe="${name//-/_}"
         inst_var="${safe}_install"; bin_var="${safe}_binary"; out_var="${safe}_outfile"
         tinst="${!inst_var:-}"; tbin="${!bin_var:-}"; tout="${!out_var:-}"
-        log "tool: $name (install=$tinst binary=$tbin)"
+        want="$(expected_version "$name")"
+        log "tool: $name (install=$tinst binary=$tbin bundled=${want:-?})"
         case "$tinst" in
-            node) need "$tbin" "install_node_from_cache $tout" "mason npm packages (bash/json/yaml-lsp, prettier)" "$tbin --version";;
-            bin)  need "$tbin" "install_from_cache $tout $tbin" "offline tool" "$tbin --version";;
+            node) need "$tbin" "install_node_from_cache $tout" "mason npm packages (bash/json/yaml-lsp, prettier)" "$tbin --version" "$want";;
+            bin)  need "$tbin" "install_from_cache $tout $tbin" "offline tool" "$tbin --version" "$want";;
             *)    warn "unknown install mode '$tinst' for $name";;
         esac
     done
@@ -559,24 +586,39 @@ if [ -d "$TMP/nvim" ]; then
     if [ "$MODE" = full ]; then
         log "== Installing Neovim =="
         install_nvim
-    else
+else
         log "== Updating Neovim =="
-        NEW_VER="$(grep -oE '^nvim=v[0-9]+\.[0-9]+\.[0-9]+' "$TMP/manifest.txt" 2>/dev/null | cut -d= -f2 || true)"
+        # The manifest line is `tool nvim <version> <url>`. The old grep looked
+        # for a `nvim=vX.Y.Z` line that package.ps1 never emits, so NEW_VER was
+        # always empty, the "unchanged" branch was unreachable, and every
+        # --update re-extracted nvim (rm -rf ~/.local/nvim).
+        NEW_VER="$(expected_version nvim)"
         NEW_VER="${NEW_VER:-}"
         if [ -z "$NEW_VER" ] && [ ! -f "$TMP/nvim/nvim-linux-x86_64.tar.gz" ]; then
-            warn "bundle carries no nvim binary (skipped at packaging) — keeping existing nvim"
+            warn "bundle carries no nvim binary (skipped at packaging) - keeping existing nvim"
         elif command -v nvim >/dev/null 2>&1 && nvim --version >/dev/null 2>&1; then
-            CUR_VER="$(nvim --version | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
-            if [ -n "$CUR_VER" ] && [ -n "$NEW_VER" ] && [ "$CUR_VER" = "$NEW_VER" ]; then
+            CUR_VER="$(nvim --version | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^+]*' | head -1 || true)"
+            if [ -z "$NEW_VER" ]; then
+                keep_nvim=1
+            elif printf '%s' "$NEW_VER" | grep -qE '^[v]?[0-9]+\.[0-9]+\.[0-9]+$'; then
+                # concrete release: compare the numbers, ignore the tag's "v"
+                [ -n "$CUR_VER" ] && [ "${NEW_VER#v}" = "${CUR_VER#v}" ] && keep_nvim=1
+            else
+                # rolling tag (tools.json pins nvim to "nightly"): there is no
+                # version to compare, so any dev build satisfies it and only a
+                # stable one gets replaced.
+                case "$CUR_VER" in
+                    *-dev*|*+g*) keep_nvim=1;;
+                esac
+            fi
+            if [ "${keep_nvim:-0}" = 1 ]; then
                 mkdir -p "$LOCAL_DIR/bin"
                 ln -sf "$LOCAL_DIR/nvim/bin/nvim" "$LOCAL_DIR/bin/nvim"
-                ok "nvim $CUR_VER unchanged, symlink ensured"
+                ok "nvim ${CUR_VER:-?} satisfies bundled $NEW_VER, symlink ensured"
+            elif confirm "Replace nvim ${CUR_VER:-?} with bundled ${NEW_VER:-?}? [y/N] "; then
+                install_nvim
             else
-                if confirm "Replace nvim ${CUR_VER:-?} with bundled ${NEW_VER:-?}? [y/N] "; then
-                    install_nvim
-                else
-                    warn "keeping existing nvim"
-                fi
+                warn "keeping existing nvim"
             fi
         else
             install_nvim
