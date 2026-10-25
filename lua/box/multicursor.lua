@@ -44,7 +44,7 @@ function M.setup()
     end
     -- <Esc> is intentionally NOT mapped here: the smart-<Esc> multistep in
     -- plugins/editing.lua owns it (clears the cursors when active, then falls
-    -- through to the minuet dismiss / nohlsearch / raw-Esc rules); a plain
+    -- through to the cursortab dismiss / nohlsearch / raw-Esc rules); a plain
     -- global map here would shadow that chain
     map("<C-j>", mc_feed("1Qj"), "Add cursor below")
     map("<C-k>", mc_feed("1Qk"), "Add cursor above")

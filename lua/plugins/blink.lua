@@ -6,8 +6,8 @@ return {
         dependencies = {
             "rafamadriz/friendly-snippets",
             "saghen/blink.compat",
-            "milanglacier/minuet-ai.nvim",
             "onsails/lspkind.nvim",
+            "cursortab.nvim",
         },
         opts = {
             -- On RHEL6 (glibc < 2.18) the prebuilt Rust fuzzy lib cannot run and
@@ -38,10 +38,6 @@ return {
                 -- otherwise jump instead of delete.
                 ["<M-n>"] = { "snippet_forward" },
                 ["<M-p>"] = { "snippet_backward" },
-                -- manually trigger minuet (AI) completion: the <A-y> map attaches
-                -- in `config` via minuet.make_blink_map(), since minuet is
-                -- disabled on RHEL6 and `require("minuet")` must not run at
-                -- spec load time
             },
 -- NOTE on cmdline/search: both settings accept `fun(ctx): boolean` and are
             -- re-evaluated on every selection (completion/list.lua:170-175), so
@@ -74,11 +70,34 @@ return {
             },
 
             sources = {
-                default = vim.tbl_filter(
-                    function(p) return p ~= "minuet" or not vim.g.is_rhel6 end,
-                    { "lazydev", "lsp", "snippets", "buffer", "path", "minuet", "orgmode" }
-                ),
-                providers = vim.tbl_extend("force", {
+                -- cursortab contributes the AI source here. Only its
+                -- single-line `append_chars` travels through blink (that is all
+                -- `cursortab/blink.lua` reads); multi-line edits and the
+                -- cursor-prediction UI still render in cursortab's own overlay,
+                -- so the AI front now lives in two places by design.
+                default = { "lazydev", "lsp", "snippets", "buffer", "path", "orgmode", "cursortab" },
+                providers = {
+                    -- cursortab's documented blink source (README "blink.cmp").
+                    -- `enabled` is asserted in cursortab.lua's provider block and
+                    -- read by cursortab/blink.lua's `M:enabled()`; listing the
+                    -- name in `default` is what actually turns the source on --
+                    -- the README only shows `providers`, but blink's enable list
+                    -- is `sources.default`.
+                    cursortab = {
+                        module = "cursortab.blink",
+                        name = "cursortab",
+                        async = true,
+                        -- MUST equal provider.completion_timeout in
+                        -- cursortab.lua (20000). The README calls this out; it is
+                        -- the value that decides when blink stops waiting and
+                        -- shows the menu anyway, so a mismatch would show an empty
+                        -- menu and then pop the completion late.
+                        timeout_ms = 20000,
+                        -- Sits below lazydev (100) and above the plain sources:
+                        -- a model suggestion is worth more than a buffer-word
+                        -- match but should not outrank a real LSP completion.
+                        score_offset = 50,
+                    },
                     lazydev = {
                         name = "LazyDev",
                         module = "lazydev.integrations.blink",
@@ -89,17 +108,7 @@ return {
                         module = "blink.compat.source",
                         score_offset = 0,
                     },
-                }, not vim.g.is_rhel6 and {
-                    minuet = {
-                        -- official minuet README blink provider recipe
-                        name = "minuet",
-                        module = "minuet.blink",
-                        async = true,
-                        -- must match minuet.config.request_timeout * 1000
-                        timeout_ms = 6000,
-                        score_offset = 50,
-                    },
-                } or {}),
+                },
             },
 
             snippets = { preset = "luasnip" },
@@ -137,12 +146,6 @@ return {
             -- never reads the resolved config.
             require("box.blink_suffix").setup()
 
-            -- minuet is disabled on RHEL6, so require it via pcall and attach
-            -- the manual-trigger <A-y> map only when it's loadable
-            local ok, minuet = pcall(require, "minuet")
-            if ok then
-                opts.keymap["<A-y>"] = minuet.make_blink_map()
-            end
             require("blink.cmp").setup(opts)
         end,
     },

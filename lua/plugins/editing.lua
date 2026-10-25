@@ -73,19 +73,8 @@ return {
 
             -- Smart multistep keys: the rule engine lives in box/tabout.lua
             -- (imports nothing), the chains are declared HERE against mini.
-            -- Priority: minuet ghost text > blink menu > tab-out > raw keys.
+            -- Priority: cursortab prediction > blink menu > tab-out > raw keys.
             local tabout = require("box.tabout")
-            -- minuet steps shared by the <Tab> and <Esc> chains
-            local function minuet_visible()
-                local ok, vt = pcall(require, "minuet.virtualtext")
-                return ok and vt.action.is_visible()
-            end
-            local function minuet_accept()
-                pcall(function() require("minuet.virtualtext").action.accept() end)
-            end
-            local function minuet_dismiss()
-                pcall(function() require("minuet.virtualtext").action.dismiss() end)
-            end
             local function blink_menu_visible()
                 local ok, blink = pcall(require, "blink.cmp")
                 return ok and blink.is_menu_visible()
@@ -96,35 +85,62 @@ return {
                 return ok and blink.is_menu_visible() and blink.get_selected_item() ~= nil
             end
             local mc = require("box.multicursor")
-            -- minuet ghost text lives in Insert mode only (cleared on
-            -- InsertLeave), so the normal-mode AI preview to dismiss is the
-            -- DUET one; virtualtext steps stay in the <Tab> chain
-            local function duet_visible()
-                local ok, duet = pcall(require, "minuet.duet")
-                return ok and duet.action.is_visible()
+
+            -- cursortab steps, shared by the <Tab>, <S-Tab> and <Esc> chains.
+            -- State comes from the `init` hook in plugins/cursortab.lua, which
+            -- records the WHOLE CursortabStateChanged payload in
+            -- vim.g.cursortab_status. cursortab exposes no is_visible(), and a
+            -- step table without a callable `condition` is rejected outright by
+            -- mini.keymap (keymap.lua:657). The tracked state is the CONDITION
+            -- only -- it is written from a vim.schedule'd RPC callback, so it
+            -- can lag a tick behind reality; accept()'s own return value is
+            -- what actually decides whether the chain continues.
+            local VISIBLE_STATES = { "HasCompletion", "HasCursorTarget", "StreamingCompletion" }
+            local function prediction_visible()
+                local st = vim.g.cursortab_status
+                if type(st) ~= "table" then return false end
+                -- `.state` is the documented field, but do not depend on it
+                -- alone: a Go RPC table is not a contract we control, and
+                -- trusting one key is what made this report "Idle" forever.
+                if vim.tbl_contains(VISIBLE_STATES, st.state) then return true end
+                for _, v in pairs(st) do
+                    if vim.tbl_contains(VISIBLE_STATES, v) then return true end
+                end
+                return false
+            end
+            local function prediction_accept()
+                local ok, accepted = pcall(function()
+                    return require("cursortab").accept()
+                end)
+                -- `false` -> mini.keymap keeps asking the following steps;
+                -- `""` -> consume the key (accept() already applied the edit)
+                return (ok and accepted) and "" or false
+            end
+            -- No public dismiss(); on_reject() is the daemon's RPC callback for
+            -- exactly this (clear the awaiting flag + close all overlays), so
+            -- calling it is what the daemon itself would do on a rejection.
+            local function prediction_dismiss()
+                pcall(function()
+                    require("cursortab").on_reject()
+                end)
             end
 
-            -- smart <Tab> (normal): minuet duet preview > raw <Tab> (= <C-i>,
-            -- jumplist forward). The insert chain below owns ghost text; in
-            -- normal mode the only AI preview is the duet one, so this is where
-            -- it gets applied. The action must be a FUNCTION: a bare
-            -- `require(...).action.apply()` would be called while this table is
-            -- built (i.e. at startup) -- minuet is disabled on RHEL6, so the
-            -- require would throw and take the rest of this config with it.
+            -- smart <Tab> (normal): accept/jump a cursortab prediction > raw
+            -- <Tab> (= <C-i>, jumplist forward). This is where the Cursor
+            -- rhythm lives -- jump once, accept once, jump again -- and normal
+            -- mode is the only place it makes sense; the insert chain below
+            -- handles inline ghost text. Step actions must be FUNCTIONS: a bare
+            -- `require("cursortab").accept()` would be called while this table
+            -- is built (i.e. at startup), and the plugin is absent on RHEL6.
             keymap.map_multistep("n", "<Tab>", {
-                {
-                    condition = duet_visible,
-                    action = function()
-                        pcall(function() require("minuet.duet").action.apply() end)
-                    end,
-                },
+                { condition = prediction_visible, action = prediction_accept },
             })
 
-            -- smart <Tab> (insert): minuet ghost text > blink next > TabOut >
+            -- smart <Tab> (insert): cursortab ghost text > blink next > TabOut >
             -- raw.
             keymap.map_multistep("i", "<Tab>", {
-                -- accept minuet ghost text first (AI suggestion beats motion)
-                { condition = minuet_visible, action = minuet_accept },
+                -- accept the AI suggestion first (it beats motion)
+                { condition = prediction_visible, action = prediction_accept },
                 "blink_next",
                 { condition = tabout.condition, action = tabout.action },
             })
@@ -170,23 +186,12 @@ return {
                     condition = blink_menu_visible,
                     action = function() pcall(function() require("blink.cmp").hide() end) end,
                 },
-                { condition = minuet_visible, action = minuet_dismiss },
-                {
-                    condition = duet_visible,
-                    action = function()
-                        pcall(function() require("minuet.duet").action.dismiss() end)
-                    end,
-                }
+                { condition = prediction_visible, action = prediction_dismiss },
             })
 
             keymap.map_multistep({ "n", "x" }, "<Esc>", {
                 { condition = mc.is_active, action = mc.clear },
-                {
-                    condition = duet_visible,
-                    action = function()
-                        pcall(function() require("minuet.duet").action.dismiss() end)
-                    end,
-                },
+                { condition = prediction_visible, action = prediction_dismiss },
                 { condition = function() return vim.v.hlsearch == 1 end,
                   action = function() vim.cmd("nohlsearch") end },
             })

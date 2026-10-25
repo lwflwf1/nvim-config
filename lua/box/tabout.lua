@@ -1,13 +1,13 @@
 -- Rule engine for the smart multistep keys wired in plugins/editing.lua:
 --
---   <Tab>:   minuet ghost text accept > blink menu next > tab-out > raw Tab
+--   <Tab>:   cursortab prediction accept > blink menu next > tab-out > raw Tab
 --   <S-Tab>: blink menu prev > step back in over a closer > dedent
 --   <CR>:    blink accept (selected item only) > mini.pairs expansion > raw CR
 --
 -- This module exports only the tab-out step functions (M.condition /
 -- M.action / M.back_in_condition). The chains themselves are declared where
 -- mini.keymap is set up (plugins/editing.lua), and this module imports
--- nothing -- no mini, no blink, no minuet.
+-- nothing -- no mini, no blink, no cursortab.
 --
 -- M.action replicates the albert.TabOut rules (as reverse-documented in
 -- zed#22349):
