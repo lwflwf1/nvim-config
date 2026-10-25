@@ -68,7 +68,7 @@ end
 local function fff_rust_root()
     local ok, h = pcall(require("fff.rust").health_check)
     if ok and type(h) == "table" and h.file_picker then
-        return h.file_picker.base_path
+        return h.file_picker.base_path, h.file_picker.is_scanning
     end
 end
 
@@ -85,12 +85,18 @@ local function fff_root_ready(target)
     if fff_ready_root and now - fff_ready_at < FFF_READY_TTL_MS and fff_norm(fff_ready_root) == fff_norm(target) then
         return true
     end
-    local root = fff_rust_root()
+    local root, scanning = fff_rust_root()
     if root and fff_norm(root) == fff_norm(target) then
         fff_ready_root, fff_ready_at = target, now
         return true
     end
     fff_ready_root = nil
+    -- Never re-root while a scan is in flight: fff's reinit drops the picker
+    -- underneath the running scan, and the new picker stays wedged
+    -- (is_scanning = true forever, EVERY search returns 0 until nvim restarts --
+    -- reproduced; scan_files() and a second re-root do not heal it). The polling
+    -- finder retries every 350ms, and a project scan finishes in milliseconds.
+    if scanning then return false end
     pcall(require("fff").change_indexing_directory, target)
     return false
 end
