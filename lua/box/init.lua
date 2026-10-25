@@ -48,6 +48,22 @@ function M.setup()
     require("box.project").setup()
     require("box.sos").setup()
     require("box.path").setup()
+    require("box.sticky").setup(
+        {
+            mappings = {
+                ["]"] = {
+                    keys = {
+                        "h"
+                    }
+                },
+                ["["] = {
+                    keys = {
+                        "h"
+                    }
+                },
+            }
+        }
+    )
 end
 
 function M.setup_late()

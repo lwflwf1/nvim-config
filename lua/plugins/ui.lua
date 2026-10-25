@@ -282,6 +282,13 @@ return {
                 },
                 lualine_x = {
                     {
+                        function ()
+                            local prefix = require("box.sticky").status()
+                            return prefix ~= "" and "Sticky: "..prefix or ""
+                        end,
+                        color = function() return group_fg("DiagnosticError") end,
+                    },
+                    {
                         function()
                             local reg = vim.fn.reg_recording()
                             return reg ~= "" and ("@" .. reg) or ""
