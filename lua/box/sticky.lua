@@ -18,20 +18,22 @@ local function enter(prefix, keys)
     }
 
     for _, k in ipairs(keys) do
+        local seq = prefix..k
         active.backup_maps[k] = vim.fn.maparg(k, "n", false, true)
-        vim.keymap.set("n", k, prefix..k, { buf = 0, remap = true, nowait = true })
+        vim.keymap.set("n", k, seq, {
+            nowait = true,
+            remap = next(vim.fn.maparg(seq, "n", false, true)) ~= nil,
+        })
     end
 end
 
 local function leave()
-    if not active then
-        pending = ""
-        return
-    end
-    for k, m in pairs(active.backup_maps) do
-        pcall(vim.keymap.del, "n", k, {buf = 0})
-        if next(m) then
-            vim.fn.mapset(m)
+    if active then
+        for k, m in pairs(active.backup_maps) do
+            pcall(vim.keymap.del, "n", k)
+            if next(m) then
+                vim.fn.mapset(m)
+            end
         end
     end
     active = nil
@@ -83,6 +85,11 @@ local function handle(_, typed)
 
     local state = detect()
 
+    if state == "drop" and pending ~= typed then
+        pending = typed
+        state = detect()
+    end
+
     if state == "wait" then
         return
     elseif state == "drop" then
@@ -113,12 +120,6 @@ function M.setup(o)
     opts = vim.tbl_deep_extend("force", DEFAULTS, o or {})
     local ns = vim.api.nvim_create_namespace("box_sticky")
     vim.on_key(safe_handle, ns)
-
-    local aug = vim.api.nvim_create_augroup("box_sticky", { clear = true })
-    vim.api.nvim_create_autocmd("BufLeave", {
-        group = aug,
-        callback = function() leave() end,
-    })
 end
 
 function M.status()

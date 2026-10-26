@@ -51,6 +51,11 @@ function M.setup()
     require("box.sticky").setup(
         {
             mappings = {
+                g = {
+                    keys = {
+                        "t"
+                    }
+                },
                 ["]"] = {
                     keys = {
                         "h"
