@@ -46,7 +46,7 @@ end
 local function select(prompt, items)
     local chosen = nil
     Snacks.picker.select(items, {
-        prompt = "Project",
+        prompt = prompt,
         format_item = vim.fs.basename
     }, function (item, idx)
         chosen = item
