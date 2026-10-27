@@ -1,20 +1,22 @@
 local M
 
 local DEFAULTS = {
-    root = "/proj/crane/wa".. (vim.uv.os_get_passwd() or {}).username or vim.env.USER or vim.env.USERNAME
+    root = "/proj/crane/wa",
+    username = (vim.uv.os_get_passwd() or {}).username or vim.env.USER or vim.env.USERNAME,
+}
+
+local tasks = {
+    run_test = {},
+    run_regression = {}
 }
 
 local opts = {
-    commands = {
-        run_test = {
-        }
-    }
 }
 
-local function search_target(root, fn, opts)
+local function search_target(root, fn, o)
     local targets = {}
 
-    for name, typ in vim.fs.dir(root, opts or {}) do
+    for name, _ in vim.fs.dir(root, o or {}) do
         local p = vim.fs.joinpath(root, name)
         if fn(p) then
             targets[#targets+1] = p
@@ -48,7 +50,7 @@ local function select(prompt, items)
     Snacks.picker.select(items, {
         prompt = prompt,
         format_item = vim.fs.basename
-    }, function (item, idx)
+    }, function (item, _)
         chosen = item
     end)
 
@@ -60,7 +62,7 @@ local function pick(opts)
     opts = vim.tbl_deep_extend("force", {
         format = "file",
         preview = "file",
-        confirm = function (picker, item)
+        confirm = function (picker, _)
             chosen = picker:selected()
             picker:close()
         end
@@ -81,7 +83,6 @@ local function parse_tests(file, emit)
         lnr = lnr+1
         local s = vim.trim(line)
         if s ~= "" and s:sub(1,1) ~= "#" then
-            test.body[#test_body+1] = line
             if s == "endargs" then
                 emit(test)
                 test = {
@@ -99,22 +100,11 @@ local function parse_tests(file, emit)
     end
 end
 
-local function set_project(root)
-    M.project = select("Project", search_target(root, is_project))
-end
-
-local function set_module(root)
-    if M.project = nil then
-        set_project()
-    end
-
-    M.module = select("Module", search_target(vim.fs.joinpath(root, M.project), is_module))
-end
 
 local function select_tests(module)
     return pick({
         title = "Tests",
-        finder = function (opts, ctx)
+        finder = function (_, ctx)
             local files = search_target(vim.fs.joinpath(module, "testcases"), is_tc_file)
             return function(cb)
                 for _, file in ipairs(files) do
@@ -147,96 +137,92 @@ local function create_regression_list()
     
 end
 
-local function do_run_regression()
-    
-end
-
-local function do_run_test()
-    
-end
-
-local function run_test()
-    local tests = select_tests()
-    if #tests > 1 then
-        lst = create_regression_list(#tests)
-        do_run_regression(lst)
-    else
-        do_run_test(tests[1])
-    end
-end
-
 local function run_cmd(task)
+    local pane
     if vim.system({"tmux", "has-session", "-t", "=", task.session}, { text = true}):wait().code == 0 then
-        local pane = vim.trim(vim.system({"tmux", "new-window", "-d", "-t", task.session, "-n", task.window}):wait().stdout)
+        pane = vim.trim(vim.system({"tmux", "new-window", "-d", "-t", task.session, "-n", task.window}):wait().stdout)
     else
-        local pane = vim.trim(vim.system({"tmux", "new-session", "-d", "-s", task.session, "-n", task.window}):wait().stdout)
+        pane = vim.trim(vim.system({"tmux", "new-session", "-d", "-s", task.session, "-n", task.window}):wait().stdout)
     end
 
     local msg = "Use cmd to check: tmux attach -t "..task.session..":"..task.window
     vim.notify("runsim: ".."Start cmd "..task.cmd.."on "..task.session..":"..task.window.."\n"..msg, vim.log.levels.INFO)
+    if not task.run then
+        task.run = {}
+    end
+    task.run[#task.run+1] = {
+        start_at = os.date("!%Y%m%d_%H%M%S")
+    }
+    task.run[#task.run].state = "SUBMIT"
     vim.system({"tmux", "send-keys", "-t", pane, "-l", task.cmd}, function (out)
+        task.run[#task.run].end_at = os.date("!%Y%m%d_%H%M%S")
         if out.code ~= 0 then
             vim.notify("runsim: "..task.cmd.." failed!\n"..msg, vim.log.levels.ERROR)
         else
             vim.notify("runsim: "..task.cmd.." completed!\n"..msg, vim.log.levels.INFO)
         end
     end)
-    task.state = "SUBMIT"
 end
 
-local function check_run_test(task)
-    local compile_log = vim.fs.joinpath(task.workdir, "../compile", "compile.log")
-    local compile_error_log = vim.fs.joinpath(task.workdir, "../compile", "cmp_error_message.log")
-    local sim_log = vim.fs.joinpath(task.workdir, "sim_run.log")
-    local pass_log = vim.fs.joinpath(task.workdir, "passed.log")
-    local fail_log = vim.fs.joinpath(task.workdir, "failed.log")
+function tasks.run_test.check(self)
+    local compile_log = vim.fs.joinpath(self.workdir, "../compile", "compile.log")
+    local compile_error_log = vim.fs.joinpath(self.workdir, "../compile", "cmp_error_message.log")
+    local sim_log = vim.fs.joinpath(self.workdir, "sim_run.log")
+    local pass_log = vim.fs.joinpath(self.workdir, "passed.log")
+    local fail_log = vim.fs.joinpath(self.workdir, "failed.log")
 
+    local state
     if not vim.uv.fs_stat(compile_log) then
-        task.state = "WAIT_COMPILE"
+        state = "WAIT_COMPILE"
     elseif vim.uv.fs_stat(compile_error_log) then
-        task.state = "COMPILE_FAIL"
+        state = "COMPILE_FAIL"
     elseif not vim.uv.fs_stat(sim_log) then
-        task.state = "WAIT_SIM"
+        state = "WAIT_SIM"
     elseif vim.uv.fs_stat(pass_log) then
-        task.state = "PASS"
+        state = "PASS"
     elseif vim.uv.fs_stat(fail_log) then
-        task.state = "FAIL"
+        state = "FAIL"
     else
-        task.state = "SIM"
+        state = "SIM"
     end
+
+    self.run[#self.run].state = state
 end
 
-local function check_run_regression(task)
-    local compile_log = vim.fs.joinpath(task.workdir, "compile", "compile.log")
-    local compile_error_log = vim.fs.joinpath(task.workdir, "compile", "cmp_error_message.log")
-    local this_regr_list = vim.fs.joinpath(task.workdir, "this_regression_list")
+function tasks.run_regression.check(self)
+    local workdir = vim.fs.joinpath(self.workdir, "latest_regr")
+    local compile_log = vim.fs.joinpath(workdir, "compile", "compile.log")
+    local compile_error_log = vim.fs.joinpath(workdir, "compile", "cmp_error_message.log")
+    local this_regr_list = vim.fs.joinpath(workdir, "this_regression_list")
 
-    if #task.list == 0 and vim.uv.fs_stat(this_regr_list) then
+    if #self.list == 0 and vim.uv.fs_stat(this_regr_list) then
         for line in io.lines(this_regr_list) do
-            task.list[#task.list+1] = vim.trim(line)
+            self.list[#self.list+1] = vim.trim(line)
         end
     end
 
-
+    local state
     if not vim.uv.fs_stat(compile_log) then
-        task.state = "WAIT_COMPILE"
+        state = "WAIT_COMPILE"
     elseif vim.uv.fs_stat(compile_error_log) then
-        task.state = "COMPILE_FAIL"
-    elseif #task.list > 0 then
-        local pass = #search_target(task.workdir, function (p)
+        state = "COMPILE_FAIL"
+    elseif #self.list > 0 then
+        local pass = #search_target(workdir, function (p)
             return vim.fs.basename(p) == "passed.log"
         end, {depth = 1})
 
-        local fail = #search_target(task.workdir, function (p)
+        local fail = #search_target(workdir, function (p)
             return vim.fs.basename(p) == "failed.log"
         end, {depth = 1})
 
-        local running = #task.list - pass - fail
+        local running = #self.list - pass - fail
 
-        task.state = "RUNNING: "..running.." PASS: "..pass.." FAIL: "..fail
+        state = "RUNNING: "..running.." PASS: "..pass.." FAIL: "..fail
     else
-        task.state = "UNKNOWN"
+        state = "UNKNOWN"
     end
+
+    self.run[#self.run].state = state
 end
 -- {
 --     id         = "20261026-183012-a3f1",  -- 时间戳 + 4 位随机，可按名排序
@@ -254,41 +240,70 @@ end
 local seq
 local function new_id()
     seq = seq+1
-    return ("%s-%04d"):format(os.date("!%Y%m%d-%H%M%S"), seq)
+    return ("%s_%04d"):format(os.date("!%Y%m%d_%H%M%S"), seq)
 end
 
-local function derive_project_module()
-    local cwd = vim.fn.getcwd()
-end
-
-local function build_task(kind, run_current_module)
-    if run_current_module then
-        derive_project_module()
-        if not M.project or is_project(vim.fs.joinpath(root, M.project)) then
-            
+local function build_task(kind, use_current_module)
+    local project, module
+    if use_current_module then
+        if not is_project(vim.fs.joinpath(opts.root, M.project or "")) then
+            M.project = select("Project", search_target(opts.root, is_project))
         end
+        if not is_module(vim.fs.joinpath(opts.root, M.project, "verification", M.module or "")) then
+            M.module = select("Module", search_target(vim.fs.joinpath(opts.root, M.project, "verification"), is_module))
+        end
+        project = M.project
+        module = M.module
+    else
+        project = select("Project", search_target(opts.root, is_project))
+        module = select("Module", search_target(vim.fs.joinpath(opts.root, M.project, "verification"), is_module))
     end
-    task = {
-        id = new_id(),
-        kind = kind,
-        workdir = ,
-        cmd = ,
-        project = 
-    }
-    return task
+
+    return opts.tasks[kind].build(project, module)
+end
+
+function tasks.run_test.build(project, module)
+    local tests = select_tests(vim.fs.joinpath(opts.root, project, "verification", module))
+    if #tests == 0 then
+        return nil
+    elseif #tests > 1 then
+        create_regression_list()
+    else
+        local id = new_id()
+        local test = tests[1]
+        local workdir = vim.fs.joinpath(opts.output_disk, opts.username, "runsim_nvim", project, module, id)
+        local task = {
+            id = id,
+            kind = "run_test",
+            workdir = workdir,
+            cmd = "runsim -tb "..module.." -tc "..test.." -ws "..workdir,
+            project = project,
+            module = module,
+            test = test,
+            session = "runsim_nvim_"..project,
+            window = test..id
+        }
+        return task
+    end
 end
 
 local function run_task(task)
-    
+    vim.ui.input({
+        prompt = task.kind.." args: ",
+    }, function (value)
+        task.cmd = task.cmd.." "..value
+        run_cmd(task)
+    end)
 end
 
-function M.run(run_current_module)
-    local task = build_task(select("Tasks", vim.tbl_keys(opts.tasks)), run_current_module)
+function M.run(use_current_module)
+    local task = build_task(select("Tasks", vim.tbl_keys(opts.tasks)), use_current_module)
     run_task(task)
 end
 
 function M.setup(opts)
     opts = vim.tbl_deep_extend("force", DEFAULTS, opts or {})
+    opts.root = vim.fs.joinpath(opts.root, opts.username)
 end
 
 return M
