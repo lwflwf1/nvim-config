@@ -10,13 +10,13 @@ local tasks = {
     run_regression = {}
 }
 
-local opts = {
+local cfg = {
 }
 
-local function search_target(root, fn, o)
+local function search_target(root, fn, opts)
     local targets = {}
 
-    for name, _ in vim.fs.dir(root, o or {}) do
+    for name, _ in vim.fs.dir(root, opts or {}) do
         local p = vim.fs.joinpath(root, name)
         if fn(p) then
             targets[#targets+1] = p
@@ -134,7 +134,6 @@ local function select_regression_list(module)
 end
 
 local function create_regression_list()
-    
 end
 
 local function run_cmd(task)
@@ -246,24 +245,24 @@ end
 local function build_task(kind, use_current_module)
     local project, module
     if use_current_module then
-        if not is_project(vim.fs.joinpath(opts.root, M.project or "")) then
-            M.project = select("Project", search_target(opts.root, is_project))
+        if not is_project(vim.fs.joinpath(cfg.root, M.project or "")) then
+            M.project = select("Project", search_target(cfg.root, is_project))
         end
-        if not is_module(vim.fs.joinpath(opts.root, M.project, "verification", M.module or "")) then
-            M.module = select("Module", search_target(vim.fs.joinpath(opts.root, M.project, "verification"), is_module))
+        if not is_module(vim.fs.joinpath(cfg.root, M.project, "verification", M.module or "")) then
+            M.module = select("Module", search_target(vim.fs.joinpath(cfg.root, M.project, "verification"), is_module))
         end
         project = M.project
         module = M.module
     else
-        project = select("Project", search_target(opts.root, is_project))
-        module = select("Module", search_target(vim.fs.joinpath(opts.root, M.project, "verification"), is_module))
+        project = select("Project", search_target(cfg.root, is_project))
+        module = select("Module", search_target(vim.fs.joinpath(cfg.root, M.project, "verification"), is_module))
     end
 
-    return opts.tasks[kind].build(project, module)
+    return cfg.tasks[kind].build(project, module)
 end
 
 function tasks.run_test.build(project, module)
-    local tests = select_tests(vim.fs.joinpath(opts.root, project, "verification", module))
+    local tests = select_tests(vim.fs.joinpath(cfg.root, project, "verification", module))
     if #tests == 0 then
         return nil
     elseif #tests > 1 then
@@ -271,7 +270,7 @@ function tasks.run_test.build(project, module)
     else
         local id = new_id()
         local test = tests[1]
-        local workdir = vim.fs.joinpath(opts.output_disk, opts.username, "runsim_nvim", project, module, id)
+        local workdir = vim.fs.joinpath(cfg.output_disk, cfg.username, "runsim_nvim", project, module, id)
         local task = {
             id = id,
             kind = "run_test",
@@ -297,7 +296,7 @@ local function run_task(task)
 end
 
 function M.run(use_current_module)
-    local task = build_task(select("Tasks", vim.tbl_keys(opts.tasks)), use_current_module)
+    local task = build_task(select("Tasks", vim.tbl_keys(cfg.tasks)), use_current_module)
     run_task(task)
 end
 
