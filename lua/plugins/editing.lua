@@ -202,7 +202,7 @@ return {
             -- (|) — its own BS would shadow neither here; classic plain BS for
             -- everything else. hungry first: minipairs_bs always returns keys
             -- (never false), so a trailing minipairs step would be unreachable
-            keymap.map_multistep("i", "<BS>", { "hungry_bs", "minipairs_bs" })
+            keymap.map_multistep("i", "<BS>", { "minipairs_bs" })
 
             require("mini.move").setup({
                 mappings = {
