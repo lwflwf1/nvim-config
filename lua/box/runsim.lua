@@ -1,3 +1,87 @@
+-- ── 类型声明（只给 lua_ls 看，运行时零开销） ──────────────────────────
+
+---任务种类，同时也是 cfg.tasks 的键
+---@alias TaskKind "run_test" | "run_regression"
+
+---参数来源，按数组顺序依次尝试，全失败才弹窗
+---@alias ResolverName "explicit" | "context" | "buffer" | "default"
+
+---单个 test 的执行状态
+---@alias TaskState "SUBMIT" | "WAIT_COMPILE" | "COMPILE_FAIL" | "WAIT_SIM" | "SIM" | "PASS" | "FAIL" | "UNKNOWN"
+
+---回归任务的摘要状态，形如 "RUNNING: 3 PASS: 10 FAIL: 1"
+---@alias TaskStateSummary string
+
+---解析器与 build() 看到的只读上下文
+---@class Context
+---@field bufnr integer
+---@field file string                # 当前 buffer 路径
+---@field root string                # 项目根
+---@field project? string
+---@field module? string
+---@field config table               # 模块配置（cfg）
+---@field prev table<string, any>    # 已解析的参数
+
+---模板里的单个参数声明
+---@class ParamDecl
+---@field name string
+---@field type? "string" | "path" | "list" | "bool"
+---@field multi? boolean             # 只有 list 有意义
+---@field from? ResolverName[]
+---@field options? fun(ctx: Context, prev: table<string, any>): string[]
+---@field prompt? string             # 所有来源失败后的弹窗提示
+---@field default? any
+---@field validate? fun(v: any): boolean | string
+
+---由 build() 声明、runner 落盘到任务目录的数据文件
+---@class GeneratedFile
+---@field path string                # 相对任务目录
+---@field content string
+
+---要执行什么（build() 的返回值），与“何时触发”无关
+---@class TaskSpec
+---@field kind TaskKind
+---@field cwd string
+---@field script? string             # 脚本文件，与 cmd 二选一
+---@field cmd? string                # 简单命令行，与 script 二选一
+---@field args? string[]             # 脚本位置参数
+---@field env? string[]              # "KEY=VALUE" 或 "source ..."
+---@field pre? string[]              # 前置命令
+---@field files? GeneratedFile[]
+---@field meta? table<string, any>
+
+---一类任务的声明（内置 / 用户 / 项目）
+---@class TaskTemplate
+---@field name string
+---@field desc? string
+---@field source? "builtin" | "user" | "project"
+---@field enabled? fun(ctx: Context): boolean
+---@field params ParamDecl[]
+---@field build fun(inputs: table<string, any>, ctx: Context): TaskSpec
+---@field confirm? boolean           # 提交前是否预览渲染结果
+
+---一次执行的历史记录
+---@class RunEntry
+---@field start_at string
+---@field end_at? string
+---@field state? TaskState | TaskStateSummary
+
+---落盘的一条任务记录（手动提交与 cron 触发同构）
+---@class TaskRecord
+---@field id string
+---@field kind TaskKind
+---@field workdir string
+---@field cmd string
+---@field project string
+---@field module string
+---@field test? string
+---@field tests? string[]
+---@field list? string[]
+---@field session string
+---@field window string
+---@field pane? string               # 只为“进去看现场”，不是存活依据
+---@field run? RunEntry[]            # 提交时才创建
+
 local M
 
 local DEFAULTS = {
