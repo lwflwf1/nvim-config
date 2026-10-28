@@ -90,5 +90,30 @@ return {
                 },
             }
         end,
+        -- Windows never forwards the wheel into a terminal job (measured: a job
+        -- that writes `\e[?1002h` still receives nothing, so `forward_mouse` stays
+        -- false -- ConPTY does not pass the job's mouse enable on to nvim). nvim
+        -- then takes its documented fallback for a job without mouse reporting --
+        -- "terminal focus will be lost" (terminal.txt) -- and opencode renders on
+        -- the alternate screen, so there is no scrollback either: the wheel only
+        -- drops you into Terminal-Normal. Map it to opencode's own paging keys
+        -- (messages_page_up/down default to pageup/pagedown). Unix ptys forward
+        -- the wheel normally, so gate it.
+        config = function()
+            if vim.g.os ~= "windows" then
+                return
+            end
+            vim.api.nvim_create_autocmd("TermOpen", {
+                group = vim.api.nvim_create_augroup("box_opencode", { clear = true }),
+                callback = function(ev)
+                    local term = vim.b[ev.buf].snacks_terminal
+                    if not (term and tostring(term.cmd):find("opencode", 1, true)) then
+                        return
+                    end
+                    vim.keymap.set("t", "<ScrollWheelUp>", "<PageUp>", { buffer = ev.buf, desc = "OpenCode page up" })
+                    vim.keymap.set("t", "<ScrollWheelDown>", "<PageDown>", { buffer = ev.buf, desc = "OpenCode page down" })
+                end,
+            })
+        end,
     },
 }
