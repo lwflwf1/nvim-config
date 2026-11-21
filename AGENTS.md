@@ -34,7 +34,8 @@ lua/
                           shared by editing keymaps + lualine), toggle_value (<leader>sw), trim
                           (<leader>ue), wins, multicursor, smart_gf, winpick, lsp, parsers,
                           terminals (<leader>fe / :Terminals picker over snacks terminals),
-                          theme (+<leader>uC), hl (groups the colorschemes don't
+                          theme (+<leader>uC), colors (blade2049: the 2049 palette +
+                          its role overrides), hl (groups the colorschemes don't
                           define), picker_hl (snacks picker window bg patch),
                           tools (:ToolInstall), neovide, battery,
                           fff_picker (snacks patch), notifier_anim (snacks patch),
@@ -51,6 +52,15 @@ after/
   queries/systemverilog/  context.scm
   syntax/                 ralf.vim, tc.vim
 queries/systemverilog/    aerial, function_*, variables (the rest come from the SV fork)
+colors/                   catppuccin-blade2049.lua: the `:colorscheme` entry point.
+                          Snacks' colorschemes picker enumerates exactly this dir,
+                          so without the shim the flavour is unreachable AND
+                          box/theme.lua has no colors_name to persist.
+lua/catppuccin/palettes/  blade2049.lua: a ONE-LINE adapter to
+                          box/colors/blade2049.lua -- catppuccin resolves a
+                          flavour's palette by filename, so the file must exist
+                          (see the blade2049 bullet for why an adapter and not
+                          `color_overrides`).
 scripts/                  installers + packagers + tools.json
   build-fff-rhel6.sh      cross-build fff's backend for glibc 2.17 (run on Linux/WSL)
   wakatime-export.sh      RHEL6: dump the queue, pack+mail it via ferry (see below)
@@ -90,7 +100,7 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
 
 ## Non-obvious design decisions (do not "fix" without reading the comment)
 
-- **RHEL6 guards:** `vim.g.is_rhel6` disables avante, minuet, snacks.scroll, and
+- **RHEL6 guards:** `vim.g.is_rhel6` disables avante, cursortab, snacks.scroll, and
   forces blink.cmp's fuzzy to the pure-Lua implementation (the prebuilt Rust fuzzy
   lib needs glibc ≥ 2.18). **RHEL6 nvim is kept on the same version as Windows
   (both 0.13-dev)** — do NOT add version-branch shims for "older nvim"; only branch
@@ -106,37 +116,90 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   showing `statically linked` ⇒ stop worrying about the kernel; `ldd` showing
   `libc.so.6` ⇒ check its GLIBC_ versions instead. **Do not pre-judge a static binary
   as unrunnable on RHEL6 — test it** (one `--version` run answers it).
-- **Minuet / OpenCode Go** (`plugins/minuet.lua` + `plugins/blink.lua`): the key is
-  read from opencode's own auth file, whose location is **per-OS** —
-  `~/.local/share/opencode/auth.json` on Windows *and* Linux (verified on this box;
-  `%LOCALAPPDATA%/opencode` does not exist), `~/Library/Application
-  Support/opencode/auth.json` on macOS. The lookup tries both, then
-  `OPENCODE_GO_API_KEY`; with no key minuet reports `is_available() == false`, the
-  blink source is dropped and the backend never invokes its callback (a headless
-  probe then hangs instead of erroring). The `/go` endpoint 401s
-  (`MissingSessionID`) without `x-opencode-session`, which is added via
-  `provider_options.openai_compatible.transform` — not via curl args.
-  - **That header is backend affinity, not just a gate.** opencode pins every
-    request carrying the same value to the same upstream backend, which is what
-    keeps the prompt cache warm (same value → cached-read rates). It became
-    mandatory for Go on 2026-09-05. So it must NOT be a hardcoded constant: the
-    old `"nvim-minuet"` satisfied the header but pinned *every minuet user* to
-    one shared backend, so our traffic interleaved with strangers' and rarely
-    hit the cache (the same tradeoff pi hit — a hardcoded value binds the whole
-    install, not a conversation).
-  - So the value is **one opaque id per nvim run** (`vim.uv.hrtime()`), stable
-    for the run. Do not "improve" it: opencode treats the value as opaque (pi
-    hardcodes `"wsl"`), so a `ses_`-shaped id is decoration, and splitting it per
-    front (virtualtext vs duet) or rotating it on `DirChanged` buys nothing —
-    the two fronts' prompts share no prefix so they cannot evict each other, and
-    rotating a *worse* cache. Only an actual conversation boundary would justify
-    rotation, and minuet has none.
-  - Mint it in `config = function()`, never inside the transform: that sits on
-    minuet's request path, where RNG/buffer API calls are not safe.
+- **cursortab.nvim is the AI front** (`plugins/cursortab.lua`), for BOTH inline
+  ghost text and next-edit prediction (NES), against a **local** llama.cpp
+  server. It replaced `milanglacier/minuet-ai.nvim`; do not re-introduce minuet
+  for this. Two independent reasons, both verified upstream:
+  - minuet's `duet` (its NES) is chat-model only. Its README: *"It only targets
+    general-purpose LLMs rather than NES-specialized models, as I lack local GPU
+    resources for testing"*, and it names `claude-haiku-4.5` / `gpt-5.4-mini` as
+    already performing poorly — i.e. the tier **below** what a 16 GB machine can
+    serve locally. There is no small local config where duet is usable.
+  - cursortab is the only one of the candidates that implements the actual NES
+    affordance: `behavior.cursor_prediction` (jump pill, `auto_advance`,
+    off-screen direction arrow + line distance). `blink-edit.nvim` renders
+    ghost text and `<Tab>`-accepts a hunk but has **no jump indicator at all**,
+    so it is not NES. It is also unmaintained (last push 2026-02-01) and has no
+    gating. Gating is what decides whether an NES front is usable: cursortab
+    publishes the only benchmark, and its *quiet rate* (fires when it should not)
+    separates the field — zeta-2 96%, sweep-1.5B **36%**.
+  - **`version = false`, i.e. track `main`, NOT a tag.** The newest tag (v0.8.0)
+    hard-`error()`s on `provider.type = "zeta-2.1"`: `config.lua:321` validates
+    against a literal allow-list (`inline, fim, sweep, zeta-2, zeta, copilot,
+    mercuryapi`) and throws, which aborts the whole `setup()` — so a pinned tag
+    silently leaves the *defaults* in place (`inline`, `accept = "<Tab>"`),
+    which then fights the tab-out chain. `zeta-2.1` (and `windsurf`) are
+    main-only while the README documents main. This is the opencode.nvim trap
+    below, inverted: there `*` ran ahead of the tags, here the tags lag behind
+    what the README promises. `sweepapi` also vanished between v0.7.8 and
+    v0.8.0, so the tags are not strictly additive — main is simply ahead.
+  - **`keymaps = { accept = false, partial_accept = false }` is load-bearing.**
+    Insert `<Tab>`/`<S-Tab>` belong to the tab-out chains (`editing.lua`) and
+    normal `<Tab>` must fall through to the raw key (`<C-i>`); cursortab's
+    defaults would own all three. Accept is driven from those chains through the
+    public `require("cursortab").accept()` (returns a boolean). There is **no
+    public dismiss()** — `on_reject()` is the daemon's RPC callback for exactly
+    this (clear the awaiting flag + close overlays), so calling it is what the
+    daemon itself would do on a rejection; it is an internal, guard it with
+    `pcall`. `partial_accept` has no Lua entry point at all, which is why it
+    cannot be re-wired and stays off.
+- **The chains need a `condition`, so the state is tracked by hand.**
+  `mini.keymap` *rejects* a step table whose `condition` is not callable
+  (`keymap.lua:657` `normalize_steps` errors), so "just call `accept()` and
+  return `false`" is not a step. cursortab has no `is_visible()` either. So
+  `plugins/cursortab.lua`'s **`init`** hook subscribes to the documented
+  `User CursortabStateChanged` and records the **whole payload** in
+  `vim.g.cursortab_status`; the chain asks whether any of
+  `HasCompletion | HasCursorTarget | StreamingCompletion` appears in it.
+  Three details, all learned the hard way:
+  - it must be `init`, not `config`, because `on_state_change` fires once
+    on connect and a `config()`-time autocmd misses it;
+  - **do not read `args.data.state` and nothing else.** A Go RPC table's
+    field names are not a contract we control, and a nil there took the
+    `or "Idle"` fallback forever: the chains' condition sat at `Idle` while
+    the server log showed hundreds of completed generations. A headless probe
+    CANNOT catch this — firing the autocmd by hand supplies a hand-made
+    table with the documented shape. Hence record the payload and let the
+    condition scan it, instead of trusting one key;
+  - the tracked value is only the *condition*. It is written from a
+    `vim.schedule`d RPC callback, so it lags a tick; `accept()`'s own
+    return value is what decides whether the chain continues.
+  - **`blink = { enabled = false }`.** Its blink source only consumes
+    `append_chars` (single-line end-of-line ghost text); multi-line edits,
+    replacements, deletions and the prediction UI always render through its own
+    overlay. Enabling it would split the AI UI across two places for no gain,
+    and blink's `sources.default` has no AI entry at all now.
+  - **`enabled = not vim.g.is_rhel6` is sufficient, not aspirational.** lazy's
+    `fix_disabled()` (`core/meta.lua:305`) deletes or disables the spec, so
+    neither `build` nor `setup()` runs there — the Go requirement is a non-issue
+    offline. The residual cost is packaging: `cd server && go build` produces an
+    **extensionless** ~11 MB binary (`server/cursortab`) that `package.ps1` does
+    NOT strip (it strips `*.dll/exe/cmd/bat`), so it rides along to RHEL6 as dead
+    weight — same class as the yazi note below.
+  - **`lazy = false` + a Go toolchain (go.mod wants 1.25).** `setup()` spawns a
+    background daemon that **outlives nvim** (unix socket + pid + log in
+    `stdpath("state")/cursortab/`), and it is reused across sessions. Probe
+    gotcha: the daemon inherits nvim's stdio, so `timeout 60 nvim --headless ...`
+    hangs *after* nvim has already exited. Read `stdpath()` with `nvim --clean`,
+    or make the probe quit itself with an internal `vim.defer_fn(qa!)` failsafe.
+  - **The model is not managed by nvim.** See "Local AI model" below; nothing in
+    the config starts or downloads it. `<leader>ua` is now `:CursortabToggle` and
+    is a **daemon-wide** on/off, not per-buffer like minuet's was (cursortab keeps
+    no per-buffer auto-trigger state to arm).
 - **opencode.nvim** (`plugins/opencode.lua`, replaced sidekick.nvim which only
-  wrapped the opencode TUI in a terminal — its NES was off and minuet's duet
-  already covers NES, from the same Go subscription). It drives the *installed*
-  opencode CLI, so it is gated off on RHEL6 like minuet/avante.
+  wrapped the opencode TUI in a terminal — and its NES was off). It drives the
+  *installed* opencode CLI, so it is gated off on RHEL6 like cursortab/avante.
+  Note it is NOT an NES front: that is cursortab's job now (above).
   - **Pinned to the 1.x tags (`version = "~1"`), on purpose.** Upstream's README
     states the split: the default branch is the OpenCode **v2** line, the tags
     are **v1**. This box stays on CLI v1 (1.19.0) because v2 is beta with
@@ -150,29 +213,51 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   - **Config goes in `init`, not `opts`.** The plugin has no `setup()`; lazy
     silently drops `opts` for such specs, and the plugin reads `vim.g.opencode_opts`
     instead (same trap class as the wakatime bullet above).
-  - **Only `server.start` is overridden** (snacks terminal instead of the default
-    bare `vsplit term://opencode`, and the toggle key reuses the same cmd string
-    so it finds the same terminal). `ask()`/`select()` need no config: the plugin
-    auto-detects snacks by itself (`snacks.config.get("input",{}).enabled`), both
-    of which `plugins/snacks.lua` already enables.
+  - **`server.url` is pinned per nvim instance, and that is load-bearing.**
+    A free port is allocated lazily (`uv.new_tcp`, bind port 0) and threaded
+    into both `start`'s `opencode --port <n>` and the URL. Do NOT drop the URL
+    and rely on discovery: `discovery.find()` falls through to `locally()`,
+    which adopts ANY local `opencode --port` whose cwd overlaps, so a second
+    nvim in the same project silently talks to the first one's opencode
+    (verified: it connected to a `serve` in the same cwd). `configured()` is
+    checked before `locally()`, which is what the pin exploits. Consequences:
+    a manually started `opencode` is no longer auto-adopted, and `select()`'s
+    "server.connect" errors while the pinned server is down (`select.lua` chains
+    `configured()` with no catch). That cannot be fixed from the config,
+    because `find()` *needs* `configured()` to reject in order to trigger
+    `server.start`.
+  - **Only `server.url`/`server.start` are overridden** (snacks terminal instead
+    of the default bare `vsplit term://opencode`, and the toggle key reuses
+    `server_cmd()` so it finds the same terminal). `ask()`/`select()` need no
+    config: the plugin auto-detects snacks by itself
+    (`snacks.config.get("input",{}).enabled`), both of which
+    `plugins/snacks.lua` already enables.
   - **lazy does not reconcile an already-installed plugin when the lockfile
     changes** — it only checks out on install/update. After editing the pin the
     worktree stayed on `main`, so it had to be `git checkout <locked-commit>`d by
     hand. Remember this when bumping the version.
   - Requires `opencode` >= 1.17 in `$PATH` (1.19.0 here); `:checkhealth opencode`
     reports version, curl, and snacks status.
-- **`request_timeout` is curl's `--max-time` for the whole request**
-  (`utils.make_curl_args`), streaming included, so it must cover first-token latency.
-  Through this box's local proxy `glm-5.3-flash` measures 2.0-2.8s (cold ~5s), which
-  is why the budget is 6s and blink's minuet `timeout_ms` must match it; a tighter
-  budget silently returns nothing. HTTP/2 through the same proxy stalls ~15s now and
-  then (curl exits 000), so `curl_extra_args = { "--http1.1", "--connect-timeout", "5" }`
-  is set at minuet's **root** config (`curl_extra_args` is read from
-  `require("minuet").config`, not from `provider_options`). Both are plain curl
-  options, safe on every platform, and minuet is disabled on RHEL6 anyway. AI is
-  manual + per-buffer on purpose (`blink.enable_auto_complete = false`,
-  `virtualtext.auto_trigger_ft = {}`, `<leader>ua` arms the buffer) so the source and
-  the ghost text never each send a request per typing pause.
+- **AI request pacing** (`plugins/cursortab.lua`): every number below is
+  MEASURED on the macOS box (M4 / 16 GB / zeta-2.1 Q4_K_M), not estimated.
+  - **Latency is decode, not prefill.** One request = 4.4–7.7 s
+    (p50 5.1 s, p90 7.7 s). The split: p50 generation is 79 tokens ×
+    50 ms/token = 3.9 s, and that *is* the eval time (p50 3.8 s). The prompt
+    (`n_past` p50 262, p90 700, max 893) is nearly free because
+    `--cache-reuse 256` hits the entire prefix every request (the log's
+    `after context reuse, new n_past = X` comes back unchanged). So the knob
+    that moves latency is the model's tok/s, not the context size.
+  - **`completion_timeout = 12000`** (was 8000, which produced two real
+    `context deadline exceeded` errors against a 7.7 s p90). Raising it stops
+    the tail from erroring; it does not make anything faster.
+  - **`idle_completion_delay` / `text_change_debounce` = 1500** (default 50).
+    The reason is queueing, not politeness: at a 5 s latency a 400 ms cadence
+    leaves ~12 requests in flight per prediction cycle — the server log showed
+    **2631 queue events against 608 completed generations**, so most of that
+    work is stale before it lands. Matching cadence to latency keeps roughly
+    one prediction in flight. It also gates NES specifically: next-edit
+    prediction needs accumulated edit history to know a rename here means
+    "fix the call sites there", and a 400 ms cadence gives each request none.
 - **Completing mid-identifier** (`lua/box/blink_suffix.lua`, wired from
   `plugins/blink.lua`): blink's `completion.keyword.range` has only `'prefix'`
   (edit stops at the cursor) and `'full'` (edit always runs to the end of the
@@ -264,6 +349,20 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   from under the finder. `fff.nvim` is a **single-global-root** index (no multi-root
   support) — `change_indexing_directory` re-roots by replacing + rescanning. RHEL6
   project trees live behind symlinks → `follow_symlinks = true`.
+  - **The index starts at the first pick, never at startup** (`opts.lazy_sync =
+    true` in `plugins/fff.lua`), plus a "never re-root mid-scan" guard in
+    `fff_root_ready`. The plugin's own UIEnter hook roots the index at the CWD,
+    i.e. wherever nvim was launched (often `$HOME`); on this box that scan ran for
+    minutes (content-indexing the model files). And **any re-root while a scan is
+    in flight wedges fff**: its reinit replaces the picker underneath the running
+    scan, so the new picker keeps `is_scanning = true` and EVERY search returns 0
+    until nvim restarts (reproduced; `scan_files()` and a second re-root do NOT
+    heal it). With `lazy_sync` the first scan happens at the first pick, when
+    auto-cwd has already chdir'd to the project; the guard makes the finder poll
+    (350ms) instead of re-rooting while `is_scanning`, so switching projects
+    during a scan delays results rather than killing fff. Accepted cost: fff's
+    frecency `BufEnter` tracking is installed by `ensure_initialized`, so files
+    opened before the first pick are not tracked.
 - **fff is never used on RHEL6** (`init.lua` + `plugins/fff.lua` + `box/fff_picker.lua`):
   fff's search API is a *synchronous* FFI call (`live_grep`/`file_search` are mlua C
   functions bound to the Lua state), so it **cannot be made async** — it must run on
@@ -346,6 +445,97 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
     `set_hl{managed=false}`, which opts out of snacks' `snacks_util_hl` replay.
     The callback is `vim.schedule`d, so the fix lands a tick after the theme
     switch — harmless, nothing can be mid-picker while switching.
+- **`blade2049` is a catppuccin flavour, not a standalone colorscheme**
+  (`lua/box/colors/blade2049.lua` + `plugins/ui.lua`'s catppuccin spec +
+  `lua/catppuccin/palettes/blade2049.lua` + `colors/catppuccin-blade2049.lua`).
+  Full rationale, the measured numbers and the exit criterion are in
+  `docs/adr/0002-catppuccin-flavour-for-blade2049.md`. What is load-bearing
+  here, all verified:
+  - **The design is MUTED BASE + NEON ACCENTS**, which is the film's own logic:
+    Los Angeles is rendered as cold, low-saturation blue-grey, and everything
+    that *is* a light source — the spinner, K's eyes, the sodium lamps, every
+    in-world display — burns at full chroma on top of it. Greying the accents
+    too is the mistake to avoid, not the mistake to avoid making; a "faithful"
+    all-grey version loses the only thing the film is about.
+  - **The palette is split LOUD vs QUIET, and the split is driven by how often a
+    token appears, not by how important it is.** LOUD (high chroma, *mid*
+    brightness) = the six things you scan for: `mauve` keyword/control flow,
+    `yellow` function, `blue` type/module/directory, `pink` preproc/special,
+    `teal` string, `peach`+`green` number/Ok, plus `red` for errors only.
+    QUIET (desaturated) = plain structure: `flamingo` bone identifier, `maroon`
+    tan parameter, `overlay2` comment/delimiter/bracket.
+  - **Loudness is NOT brightness, and this is the load-bearing idea.** Body text
+    is 12.0:1 on base; the loudest accent (keyword purple) is 6.55:1 — a neon
+    that dims *toward* the background. At equal luminance a screen of
+    `if / for / return / else / while` becomes a solid purple wall, because
+    keywords are the highest-frequency token in code.
+  - **That is also why parameters are tan and not pale orange.** Measured: a
+    light orange parameter came out at 9.74:1 × 100% sat and *beat* keyword
+    purple (6.55:1 × 100% sat) as the loudest thing on screen — and parameters
+    are as frequent as keywords. Quiet them or the hierarchy inverts.
+  - **The palette alone carries most of the design**, because catppuccin's
+    slot→role map already lands it (`mauve` drives Keyword/Conditional/Repeat/
+    Statement/Exception/Include, so all six become purple for free). The
+    18-entry `overrides()` only moves roles that would mean something else —
+    `Function` (default `blue`), `Type` (default `yellow`, which would make a
+    type read as a call), `String` (default `green`), `@type.builtin` (must not
+    be `mauve`, that is keywords), `@variable.builtin` (default `red`; `self`
+    appears in nearly every method and red stays scarce), and `Todo` /
+    `@comment.todo` (default `flamingo`, which is bone now — a bone highlight
+    bar is off-palette).
+  - **All 26 slots must be filled, and they must be plausible**, not just the
+    ones we use: catppuccin's own `groups/` reference them (`@variable.builtin`
+    = red, `@module` = yellow, `@type.builtin` = mauve, …).
+  - **Register the flavour inside the spec's `opts` FUNCTION, and the placement
+    is load-bearing.** `catppuccin/init.lua` validates `flavour` against a
+    hardcoded `M.flavours = {latte, frappe, macchiato, mocha}`, and `setup()`
+    only recompiles what it finds there. The one point that is guaranteed to
+    have catppuccin on the rtp *and* to run before `setup()` is the `opts`
+    function itself — lazy evaluates it as an argument of
+    `require(main).setup(opts)` (`lazy/core/loader.lua`, `M.config`), after
+    `packadd`. Both alternatives are broken here:
+    - module scope — `require("catppuccin")` fails (plugin not on the rtp yet)
+      and the whole spec file fails to import;
+    - the `init` hook — *measured*: a cold-cache `setup()` recompiled the four
+      official flavours, skipped blade2049, and `M.compile()` wrote `cached`
+      anyway, so stale colours survived every later start **with no error
+      anywhere**. A miss is invisible by construction: `compiler.lua:74-92`
+      prints a dump and `return`s if the generated source will not `loadstring`,
+      and `setup()` does not check that every flavour got written.
+    Verify a palette edit actually landed:
+    `strings ~/.cache/nvim/catppuccin/blade2049 | grep -c <new hex>`.
+  - **`color_overrides` cannot stand in for the palette file.**
+    `palettes/init.lua:5` is `local _, palette = pcall(require, ...)`, so a
+    missing module hands pcall's error *message* (a string) to the
+    `tbl_deep_extend` on the next line and it rejects it. Hence the one-line
+    `lua/catppuccin/palettes/blade2049.lua` adapter rather than config only.
+  - **`highlight_overrides` must be a plain table, not a function.**
+    `lib/hashing.lua:17` hashes a function as `fn(get_palette())`, and at
+    `setup()` time `get_palette()` returns **mocha's** palette — so editing one
+    of our hexes would leave the compiled cache valid and the theme would
+    silently keep the old colours. `plugins/ui.lua` builds the table eagerly
+    with `overrides(palette)`. (`lib/mapper.lua:64` also replaces a function
+    entry with its result, mutating the options table.)
+  - **`:CatppuccinCompile` ends on mocha** — it finishes with
+    `colorscheme catppuccin-nvim` and `options.flavour` is already consumed.
+    Re-apply `:colorscheme catppuccin-blade2049` after compiling.
+  - **Palette slots encode RELATIVE contrast, so changing the hexes changes
+    them.** This ramp is tighter than mocha's, so three inherited values landed
+    too dark: `LineNr` 1.20:1 (mocha 1.80), `TabLine` 1.94:1 (mocha 3.84),
+    `CursorLine` 1.05:1. All three are re-picked in `overrides()` with the
+    measured ratios in the comment — re-measure them if the neutrals move.
+  - **`IncSearch` is load-bearing for aerial**: `hl.lua` links `AerialLine` to
+    it, and catppuccin's `IncSearch` is `fg=mantle` on a near-base bg (an
+    outline symbol you cannot see). The override fixes the search highlight and
+    the aerial symbol in one line.
+  - Measured contrast on `base`: body text 12.0:1; the loudest accent
+    (keyword) 6.55:1; the lowest *text* role (`Comment`) 4.67:1 clears WCAG AA;
+    `overlay0`/`overlay1` are below on purpose — line numbers, `Conceal` and
+    `Dimmed` are not text. The notifier's three levels come out as
+    info = blue, warn = orange, error = red.
+  - **To retune, pull a SLOT, not an override.** The six LOUD hexes are marked
+    in the palette table. If the screen turns to confetti, pull `mauve`
+    (keyword) down first — it is both the loudest and the most frequent.
 - **Noice suppresses `recording @a`** (`msg_showmode` is `skip`-routed). lualine
   shows a `REC @<reg>` indicator instead, refreshed on `RecordingEnter`/`Leave`
   (`plugins/ui.lua`).
@@ -630,6 +820,93 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   A lang that fails the first check needs
   `require("nvim-treesitter").install(require("box.parsers"), { force = true })`
   (or deleting the stale `site/queries/<lang>` directory first).
+
+## Local AI model (cursortab's backend)
+
+`plugins/cursortab.lua` points at a **local llama.cpp server on
+`http://localhost:8000`**. Nothing in this config starts, downloads or supervises
+it — by design: the editor must not own the process, and a first-request cold
+start would otherwise land inside the typing pause.
+
+The model is Zed's **zeta-2.1** (SeedCoder-8B) as GGUF. Sizes on HF
+(`mradermacher/zeta-2.1-GGUF`, 8.25B params, ctx 32768, Apache-2.0):
+Q4_K_M 5.07 GB, Q5_K_M 5.90 GB, Q8_0 8.77 GB. This box is 16 GB, so Q4_K_M is the
+default; Q8_0 leaves too little headroom and a NES payload is only tens of tokens.
+
+```
+llama-server \
+  -hf mradermacher/zeta-2.1-GGUF:Q4_K_M \
+  -a zeta-2.1 --port 8000 -ngl 99 -fa -c 16384 --no-webui
+```
+
+- **`-a/--alias`, NOT `--served-model-name`.** Verified against the installed
+  `llama-server 0.6.0` (`--help`): only `-a` remains. blink-edit's README still
+  prints the old spelling, which errors out. Nothing has to match the alias —
+  `provider.model` is deliberately left unset so cursortab reads it off
+  `/v1/models`, which is one less thing to keep in sync.
+- **`-c 16384`, not the model's 32768**: halves the KV cache, which is most of
+  the p50 on a bandwidth-bound M4.
+- Start it from **launchd** (KeepAlive), not from `init.lua` and not from the
+  cursortab daemon. The daemon outlives nvim and reads its env only at start
+  (`:CursortabRestart` after changing anything), so co-owning the model would
+  put two long-lived processes behind one toggle.
+
+**Measured throughput on this M4 — and what it does NOT mean.** Every figure
+below is measured, and the sanity check that settles "is something broken?" is
+`llama-bench -m <gguf> -p 512 -n 64`, which on this box reports
+`pp512 = 202 t/s` and `tg64 = 20.8 t/s` for the same 4.72 GiB Q4_K_M:
+
+| | measured | vs. `llama-bench` |
+|---|---|---|
+| decode | 14.7–20.0 t/s | 71–96% (the rest is server overhead: KV writes, slot scheduling, `--cache-reuse`) |
+| prefill, 1500–5200 token prompts | 107–174 t/s | not comparable — `pp512` measures *512*-token prompts, and attention is quadratic |
+
+**This is normal for an M4, not a misconfiguration.** Decode is weight-read
+bound: 4.72 GiB / the M4's 120 GB/s = 23.7 t/s theoretical, so 14.7–20 t/s is
+62–85% effective bandwidth — squarely in the band llama.cpp gets on Apple
+Silicon. Prefill is compute bound at ~2.9 TFLOPS effective against an ~8–9
+TFLOPS FP32 peak, i.e. ~33%: normal for Q4_K_M, whose matmul dequantizes to
+FP32 and never touches tensor cores (`has tensor = false` on Apple9).
+
+Three dead ends worth not re-walking:
+
+1. **"The Metal backend is missing."** It is not — `libggml-metal.so` is a
+   runtime-dlopen'd backend and `:MTL0` never appears at `-lv 3`. `-lv 5` prints
+   `MTL0 : Apple M4`, `load_tensors: layer N assigned to device MTL0` for all
+   layers, and `n_threads = 10`. Reading a missing log line as a missing feature
+   is the whole error.
+2. **"EOS is broken, zeta-2.1 will never stop."** The GGUF metadata is fine
+   (`eos_token_id = 2`, `token_type = 3` CONTROL, 128 EOG tokens; verified by
+   range-fetching the file header and parsing the KV). The probe that "proved"
+   it wrong sent a BARE prompt, so the model had no turn boundary to stop at
+   and correctly kept writing code forever. cursortab sends the V0318 prompt, and
+   it converges: with `n_predict = 512` the observed `n_gen` tops out near 119.
+3. **"Prefill is an order of magnitude too slow."** That compared a *guessed*
+   GPU peak against an effective throughput. Judge decode against bandwidth
+   and prefill against `llama-bench`, not against a remembered TFLOPS figure.
+
+**Where the latency actually goes, and the one lever that matters.** p50 is 79
+generated tokens × 50 ms/token. Prefill is nearly free because
+`--cache-reuse 256` reuses the whole prompt prefix (identical `n_past` before
+and after reuse). So no request-side tuning moves latency — the model's tok/s is
+the only lever, which means the hardware, or a smaller model.
+
+**Why zeta-2.1 and not zeta-2**, given zeta-2 actually scores higher
+(0.61 vs 0.57, deltaChrF 65.4 vs 60.6) in cursortab's own 50-scenario eval:
+zeta-2.1 was picked anyway. Both have a 100%/96% quiet rate; the difference is
+that **zeta-2.1 is main-only** (see the `version = false` bullet), so choosing it
+is the same choice as tracking main. zeta-2's win is real but small, and its
+lower latency is the least important axis here — a NES prediction that lands at
+800ms and one at 550ms feel the same when you are still typing the line that
+provokes it. Revisit if `sweep`/small-FIM options ever get benchmarked here.
+
+**Three targets now.** `enabled = not vim.g.is_rhel6` means this loads on macOS
+*and* Windows, not just the offline box: both need Go 1.25+ for
+`cd server && go build` plus a running model server, and neither gets one from
+this repo. macOS was already a real target in `init.lua`
+(`vim.g.os == "macos"`) but is not described in "What this is" above — fix that
+doc if the two-target framing is meant to stay accurate.
+
 
 ## wakatime / wakapi (coding-time tracking)
 
@@ -1035,6 +1312,20 @@ cargo-zigbuild produce an ELF with max `GLIBC_ 2.17` and no bad undefined refs.
   `vim.cmd.doautocmd("User VeryLazy")` and `vim.cmd.doautocmd("VimEnter")` in probes.
   Some probes (esp. `:normal! <C-i>`) can hang headless — always add a hard
   `vim.defer_fn(function() vim.cmd("qa!") end, N)` guard and a shell timeout.
+- **cursortab's daemon inherits nvim's stdio and outlives it**, so a probe that
+  wraps nvim in `timeout ... nvim --headless ... > file` HANGS even after nvim
+  has exited: the shell waits on the pipe the daemon still holds. Give the
+  probe an internal `vim.defer_fn(function() vim.cmd('qa!') end, N)` failsafe,
+  read `stdpath()` with `nvim --clean` (skips this config, so never spawns the
+  daemon), and syntax-check with `--clean` too — `nvim --headless -c 'luafile
+  x.lua'` loads the WHOLE config, runs `lazy.setup`, and starts the daemon.
+- **Never `pkill -f server/cursortab` to clean up a probe.** The daemon is
+  per-user and long-lived; that pattern kills the interactive session's daemon
+  too, and the symptom is silent — predictions just stop, `vim.g.cursortab_state`
+  sits at `Idle`, and the daemon log's last line is an *earlier* PID than the
+  one you expect. Recover with `:CursortabRestart`. Orphans from a probe
+  self-terminate (`no clients connected for timeout period, shutting down
+  daemon`), so leave them alone.
 - **After force-loading the plugins, `print` stops reaching stdout in a headless
   probe** — it prints fine up to that point, then goes nowhere once the event
   loop is pumped (`vim.wait`). The script keeps running (exit 0, no error), so
@@ -1093,12 +1384,14 @@ cargo-zigbuild produce an ELF with max `GLIBC_ 2.17` and no bad undefined refs.
   CSI-u/modifyOtherKeys, so the two cannot be distinguished there. Tab
   navigation uses `gt`/`gT` + `<leader>t*`.
 - **Normal-mode `<Tab>` is the one deliberate exception**: a mini.keymap
-  multistep whose only step is the duet preview's apply (`editing.lua`), so the
-  accept reads like VS Code's `Tab`. It does *not* shadow `<C-i>`: mini.keymap's
-  fallback returns the original keycode when no step matches, and that was
-  verified to behave identically to a bare `<C-i>` (jumplist forward). Remember
-  the fallback before adding a second step — the raw key is what makes this
-  mapping safe.
+  multistep whose only step is cursortab's prediction accept/jump
+  (`editing.lua`), so the accept reads like VS Code's `Tab` and the
+  jump-accept-jump rhythm is Cursor's. It does *not* shadow `<C-i>`:
+  mini.keymap's fallback returns the original keycode when no step matches, and
+  that was verified to behave identically to a bare `<C-i>` (jumplist forward).
+  That fallback is load-bearing twice over — it is what keeps raw `<Tab>` safe
+  when the daemon is down and no prediction is showing. Remember it before
+  adding a second step; the raw key is what makes this mapping safe.
 
 ### fff (engine + index)
 
