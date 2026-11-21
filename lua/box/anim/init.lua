@@ -14,6 +14,7 @@
 --     Nothing here is notifier-specific: box/anim/core.lua owns the mechanics.
 local M = {}
 
+---@type fun(opts: table): anim.Runner
 M.new = require("box.anim.core").new
 
 --- Snacks adapter. `opts` is the core config; the geometry comes from the
@@ -83,13 +84,13 @@ function M.attach(opts)
                 end, {
                     target = target(self),
                     wrap = self.opts.wo and self.opts.wo.wrap,
-                })
+                }) ---@diagnostic disable-line: undefined-field
             end
 
             local orig_update = win.update
             win.update = function(self, ...)
                 local ret = orig_update(self, ...)
-                runner:resume(self.win)
+                runner:resume(self.win) ---@diagnostic disable-line: undefined-field
                 return ret
             end
         end
@@ -104,7 +105,7 @@ function M.attach(opts)
             resume_host = function()
                 pcall(win.update, win)
             end,
-        })
+        }) ---@diagnostic disable-line: undefined-field
     end
 end
 

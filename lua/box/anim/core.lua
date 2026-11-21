@@ -102,14 +102,39 @@ local function install_cleanup()
     cleanup_installed = true
     vim.api.nvim_create_autocmd("WinClosed", {
         callback = function(ev)
-            cleanup(tonumber(ev.match))
+            local winid = tonumber(ev.match)
+            if winid then cleanup(winid) end
         end,
     })
 end
 
+---@class anim.AnimatedWin
+---@field win integer
+---@field buf integer
+---@field kind? string
+---@field valid fun(): boolean
+---@field target fun(): integer|nil, integer|nil, integer|nil, integer|nil
+
+---@class anim.Effect
+---@field id string
+---@field duration number
+---@field easing fun(t:number,b:number,c:number,d:number): number
+---@field setup fun(aw: anim.AnimatedWin, dir: "in"|"out", base?: number): table|nil
+---@field apply fun(aw: anim.AnimatedWin, state: table, p: number)
+---@field clear fun(aw: anim.AnimatedWin, state: table)
+
 --- @class anim.Runner
 --- @field opts table
 --- @field effects anim.Effect[]
+--- @field id string
+--- @field slide_idx? integer
+--- @field _run_effect? fun(st: table, i: integer, dir: "in"|"out")
+--- @field _check_done? fun(st: table)
+--- @field _finish fun(self: anim.Runner, st: table)
+--- @field enter fun(self: anim.Runner, winid: number, ctx?: table): boolean
+--- @field exit fun(self: anim.Runner, winid: number, finally: fun(), ctx?: table)
+--- @field stop fun(self: anim.Runner, winid: number)
+--- @field resume fun(self: anim.Runner, winid: number)
 
 --- Build the effect set. `opts` is the caller's config:
 ---   fps     number (default 120)
@@ -128,7 +153,7 @@ function M.new(opts)
     local slide_idx
     if opts.slide and opts.slide.enable ~= false then
         slide_idx = #effects + 1
-        effects[slide_idx] = require("box.anim.slide").new(opts.slide)
+        effects[#effects + 1] = require("box.anim.slide").new(opts.slide)
     end
     if opts.fade and opts.fade.enable ~= false then
         effects[#effects + 1] = require("box.anim.fade").new(opts.fade)
@@ -159,7 +184,12 @@ function M.new(opts)
     local function run_effect(st, i, dir)
         local eff = effects[i]
         local es = st.states[i]
-        local aid = st.id .. ":" .. eff.id
+    if not es then
+        st.done[i] = true
+        check_done(st)
+        return
+    end
+    local aid = st.id .. ":" .. eff.id
         local from, to = dir == "in" and 0 or 100, dir == "in" and 100 or 0
         Snacks.animate(from, to, function(v, ctx)
             if sessions[st.win] ~= st then
@@ -169,7 +199,7 @@ function M.new(opts)
             end
             if not st.aw.valid() then
                 Snacks.animate.del(aid)
-                eff.clear(st.aw, es)
+                if es then eff.clear(st.aw, es) end
                 return
             end
             st.p[i] = v / 100

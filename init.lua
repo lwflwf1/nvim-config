@@ -102,7 +102,7 @@ if not vim.uv.fs_stat(lazypath .. "/lua/lazy/init.lua") then
         vim.cmd.quit()
     end
 end
-vim.opt.rtp:prepend(lazypath)
+vim.opt.rtp:prepend(lazypath) ---@diagnostic disable-line: undefined-field
 
 require("lazy").setup({
     spec = {

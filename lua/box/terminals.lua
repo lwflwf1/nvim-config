@@ -23,7 +23,11 @@ local function title(t)
         local cmd = bufname:match("^term://.*//%d+:(.*)$") or bufname
         name = vim.fn.fnamemodify(cmd, ":t")
     end
-    local winbar = (t.opts.wo and t.opts.wo.winbar) or ""
+    local opts = t.opts or {}
+    ---@diagnostic disable-next-line: undefined-field
+    local wo = opts.wo or {}
+    ---@diagnostic disable-next-line: undefined-field
+    local winbar = type(wo.winbar) == "string" and wo.winbar or ""
     local count = tonumber(winbar:match("^(%d+):")) or 0
     return count > 0 and (count .. ": " .. name) or name
 end
@@ -63,6 +67,7 @@ function M.pick()
                     -- that float, which the picker close then wipes.
                     vim.schedule(function()
                         if term:buf_valid() then
+                            ---@diagnostic disable-next-line: undefined-field
                             term:show():focus()
                         end
                     end)

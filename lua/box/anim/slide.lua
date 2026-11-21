@@ -19,9 +19,12 @@ local M = {}
 function M.new(opts)
     local sp = require("box.anim.spring").new(opts)
     local min = opts.min or 2
-    return {
+    ---@type anim.Effect
+    local effect = {
         id = "slide",
+        ---@diagnostic disable-next-line: undefined-field
         duration = sp.duration,
+        ---@diagnostic disable-next-line: undefined-field
         easing = sp.easing,
         ---@param dir "in"|"out"
         ---@param base? number restart: the current animated width
@@ -34,7 +37,7 @@ function M.new(opts)
             base = base or math.max(min, tw - sweep)
             -- prefer the host's intended wrap when it supplies one (the live
             -- value is `false` if a previous run was interrupted mid-flight)
-            local wrap = aw.wrap
+            local wrap = rawget(aw, "wrap")
             if wrap == nil then
                 wrap = vim.wo[aw.win].wrap
             end
@@ -69,6 +72,7 @@ function M.new(opts)
             end
         end,
     }
+    return effect
 end
 
 return M

@@ -25,6 +25,7 @@
 local M = {}
 
 function M.setup()
+    ---@diagnostic disable-next-line: duplicate-set-field
     require("snacks.dashboard").sections.session = function(item)
         return setmetatable({
             action = function()

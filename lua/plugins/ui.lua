@@ -103,7 +103,49 @@ return {
         -- not lazy: the colorscheme picker (<leader>uC) needs it on the rtp
         lazy = false,
         priority = 1000,
-        opts = {}, -- defaults: flavour "auto" (mocha on dark)
+        opts = function()
+            -- Register blade2049 HERE, and the placement is load-bearing.
+            -- `catppuccin/init.lua` validates `flavour` against a hardcoded
+            -- `M.flavours = {latte, frappe, macchiato, mocha}` and notifies an
+            -- error for anything else, so the entry must exist before
+            -- `setup()` -- and `setup()` only recompiles what it finds in
+            -- `M.flavours`.
+            --
+            -- This function is the one place that is both guaranteed late
+            -- enough to have catppuccin on the rtp and guaranteed early enough
+            -- to be before setup(): lazy evaluates `opts` as an argument of
+            -- `require(main).setup(opts)` (lazy/core/loader.lua, `M.config`),
+            -- after `packadd`. The two alternatives are both wrong here:
+            --   * module scope -- `require("catppuccin")` fails, the plugin is
+            --     not on the rtp yet, and the whole spec file fails to import.
+            --   * the `init` hook -- measured, not assumed: a cold-cache
+            --     `setup()` recompiled the four official flavours and skipped
+            --     blade2049, then `M.compile()` wrote `cached` anyway, so the
+            --     stale colours survived every later start with no error
+            --     anywhere. `M.compile()` also swallows a failure to compile a
+            --     flavour (`compiler.lua:74-92` prints and returns), so a miss
+            --     is invisible by construction.
+            require("catppuccin").flavours.blade2049 = 5
+
+            -- keyed by flavour, so plain `catppuccin` (auto -> mocha) is
+            -- untouched and the film theme stays one `:colorscheme` away.
+            -- The palette itself cannot come from here: catppuccin resolves it
+            -- by filename (see lua/catppuccin/palettes/blade2049.lua).
+            --
+            -- `overrides` is applied to OUR palette eagerly, not handed over as
+            -- a function, for two reasons (both verified):
+            --  * lib/hashing.lua:17 hashes a function as `fn(get_palette())`,
+            --    and at setup() time get_palette() returns *mocha's* palette --
+            --    so a change to any of OUR hexes would not invalidate the
+            --    compiled cache and the theme would silently keep the old
+            --    colours. A plain table hashes what it actually contains.
+            --  * lib/mapper.lua:64 replaces a function entry with its result,
+            --    mutating the options table for the rest of the session.
+            local b = require("box.colors.blade2049")
+            return {
+                highlight_overrides = { blade2049 = b.overrides(b.palette) },
+            }
+        end,
     },
     {
         "rebelot/kanagawa.nvim",
@@ -120,16 +162,6 @@ return {
         lazy = false,
         priority = 1000,
         opts = {},
-    },
-    {
-        "rmehri01/onenord.nvim",
-        name = "onenord",
-        -- not lazy: the colorscheme picker (<leader>uC) needs it on the rtp
-        -- (two schemes: `onenord` dark / `onenord-light`)
-        -- no opts: setup() force-applies the theme, which would hijack startup;
-        -- `colorscheme onenord` loads the colors file directly
-        lazy = false,
-        priority = 1000,
     },
     {
         "akinsho/bufferline.nvim",

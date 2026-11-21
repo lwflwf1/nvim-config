@@ -133,6 +133,7 @@ function M.setup()
     -- (no plugin/ autocmds, its own opts.setup() still runs later); laziness
     -- of the completion machinery is untouched.
     capabilities = require("blink.cmp").get_lsp_capabilities(capabilities)
+    ---@diagnostic disable-next-line: undefined-field
     capabilities.textDocument.foldingRange = {
         dynamicRegistration = false,
         lineFoldingOnly = true,

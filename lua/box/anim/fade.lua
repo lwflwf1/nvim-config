@@ -384,9 +384,12 @@ function M.new(opts)
     local sp = require("box.anim.spring").new(opts)
     local contrast = opts.contrast == nil and 0.5 or opts.contrast
     local groups = opts.groups
-    return {
+    ---@type anim.Effect
+    local effect = {
         id = "fade",
+        ---@diagnostic disable-next-line: undefined-field
         duration = sp.duration,
+        ---@diagnostic disable-next-line: undefined-field
         easing = sp.easing,
         setup = function()
             return {}
@@ -400,6 +403,7 @@ function M.new(opts)
             fade_clear(aw)
         end,
     }
+    return effect
 end
 
 return M

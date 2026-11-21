@@ -61,6 +61,7 @@ function M.setup()
     local fuzzy = require("blink.cmp.fuzzy")
     local get_from_item = text_edits.get_from_item
 
+    ---@diagnostic disable-next-line: duplicate-set-field
     text_edits.get_from_item = function(item)
         local edit = get_from_item(item)
         local new_text, range = edit.newText, edit.range

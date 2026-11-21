@@ -39,7 +39,7 @@ end
 ---Set of port names in the buffer, so a redundant internal re-declaration of a
 ---port (`input foo;` ... `wire foo;`) can be hidden. Cached per changedtick.
 ---@param bufnr integer
----@param tree? vim.treesitter.LanguageTree
+---@param tree? table  -- vim.treesitter.LanguageTree; kept loose for LuaLS compatibility
 ---@return table<string, true>
 M.port_names = function(bufnr, tree)
     local tick = vim.b[bufnr].changedtick

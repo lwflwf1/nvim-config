@@ -383,6 +383,7 @@ return {
             { "<leader>f?", function() Snacks.picker.keymaps() end, desc = "Keymaps" },
             { "<leader>fj", function() Snacks.picker.jumps() end, desc = "Jumps" },
             { "<leader>fk", function() Snacks.picker.marks() end, desc = "Marks" },
+            { "<leader>fi", function() Snacks.picker.icons() end, desc = "Find nerd icon and insert" },
         },
     },
 }
