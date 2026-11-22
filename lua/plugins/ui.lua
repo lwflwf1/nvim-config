@@ -465,5 +465,23 @@ return {
                 },
             } or {},
         },
+        config = function(_, opts)
+            require("noice").setup(opts)
+
+            local function noice_scroll(delta, n_fallback, i_fallback)
+                return function()
+                    if not require("noice.lsp").scroll(delta) then
+                        return vim.fn.mode() == "n" and n_fallback or i_fallback
+                    end
+                    return ""
+                end
+            end
+
+            local map_opts = { silent = true, expr = true }
+            vim.keymap.set({ "n", "i", "s" }, "<C-f>", noice_scroll(4, "<C-f>zz", "<Right>"), map_opts)
+            vim.keymap.set({ "n", "i", "s" }, "<C-b>", noice_scroll(-4, "<C-b>zz", "<Left>"), map_opts)
+            vim.keymap.set({ "n", "i", "s" }, "<C-d>", noice_scroll(4, "<C-d>zz", "<Del>"), map_opts)
+            vim.keymap.set({ "n", "i", "s" }, "<C-u>", noice_scroll(-4, "<C-u>zz", "<C-u>"), map_opts)
+        end,
     },
 }
