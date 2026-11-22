@@ -377,7 +377,7 @@ return {
             { "<leader>fc", function() Snacks.picker.commands() end, desc = "Commands" },
             { "<leader>fh", function() Snacks.picker.command_history() end, desc = "Command history" },
             { "<leader>fq", function() Snacks.picker.qflist() end, desc = "Quickfix" },
-            { "<leader>ft", function() Snacks.picker.tags({ workspace = true }) end, desc = "Project tags" },
+            { "<leader>ft", function() Snacks.picker.todo_comments() end, desc = "TODOs search" },
             { "<leader>fT", function() Snacks.picker.tags({ workspace = false }) end, desc = "Buffer tags" },
             { "<leader>f'", function() Snacks.picker.registers() end, desc = "Registers" },
             { "<leader>f?", function() Snacks.picker.keymaps() end, desc = "Keymaps" },

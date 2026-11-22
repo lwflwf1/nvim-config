@@ -75,7 +75,7 @@ return {
                 -- `cursortab/blink.lua` reads); multi-line edits and the
                 -- cursor-prediction UI still render in cursortab's own overlay,
                 -- so the AI front now lives in two places by design.
-                default = { "lazydev", "lsp", "snippets", "buffer", "path", "orgmode", "cursortab" },
+                default = { "lazydev", "lsp", "snippets", "buffer", "path", "cursortab" },
                 providers = {
                     -- cursortab's documented blink source (README "blink.cmp").
                     -- `enabled` is asserted in cursortab.lua's provider block and
@@ -103,11 +103,6 @@ return {
                         module = "lazydev.integrations.blink",
                         score_offset = 100,
                     },
-                    orgmode = {
-                        name = "orgmode",
-                        module = "blink.compat.source",
-                        score_offset = 0,
-                    },
                 },
             },
 
@@ -117,6 +112,10 @@ return {
                 -- No `keyword.range` on purpose: 'full' would fix the duplicated
                 -- suffix but also eats unrelated tails. box/blink_suffix.lua
                 -- tests the tail instead (Zed's "replace_suffix").
+                -- blink only mode-wraps ghost_text.enabled, not show_without_selection;
+                -- enable it globally so search (/ ?), which has no preselect, can
+                -- still preview the first item (ghost text never rewrites cmdline).
+                ghost_text = { show_without_selection = true },
                 documentation = { auto_show = true },
                 menu = {
                     draw = {

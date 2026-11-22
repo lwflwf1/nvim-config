@@ -381,7 +381,7 @@ if (Test-CmdRuns "pandoc") {
                 $pd = Get-ChildItem "$InstallDir\pandoc-*" -Directory | Select-Object -First 1
                 if ($pd) { Add-ToUserPath $pd.FullName }
             }
-        } "orgmode export"
+        } "pandoc"
     }
 } else {
     Need-Command pandoc {
@@ -394,7 +394,7 @@ if (Test-CmdRuns "pandoc") {
             $pd = Get-ChildItem "$InstallDir\pandoc-*" -Directory | Select-Object -First 1
             if ($pd) { Add-ToUserPath $pd.FullName }
         }
-    } "orgmode export"
+    } "pandoc"
 }
 
 # ================================================================ Neovim

@@ -203,14 +203,7 @@ function M.setup()
         end, bopts("Peek fold or LSP hover"))
         vim.keymap.set("n", "gk", vim.lsp.buf.signature_help, bopts("Signature help"))
         vim.keymap.set("n", "grd", vim.diagnostic.open_float, bopts("Diagnostic float"))
-        -- Jump to next/prev diagnostic and center the view. jump() opens no
-        -- float by default; the scroll animation settles on the zz'd view.
-        local function jump_diag(count)
-            vim.diagnostic.jump({ count = count })
-            vim.cmd("normal! zz")
-        end
-        vim.keymap.set("n", "]d", function() jump_diag(1) end, bopts("Next diagnostic"))
-        vim.keymap.set("n", "[d", function() jump_diag(-1) end, bopts("Prev diagnostic"))
+
     end
 
     vim.lsp.config.ty = {

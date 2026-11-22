@@ -448,11 +448,11 @@ else ask_tool perl "pkg_install perl" "perltidy formatter"; fi
 if command -v pandoc >/dev/null 2>&1 && command -v xelatex >/dev/null 2>&1; then
     ok "pandoc + xelatex already present"
 else
-    ask_tool pandoc "pkg_install pandoc || user_install_pandoc" "orgmode export"
+    ask_tool pandoc "pkg_install pandoc || user_install_pandoc" "pandoc"
     if [ "$PLATFORM" = macos ]; then
-        ask_tool xelatex "pkg_install texlive" "orgmode export (LaTeX)"
+        ask_tool xelatex "pkg_install texlive" "pandoc LaTeX export"
     else
-        ask_tool xelatex "pkg_install texlive-xetex" "orgmode export (LaTeX)"
+        ask_tool xelatex "pkg_install texlive-xetex" "pandoc LaTeX export"
     fi
 fi
 

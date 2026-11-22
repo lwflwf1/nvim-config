@@ -44,7 +44,7 @@ lua/
                           blink_suffix (blink.cmp patch, Zed-style replace_suffix),
                           tabout (TabOut-rules engine for the smart multistep
                           Tab/S-Tab; chains declared in plugins/editing.lua),
-                          sticky (WIP), orgmode_profiles, wakatime (:WakaExport/:WakaSync)
+                          sticky (WIP), wakatime (:WakaExport/:WakaSync)
   async.lua               compat shim: async.lua -> promise-async -> async.nvim
   snippets/               LuaSnip snippets
 after/
@@ -408,22 +408,17 @@ under `lua/plugins/` is treated as a lazy plugin spec. Files at `lua/` root
   `box.setup()`, re-applied on every `ColorScheme`). It owns the groups the
   colorschemes don't define: `BlinkCmpKind{Variable,Folder,Reference,Color}` +
   `BlinkCmpLabel{Detail,Description}`, the six `GitSignsStaged*`,
-  aerial's extra SymbolKind groups, `DropBar{Kind,IconKind}Task{,NC}`, and the
-  `@org.keyword.face.*` / `@org.agenda.*` faces. Reasons, all verified:
+    aerial's extra SymbolKind groups, and `DropBar{Kind,IconKind}Task{,NC}`. Reasons, all verified:
   - **A compiled colorscheme opens with `hi clear`, which drops EVERYTHING set
     outside it — including `default = true` groups.** So a one-shot
     `nvim_set_hl` in a plugin's `config()` (aerial's, gitsigns' staged links)
     is silently lost after `<leader>uC` switches themes. That is why the old
-    per-plugin copies needed their own `ColorScheme` autocmd (dropbar's,
-    orgmode's) — they are gone, `box_hl` does it for all of them.
+    per-plugin copies needed their own `ColorScheme` autocmd (dropbar's) — they
+    are gone, `box_hl` does it for all of them.
   - **`link` combines with attributes**: `{ link = "DiagnosticError", bold = true }`
-    takes `bold` from the table and falls back to the link for `fg`. So the
-    orgmode faces are links to the theme's semantic groups instead of baking
-    `fg()` values.
+    takes `bold` from the table and falls back to the link for `fg`.
   - **`default = true` loses to a group the owning plugin already declared with
-    `hi default`** — which is why the `@org.keyword.face.*` entries omit it
-    (orgmode declares those itself) while everything else that no plugin
-    touches keeps it.
+    `hi default`**.
   - blink's `highlights.lua` sets *every* group with `default = true`, so the
     `BlinkCmp*` entries win regardless of augroup order.
   Taste overrides that aren't gap-fills (`CursorLine`, `FloatTitle`,

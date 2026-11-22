@@ -62,9 +62,9 @@ return {
             require("mini.bracketed").setup({
                 file = { suffix = '' },
                 comment = { suffix = '' },
-                diagnostic = { suffix = '' },
                 location = { suffix = '' },
                 buffer = { suffix = '' },
+                oldfile = { suffix = '' },
             })
 
             local keymap = require("mini.keymap")

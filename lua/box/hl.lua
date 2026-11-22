@@ -6,9 +6,9 @@
 -- after <leader>uC.
 --
 -- `default = true` means "only fill a hole, never override". Omit it where the
--- owning plugin declares the same group with `hi default` itself (the @org.*
--- keyword faces), or where we mean to override it (SnacksNotifier*): a default
--- set loses to a definition that is already there.
+-- owning plugin declares the same group with `hi default` itself, or where we
+-- mean to override it (SnacksNotifier*): a default set loses to a definition
+-- that is already there.
 --
 -- Theme-specific taste overrides stay in the colorscheme's own
 -- `opts.highlights` (CursorLine, FloatTitle, @punctuation.bracket); picker
@@ -51,31 +51,6 @@ local function groups()
         GitSignsStagedChangeNr = { link = "GitSignsChangeNr" },
         GitSignsStagedDeleteNr = { link = "GitSignsDeleteNr" },
 
-        -- orgmode todo keywords and agenda, mapped onto the theme's own semantic
-        -- groups (no hardcoded colors). orgmode declares the keyword faces with
-        -- `hi default`, hence no `default` key on those.
-        ["@org.keyword.face.TODO"] = { link = "DiagnosticError", bold = true },
-        ["@org.keyword.face.NEXT"] = { link = "String", bold = true },
-        ["@org.keyword.face.WAIT"] = { link = "DiagnosticWarn", bold = true },
-        ["@org.keyword.face.HOLD"] = { link = "Comment", italic = true },
-        ["@org.keyword.face.CANC"] = { link = "Comment", strikethrough = true },
-        ["@org.keyword.face.DONE"] = { link = "String" },
-        ["@org.agenda.day"] = { link = "Function", bold = true },
-        ["@org.agenda.scheduled"] = { link = "String" },
-        ["@org.agenda.deadline"] = { link = "DiagnosticError" },
-        ["@org.agenda.time_grid"] = { link = "Comment" },
-        ["@org.agenda.current_time"] = { link = "DiagnosticWarn", bold = true },
-        -- The one group that needs a value rather than a link: the today chip
-        -- takes its foreground from Statement and its background from Visual.
-        -- A plain nvim_get_hl is safe even with a picker focused -- the picker's
-        -- winhl remaps NormalFloat/FloatBorder/FloatTitle/FloatFooter/CursorLine
-        -- only, none of which is read here. (That is why box/picker_hl.lua needs
-        -- a hand-rolled link walker and this doesn't.)
-        ["@org.agenda.today"] = {
-            bold = true,
-            fg = vim.api.nvim_get_hl(0, { name = "Statement" }).fg,
-            bg = vim.api.nvim_get_hl(0, { name = "Visual" }).bg,
-        },
     }
 
     -- aerial/dropbar groups this config owns. The custom SymbolKinds

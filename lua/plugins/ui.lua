@@ -74,7 +74,7 @@ return {
                 FloatTitle = { fg = "${green}", bg = "${float_bg}" },
                 ["@punctuation.bracket"] = { link = "Constant" }, -- all brackets take the theme's Constant color (SV has no lang-specific group, so it needs the generic one)
                 -- everything the colorscheme is *missing* (BlinkCmpKind*,
-                -- GitSignsStaged*, Aerial*, DropBar*Task, the @org.* faces)
+                -- GitSignsStaged*, Aerial*, DropBar*Task)
                 -- lives in lua/box/hl.lua, not here: those are re-applied on
                 -- ColorScheme so a `hi clear` can't drop them.
             },

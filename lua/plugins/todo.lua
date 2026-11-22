@@ -3,19 +3,8 @@ return {
     event = "VeryLazy",
     dependencies = { "nvim-lua/plenary.nvim" },
     keys = {
-        -- `todo_comments` is registered at runtime by todo-comments.nvim
-        -- (config.lua: Snacks.picker.sources.todo_comments = ...), which LuaLS
-        -- cannot see.
-        ---@diagnostic disable-next-line: undefined-field
-        { "<leader>tf", function() Snacks.picker.todo_comments() end, desc = "TODOs search (snacks)" },
-        { "<leader>tq", "<cmd>TodoQuickFix<CR>", desc = "TODOs to quickfix" },
-        { "<leader>tn", "<cmd>lua require('todo-comments').jump_next()<CR>", desc = "Next TODO" },
-        { "<leader>tp", "<cmd>lua require('todo-comments').jump_prev()<CR>", desc = "Prev TODO" },
-    },
-    opts = {
-        keywords = {
-            WAIT = { icon = "⏳", color = "warning" },
-            HOLD = { icon = "🛑", color = "error" },
-        },
+        { "<leader>tl", "<cmd>Trouble todo toggle<CR>", desc = "TODOs to trouble" },
+        { "<leader>]o", "<cmd>lua require('todo-comments').jump_next()<CR>", desc = "Next TODO" },
+        { "<leader>[o", "<cmd>lua require('todo-comments').jump_prev()<CR>", desc = "Prev TODO" },
     },
 }
