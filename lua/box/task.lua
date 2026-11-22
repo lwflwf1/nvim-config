@@ -20,26 +20,32 @@
 ---@field validate? fun(v: any): boolean | string
 
 ---@class TaskSpec
+---@field id string
 ---@field name string
 ---@field kind string
 ---@field cwd string
----@field workdir string
----@field script? string
+---@field workdir? string
+---@field taskdir string
+---@field shell? string # default bash
 ---@field cmds? string[]
 ---@field args? string[]
----@field env? string[]              # "KEY=VALUE" 或 "source ..."
+---@field env? string[]              # "KEY=VALUE" or "source ..."
 ---@field session string
 ---@field window string
 ---@field meta? table<string, any>
 
----@class TaskRecord
+---@class TaskRun
 ---@field spec TaskSpec
 ---@field id string
 ---@field start_at string
 ---@field end_at string
----@field session string
----@field window string
 ---@field pane string               # 只为“进去看现场”，不是存活依据
+---@field state fun(self: Taskrun) : string
+
+local cfg = {
+    username = (vim.uv.os_get_passwd() or {}).username or vim.env.USER or vim.env.USERNAME,
+    
+}
 
 local select = vim.async.wrap(3, function (prompt, items, cb)
     Snacks.picker.select(items, {
@@ -120,7 +126,7 @@ local function resolve_parameters(params, args, ctx)
             }
             local v
             if not resolver[f] then
-                vim.notify("Task: resolver "..f.." is not defined", vim.log.levels.ERROR)
+                vim.notify("Task: resolver "..f.." is not supported", vim.log.levels.ERROR)
             else
                 v = resolver[f](env)
                 if v ~= nil then
@@ -156,37 +162,35 @@ end
 ---@param spec TaskSpec
 ---@return string
 local function build_cmd(spec)
-    
+    vim.fn.mkdir()
 end
 
 ---@param spec TaskSpec
 function M.run_task(spec)
-    local record
+    local run
 
-    record = {
+    run = {
         spec = spec,
         id = os.date("%Y%m%d%H%M%S"),
         start_at = os.date("%Y-%m-%d %H:%M:%S")
-        session = spec.session,
-        window = spec.window,
     }
 
     local pane
 
-    if vim.system({"tmux", "has-session", "-t", "=", record.session}, { text = true}):wait().code == 0 then
-        pane = vim.trim(vim.system({"tmux", "new-window", "-d", "-t", record.session, "-n", record.window}):wait().stdout)
+    if vim.system({"tmux", "has-session", "-t", "=",spec.session}, { text = true}):wait().code == 0 then
+        pane = vim.trim(vim.system({"tmux", "new-window", "-d", "-t", spec.session, "-n", run.window}):wait().stdout)
     else
-        pane = vim.trim(vim.system({"tmux", "new-session", "-d", "-s", record.session, "-n", record.window}):wait().stdout)
+        pane = vim.trim(vim.system({"tmux", "new-session", "-d", "-s", spec.session, "-n", run.window}):wait().stdout)
     end
 
-    record.pane = pane
+    run.pane = pane
 
     local msg = "Use cmd to check: tmux attach -t "..spec.session..":"..spec.window
     vim.notify("Task: ".."Start task "..spec.name.." on "..spec.session..":"..spec.window.."\n"..msg, vim.log.levels.INFO)
-    store_record(record)
+    store_record(run)
     local cmd = build_cmd(spec)
     vim.system({"tmux", "send-keys", "-t", pane, "-l", cmd}, function (out)
-        update_record(record)
+        update_record(run)
         if out.code ~= 0 then
             vim.notify("Task: "..spec.name.." failed!\n"..msg, vim.log.levels.ERROR)
         else

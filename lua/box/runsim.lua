@@ -4,7 +4,6 @@ local task = require("box.task")
 
 local DEFAULTS = {
     root = "/proj/crane/wa",
-    username = (vim.uv.os_get_passwd() or {}).username or vim.env.USER or vim.env.USERNAME,
 }
 
 local cfg = {}
