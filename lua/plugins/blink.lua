@@ -70,38 +70,21 @@ return {
             },
 
             sources = {
-                -- cursortab contributes the AI source here. Only its
-                -- single-line `append_chars` travels through blink (that is all
-                -- `cursortab/blink.lua` reads); multi-line edits and the
-                -- cursor-prediction UI still render in cursortab's own overlay,
-                -- so the AI front now lives in two places by design.
-                default = { "lazydev", "lsp", "snippets", "buffer", "path", "cursortab" },
+                default = vim.g.is_rhel6
+                    and { "lazydev", "lsp", "snippets", "buffer", "path" }
+                    or { "lazydev", "lsp", "snippets", "buffer", "path", "cursortab" },
                 providers = {
-                    -- cursortab's documented blink source (README "blink.cmp").
-                    -- `enabled` is asserted in cursortab.lua's provider block and
-                    -- read by cursortab/blink.lua's `M:enabled()`; listing the
-                    -- name in `default` is what actually turns the source on --
-                    -- the README only shows `providers`, but blink's enable list
-                    -- is `sources.default`.
-                    cursortab = {
-                        module = "cursortab.blink",
-                        name = "cursortab",
-                        async = true,
-                        -- MUST equal provider.completion_timeout in
-                        -- cursortab.lua (20000). The README calls this out; it is
-                        -- the value that decides when blink stops waiting and
-                        -- shows the menu anyway, so a mismatch would show an empty
-                        -- menu and then pop the completion late.
-                        timeout_ms = 20000,
-                        -- Sits below lazydev (100) and above the plain sources:
-                        -- a model suggestion is worth more than a buffer-word
-                        -- match but should not outrank a real LSP completion.
-                        score_offset = 50,
-                    },
                     lazydev = {
                         name = "LazyDev",
                         module = "lazydev.integrations.blink",
                         score_offset = 100,
+                    },
+                    cursortab = {
+                        module = "cursortab.blink",
+                        name = "cursortab",
+                        async = true,
+                        timeout_ms = 20000,
+                        score_offset = 50,
                     },
                 },
             },
