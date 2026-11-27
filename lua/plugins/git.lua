@@ -1,3 +1,13 @@
+local function nav_hunk(direction)
+    local gs = require("gitsigns")
+    gs.nav_hunk(direction, { preview = false }, function (err)
+        if not err then
+            vim.cmd("normal! zz")
+            gs.preview_hunk_inline()
+        end
+    end)
+end
+
 return {
     {
         "NeogitOrg/neogit",
@@ -17,8 +27,8 @@ return {
         "lewis6991/gitsigns.nvim",
         event = { "BufReadPre", "BufNewFile" },
         keys = {
-            { "]h", "<cmd>Gitsigns nav_hunk next<CR>zz",                  desc = "Next hunk" },
-            { "[h", "<cmd>Gitsigns nav_hunk prev<CR>zz",                  desc = "Prev hunk" },
+            { "]h",         function() nav_hunk("next") end,               desc = "Next hunk" },
+            { "[h",         function() nav_hunk("prev") end,               desc = "Prev hunk" },
             { "<leader>gh", "<cmd>Gitsigns preview_hunk<CR>",              desc = "Preview hunk" },
             { "<leader>gH", "<cmd>Gitsigns preview_hunk_inline<CR>",       desc = "Preview hunk inline" },
             { "<leader>gs", "<cmd>Gitsigns stage_hunk<CR>",                desc = "Stage hunk" },
@@ -32,7 +42,7 @@ return {
             { "<leader>gn", "<cmd>Gitsigns toggle_numhl<CR>",              desc = "Toggle numhl" },
             { "<leader>gl", "<cmd>Gitsigns toggle_linehl<CR>",             desc = "Toggle linehl" },
 
-            { "ih", "<cmd>Gitsigns select_hunk<CR>", desc = "Inner hunk", mode = { "o", "x" } },
+            { "ih", "<cmd>Gitsigns select_hunk<CR>", desc = "Inner hunk",  mode = { "o", "x" } },
             { "ah", "<cmd>Gitsigns select_hunk<CR>", desc = "Around hunk", mode = { "o", "x" } },
         },
         config = function(_, opts)
