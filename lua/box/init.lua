@@ -54,12 +54,17 @@ function M.setup()
                     keys = { "t", },
                 },
                 ["]"] = {
-                    keys = { "h", "o", "b", "y"},
+                    keys = { "h", "o", "b", "y", "d"},
                 },
                 ["["] = {
-                    keys = { "h", "o", "b", "y"},
+                    keys = { "h", "o", "b", "y", "d"},
                 },
             }
+        }
+    )
+    require("box.ts_diagnostics").setup(
+        {
+            enabled_ft = {"systemverilog"},
         }
     )
 end

@@ -27,7 +27,7 @@ local function cancel_timer(st)
 end
 
 local function clear(buf)
-    if vim.api.nvim_buf_is_valid(buf) then
+    if vim.api.nvim_buf_is_valid(buf) and #vim.diagnostic.get(buf, { namespace = ns }) > 0 then
         vim.diagnostic.set(ns, buf, {})
     end
     cancel_timer(state[buf])
@@ -44,9 +44,9 @@ end
 
 local function valid_buffer(buf)
     return  config.enabled
+        and vim.api.nvim_buf_is_loaded(buf)
         and vim.tbl_contains(config.enabled_ft, vim.bo[buf].filetype)
         and vim.bo[buf].buftype == ""
-        and vim.api.nvim_buf_is_loaded(buf)
         and vim.b[buf].ts_diagnostics_enable
         and not vim.b[buf].bigfile
         and #vim.lsp.get_clients({bufnr = buf}) == 0
@@ -66,7 +66,6 @@ local function attach_buffer(buf)
     end
 
     if not valid_buffer(buf) then
-        detach_buffer(buf)
         return
     end
 
@@ -99,12 +98,17 @@ function M.enable()
     if vim.api.nvim_buf_is_valid(buf) and vim.b[buf].ts_diagnostics_attached then
         diagnose(buf)
     end
-    vim.api.nvim_create_autocmd("BufEnter", {
+    vim.api.nvim_create_autocmd({"FileType", "BufEnter"}, {
         group = grp,
         desc = "attach treesitter diagnostic",
         callback = function(ev)
+            if not vim.api.nvim_buf_is_valid(ev.buf) then
+                return
+            end
             attach_buffer(ev.buf)
-            diagnose(ev.buf)
+            if vim.b[ev.buf].ts_diagnostics_attached then
+                diagnose(ev.buf)
+            end
         end,
     })
     vim.api.nvim_create_autocmd("LspDetach", {
@@ -141,6 +145,9 @@ end
 
 function M.enable_buf(buf)
     buf = buf or vim.api.nvim_get_current_buf()
+    if not vim.api.nvim_buf_is_valid(buf) then
+        return
+    end
     if not vim.b[buf].ts_diagnostics_enable then
         vim.b[buf].ts_diagnostics_enable = true
         clear(buf)
@@ -151,6 +158,9 @@ end
 
 function M.disable_buf(buf)
     buf = buf or vim.api.nvim_get_current_buf()
+    if not vim.api.nvim_buf_is_valid(buf) then
+        return
+    end
     if vim.b[buf].ts_diagnostics_enable then
         vim.b[buf].ts_diagnostics_enable = false
         detach_buffer(buf)
@@ -166,10 +176,16 @@ function M.toggle_buf(buf)
     end
 end
 
+local function same_range(a, b)
+    local sr1, sc1, er1, ec1 = a:range()
+    local sr2, sc2, er2, ec2 = b:range()
+    return sr1 == sr2 and sc1 == sc2 and er1 == er2 and ec1 == ec2
+end
+
 local function walk(node, diags)
     if node:type() == "ERROR" or node:missing() then
         local parent = node:parent()
-        if parent and parent:type() == "ERROR" and parent:range() == node:range() then
+        if parent and parent:type() == "ERROR" and same_range(parent, node) then
             -- skip this node
         else
             local sr, sc, er, ec = node:range()
@@ -183,7 +199,7 @@ local function walk(node, diags)
             local sev, msg, code
             if node:missing() then
                 sev = vim.diagnostic.severity.ERROR
-                msg = "missing" .. tostring(node:type())
+                msg = "missing " .. tostring(node:type())
                 code = "ts-missing"
             else
                 sev = vim.diagnostic.severity.ERROR
@@ -225,7 +241,7 @@ local function do_diagnose(buf)
         end
         local root = tree:root()
         if root:has_error() then
-            walk(root, diags)
+            pcall(walk, root, diags)
         end
         if state[buf].pending or state[buf].tick ~= vim.api.nvim_buf_get_changedtick(buf) then
             state[buf].pending = false
@@ -233,16 +249,20 @@ local function do_diagnose(buf)
             diagnose(buf)
             return
         else
-            vim.diagnostic.set(ns, buf, diags)
+            pcall(vim.diagnostic.set, ns, buf, diags)
         end
-        state[buf].running = false
+        if state[buf] then
+            state[buf].running = false
+        end
         cancel_timer(state[buf])
     end)
 end
 
 diagnose = function(buf)
     if not valid_buffer(buf) then
-        detach_buffer(buf)
+        if vim.b[buf].ts_diagnotics_attached then
+            detach_buffer(buf)
+        end
         return
     end
     if state[buf] and state[buf].tick == vim.api.nvim_buf_get_changedtick(buf) then
