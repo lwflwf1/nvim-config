@@ -17,7 +17,7 @@ local M = {}
 
 ---@type string[]
 M.markers = {
-    ".git", ".SOS", ".root", ".svn", ".hg", "Cargo.toml", "package.json",
+    ".git", ".SOS", ".root", ".svn", ".hg", "Cargo.toml", "package.json", "cfg",
 }
 
 -- Auto-cwd on/off (default on). Toggled by <leader>pa / the lualine click.
