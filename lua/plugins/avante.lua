@@ -47,7 +47,7 @@ return {
             hints = { enabled = true },
             windows = {
                 ---@type "right" | "left" | "top" | "bottom"
-                position = "right",
+                position = "left",
                 wrap = true,
                 width = 50,
                 sidebar_header = {

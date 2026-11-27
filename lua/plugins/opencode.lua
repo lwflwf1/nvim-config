@@ -78,15 +78,15 @@ return {
         -- its config.lua consumes on first require.
         init = function()
             vim.g.opencode_opts = {
-                server = {
-                    url = function(resolve)
-                        resolve(("http://127.0.0.1:%d"):format(server_port()))
-                    end,
-                    start = function()
-                        require("snacks.terminal").open(server_cmd(), {
-                            win = { position = "right", enter = false },
-                        })
-                    end,
+            server = {
+                url = function(resolve)
+                    resolve(("http://127.0.0.1:%d"):format(server_port()))
+                end,
+                start = function()
+                    require("snacks.terminal").open(server_cmd(), {
+                        win = { position = "left", enter = false },
+                    })
+                end,
                 },
             }
         end,
