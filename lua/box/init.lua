@@ -51,23 +51,13 @@ function M.setup()
         {
             mappings = {
                 g = {
-                    keys = {
-                        "t"
-                    }
+                    keys = { "t", },
                 },
                 ["]"] = {
-                    keys = {
-                        "h",
-                        "o",
-                        "b",
-                    }
+                    keys = { "h", "o", "b", "y"},
                 },
                 ["["] = {
-                    keys = {
-                        "h",
-                        "o",
-                        "b",
-                    }
+                    keys = { "h", "o", "b", "y"},
                 },
             }
         }
