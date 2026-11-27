@@ -406,9 +406,6 @@ return {
                 },
             },
             presets = {
-                -- cmdline popup at top center; blink's menu stacks below it (it
-                -- anchors to noice's ui_cmdline_pos)
-                command_palette = true,
                 long_message_to_split = true,
             },
             -- The wakatime plugin reports a failed heartbeat through vim.notify.
