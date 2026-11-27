@@ -448,8 +448,9 @@ if (Confirm-Download "Download sources for $($langs.Count) treesitter parsers (n
                 $dir = Get-ChildItem $work -Directory | Select-Object -First 1
                 if ($dir) {
                     Push-Location $dir.FullName
-                    try { & tree-sitter generate *> $null; $genOk = ($LASTEXITCODE -eq 0) }
-                    finally { Pop-Location }
+                    $prevEap = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+                    try { & tree-sitter generate *>$null; $genOk = ($LASTEXITCODE -eq 0) }
+                    finally { $ErrorActionPreference = $prevEap; Pop-Location }
                     if ($genOk) { Ok "  $lang parser.c generated" }
                     else { $genFailed += $lang; Warn "  generate failed for $lang (bundle will lack parser.c)" }
                     & tar.exe czf $tgz -C $work (Split-Path $dir.FullName -Leaf)
