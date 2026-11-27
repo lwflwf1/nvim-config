@@ -16,8 +16,12 @@ local diagnose
 
 local function cancel_timer(st)
     if st and st.timer then
-        pcall(st.timer:stop)
-        pcall(st.timer:close)
+        pcall(function()
+            st.timer:stop()
+        end)
+        pcall(function()
+            st.timer:close()
+        end)
         st.timer = nil
     end
 end
@@ -49,8 +53,7 @@ local function valid_buffer(buf)
 end
 
 local function detach_buffer(buf)
-    local grp = vim.api.nvim_create_augroup("box.ts_diagnostics", {clear = false})
-    pcall(vim.api.nvim_clear_autocmds, { group = grp, buf = buf})
+    pcall(vim.api.nvim_clear_autocmds, { group = "box.ts_diagnostics", buf = buf })
     if vim.api.nvim_buf_is_valid(buf) then
         vim.b[buf].ts_diagnostics_attached = false
     end
@@ -58,10 +61,8 @@ local function detach_buffer(buf)
 end
 
 local function attach_buffer(buf)
-    if vim.api.nvim_buf_is_valid(buf) then
-        if vim.b[buf].ts_diagnostics_enable == nil then
-            vim.b[buf].ts_diagnostics_enable = true
-        end
+    if vim.api.nvim_buf_is_valid(buf) and vim.b[buf].ts_diagnostics_enable == nil then
+        vim.b[buf].ts_diagnostics_enable = true
     end
 
     if not valid_buffer(buf) then
@@ -74,50 +75,46 @@ local function attach_buffer(buf)
     end
 
     vim.b[buf].ts_diagnostics_attached = true
-    local grp = vim.api.nvim_create_augroup("box.ts_diagnostics", {clear = false})
-    vim.api.nvim_clear_autocmds({ group = grp, buf = buf})
-    vim.api.nvim_create_autocmd({ "TextChanged", "InsertLeave", "BufWritePost"}, {
-        group = grp,
+    pcall(vim.api.nvim_clear_autocmds, { group = "box.ts_diagnostics", buf = buf })
+    vim.api.nvim_create_autocmd({ "TextChanged", "InsertLeave", "BufWritePost" }, {
+        group = "box.ts_diagnostics",
         buffer = buf,
         desc = "treesitter diagnostic",
-        callback = function (ev)
+        callback = function(ev)
             diagnose(ev.buf)
-        end
+        end,
     })
 end
 
 function M.enable()
     config.enabled = true
-    local grp = vim.api.nvim_create_augroup("box.ts_diagnostics", {clear = true})
+    local grp = vim.api.nvim_create_augroup("box.ts_diagnostics", { clear = true })
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
         attach_buffer(buf)
     end
     local buf = vim.api.nvim_get_current_buf()
-    if vim.b[buf].ts_diagnostics_attached then
+    if vim.api.nvim_buf_is_valid(buf) and vim.b[buf].ts_diagnostics_attached then
         diagnose(buf)
     end
-    vim.api.nvim_create_autocmd({'BufEnter', 'LspDetach'}, {
+    vim.api.nvim_create_autocmd({ "BufEnter", "LspDetach" }, {
         group = grp,
         desc = "attach treesitter diagnostic",
-        callback = function (ev)
+        callback = function(ev)
             attach_buffer(ev.buf)
             diagnose(ev.buf)
-        end
+        end,
     })
-    vim.api.nvim_create_autocmd({'BufWipeout', 'LspAttach'}, {
+    vim.api.nvim_create_autocmd({ "BufWipeout", "LspAttach" }, {
         group = grp,
-        desc = "dettach treesitter diagnostic",
-        callback = function (ev)
+        desc = "detach treesitter diagnostic",
+        callback = function(ev)
             detach_buffer(ev.buf)
-        end
+        end,
     })
 end
 
 function M.disable()
     config.enabled = false
-    for buf, _ in pairs(state) do
-        detach_buffer(buf)
-    end
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
         detach_buffer(buf)
     end
