@@ -66,6 +66,9 @@ local function attach_buffer(buf)
     end
 
     if not valid_buffer(buf) then
+        if vim.b[buf].ts_diagnostics_attached then
+            detach_buffer(buf)
+        end
         return
     end
 
@@ -229,38 +232,44 @@ local function do_diagnose(buf)
     end
 
     local diags = {}
-    parser:parse(false, function(_, trees)
-        local tree = trees and trees[1]
-        if not tree then
-            clear(buf)
-            return
-        end
-        if not valid_buffer(buf) or not state[buf] then
-            detach_buffer(buf)
-            return
-        end
-        local root = tree:root()
-        if root:has_error() then
-            pcall(walk, root, diags)
-        end
-        if state[buf].pending or state[buf].tick ~= vim.api.nvim_buf_get_changedtick(buf) then
-            state[buf].pending = false
-            state[buf].running = false
-            diagnose(buf)
-            return
-        else
-            pcall(vim.diagnostic.set, ns, buf, diags)
-        end
-        if state[buf] then
-            state[buf].running = false
-        end
-        cancel_timer(state[buf])
+    local ok_parse = pcall(parser.parse, parser, false, function(_, trees)
+        pcall(function()
+            local tree = trees and trees[1]
+            if not tree then
+                clear(buf)
+                return
+            end
+            if not valid_buffer(buf) or not state[buf] then
+                detach_buffer(buf)
+                return
+            end
+            local root = tree:root()
+            if root:has_error() then
+                pcall(walk, root, diags)
+            end
+            if state[buf].pending or state[buf].tick ~= vim.api.nvim_buf_get_changedtick(buf) then
+                state[buf].pending = false
+                state[buf].running = false
+                diagnose(buf)
+                return
+            else
+                pcall(vim.diagnostic.set, ns, buf, diags)
+            end
+            if state[buf] then
+                state[buf].running = false
+            end
+            cancel_timer(state[buf])
+        end)
     end)
+
+    if not ok_parse then
+        clear(buf)
+    end
 end
 
 diagnose = function(buf)
     if not valid_buffer(buf) then
-        if vim.b[buf].ts_diagnotics_attached then
+        if vim.b[buf].ts_diagnostics_attached then
             detach_buffer(buf)
         end
         return
