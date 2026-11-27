@@ -90,18 +90,35 @@ function M.enable()
     config.enabled = true
     local grp = vim.api.nvim_create_augroup("box.ts_diagnostics", { clear = true })
     for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+        pcall(function()
+            vim.b[buf].ts_diagnostics_attached = false
+        end)
         attach_buffer(buf)
     end
     local buf = vim.api.nvim_get_current_buf()
     if vim.api.nvim_buf_is_valid(buf) and vim.b[buf].ts_diagnostics_attached then
         diagnose(buf)
     end
-    vim.api.nvim_create_autocmd({ "BufEnter", "LspDetach" }, {
+    vim.api.nvim_create_autocmd("BufEnter", {
         group = grp,
         desc = "attach treesitter diagnostic",
         callback = function(ev)
             attach_buffer(ev.buf)
             diagnose(ev.buf)
+        end,
+    })
+    vim.api.nvim_create_autocmd("LspDetach", {
+        group = grp,
+        desc = "re-attach treesitter diagnostic",
+        callback = function(ev)
+            local buf = ev.buf
+            vim.defer_fn(function()
+                if not vim.api.nvim_buf_is_valid(buf) then
+                    return
+                end
+                attach_buffer(buf)
+                diagnose(buf)
+            end, 0)
         end,
     })
     vim.api.nvim_create_autocmd({ "BufWipeout", "LspAttach" }, {
@@ -177,7 +194,7 @@ local function walk(node, diags)
         end
     end
     for child in node:iter_children() do
-        walk(child)
+        walk(child, diags)
     end
 end
 
@@ -233,7 +250,6 @@ diagnose = function(buf)
     end
     if state[buf] and state[buf].running then
         state[buf].pending = true
-        state[buf].tick = vim.api.nvim_buf_get_changedtick(buf)
         return
     end
 
@@ -249,6 +265,8 @@ function M.setup(opts)
     config = vim.tbl_deep_extend("force", DEFAULTS, opts or {})
     if config.enabled then
         M.enable()
+    else
+        M.disable()
     end
 end
 
