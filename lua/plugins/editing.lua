@@ -75,6 +75,7 @@ return {
             -- (imports nothing), the chains are declared HERE against mini.
             -- Priority: cursortab prediction > blink menu > tab-out > raw keys.
             local tabout = require("box.tabout")
+            local pair_space = require("box.pair_space")
             local function blink_menu_visible()
                 local ok, blink = pcall(require, "blink.cmp")
                 return ok and blink.is_menu_visible()
@@ -153,6 +154,10 @@ return {
                 -- native behavior
                 "decrease_indent",
             })
+            -- space inside empty pairs: (|) -> ( | )
+            keymap.map_multistep("i", "<Space>", {
+                { condition = pair_space.space_condition, action = pair_space.space_action },
+            })
             -- CR: blink accept (selected item only) > mini.pairs pair expansion
             -- > raw CR. Replaces blink's own `accept+fallback` CR entry, whose
             -- fallback forwarding to minipairs' expr map is the fragile part.
@@ -196,13 +201,13 @@ return {
                   action = function() vim.cmd("nohlsearch") end },
             })
 
-            -- smart <BS> (insert, other-editors semantics): in a whitespace run
-            -- -> eat the WHOLE run (line-start indentation collapses in one
-            -- press); else mini.pairs deletes the surrounding pair between
-            -- (|) — its own BS would shadow neither here; classic plain BS for
-            -- everything else. hungry first: minipairs_bs always returns keys
-            -- (never false), so a trailing minipairs step would be unreachable
-            keymap.map_multistep("i", "<BS>", { "minipairs_bs" })
+            -- smart <BS>: collapse ( | ) back to (|), else mini.pairs pair
+            -- deletion / classic BS. minipairs_bs always returns keys (never
+            -- false), so it must stay last.
+            keymap.map_multistep("i", "<BS>", {
+                { condition = pair_space.bs_condition, action = pair_space.bs_action },
+                "minipairs_bs",
+            })
 
             require("mini.move").setup({
                 mappings = {
